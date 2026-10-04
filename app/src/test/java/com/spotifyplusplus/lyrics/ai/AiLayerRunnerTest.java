@@ -1,0 +1,544 @@
+package com.spotifyplusplus.lyrics.ai;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+import com.spotifyplusplus.lyrics.session.LayerFailure;
+import com.spotifyplusplus.lyrics.session.LayerKind;
+
+import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * The run loop's job is to spend as little as the answer costs, and to never lose what was bought.
+ *
+ * <p>Almost every assertion here is really about money: that a finished answer is not bought twice,
+ * that a completed chunk survives the run being interrupted, that a resume does not resend what it
+ * already holds, and that an attempt which failed is still counted because it still billed.
+ */
+public class AiLayerRunnerTest {
+
+    private static final AiWait NO_SLEEP = new AiWait() {
+        @Override public void await(long millis, AiSignal signal) {
+            if (signal != null) signal.throwIfAborted();
+        }
+    };
+
+    // --- helpers ------------------------------------------------------------
+
+    private static List<AiLine> rows(int count) {
+        List<AiLine> rows = new ArrayList<>();
+        for (int i = 0; i < count; i++) rows.add(AiLine.of("r" + i, "line " + i, null, false));
+        return rows;
+    }
+
+    /** Enough rows to force the planner past its single-call bound and into several chunks. */
+    private static List<AiLine> chunkedRows() {
+        List<AiLine> rows = new ArrayList<>();
+        for (int i = 0; i < 129; i++) rows.add(AiLine.of("r" + i, "line " + i, null, false));
+        return rows;
+    }
+
+    private static AiRunConfig config() {
+        AiProviderConfig provider = new AiProviderConfig(LayerKind.MEANING, null, "1",
+                FakeAiProvider.DEFAULT_MODEL, "en", AiContract.PROMPT_VERSION, false);
+        return new AiRunConfig(LayerKind.MEANING, "digest-1", "config-1", "fake",
+                AiLyricContext.EMPTY, provider, "", null, null);
+    }
+
+    private static AiLayerRunner.Args args(List<AiLine> rows, AiProvider provider,
+                                           AiRecordStore store) {
+        AiLayerRunner.Args args = new AiLayerRunner.Args();
+        args.config = config();
+        args.provider = provider;
+        args.store = store;
+        args.rows = rows;
+        args.wait = NO_SLEEP;
+        args.nowMs = 1_000L;
+        return args;
+    }
+
+    // --- not spending -------------------------------------------------------
+
+    @Test
+    public void aStoredCompleteAnswerIsReusedWithoutCallingTheProvider() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider();
+        assertEquals(AiRunOutcome.Kind.COMPLETED,
+                AiLayerRunner.run(args(rows(3), provider, store)).kind);
+        int callsAfterFirstRun = provider.calls.size();
+
+        AiRunOutcome second = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.REUSED, second.kind);
+        assertEquals("a stored answer must not be bought again",
+                callsAfterFirstRun, provider.calls.size());
+        assertTrue(second.hasOutput());
+    }
+
+    @Test
+    public void onDemandBackgroundWorkMayReuseButCannotDispatch() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider();
+        AiLayerRunner.Args blocked = args(rows(3), provider, store);
+        blocked.allowProviderRequest = false;
+
+        AiRunOutcome absent = AiLayerRunner.run(blocked);
+
+        assertEquals(AiRunOutcome.Kind.NOTHING_TO_DO, absent.kind);
+        assertTrue(provider.calls.isEmpty());
+        assertTrue(store.isEmpty());
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED,
+                AiLayerRunner.run(args(rows(3), provider, store)).kind);
+        int paidCalls = provider.calls.size();
+        AiLayerRunner.Args reuseOnly = args(rows(3), provider, store);
+        reuseOnly.allowProviderRequest = false;
+
+        AiRunOutcome reused = AiLayerRunner.run(reuseOnly);
+
+        assertEquals(AiRunOutcome.Kind.REUSED, reused.kind);
+        assertEquals(paidCalls, provider.calls.size());
+    }
+
+    @Test
+    public void aDocumentWithNothingToSendCostsNothingAndStoresNothing() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider();
+        List<AiLine> structural = Collections.singletonList(
+                AiLine.of("r0", "[Chorus]", null, false));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(structural, provider, store));
+
+        assertEquals(AiRunOutcome.Kind.NOTHING_TO_DO, outcome.kind);
+        assertTrue(provider.calls.isEmpty());
+        assertTrue(store.isEmpty());
+    }
+
+    @Test
+    public void aDocumentPastItsBoundIsRefusedBeforeAnyCall() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider();
+        List<AiLine> tooMany = new ArrayList<>();
+        for (int i = 0; i < 513; i++) tooMany.add(AiLine.of("r" + i, "x", null, false));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(tooMany, provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("oversized", outcome.failureToken);
+        assertTrue(provider.calls.isEmpty());
+        assertTrue(store.isEmpty());
+    }
+
+    @Test
+    public void fullPaidStorageRejectsBeforeProviderCall() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        store.rejectedReservationStatus = AiRecordStore.Reservation.Status.FULL;
+        FakeAiProvider provider = new FakeAiProvider();
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("storage_full", outcome.failureToken);
+        assertFalse(outcome.durable);
+        assertTrue(provider.calls.isEmpty());
+        assertEquals(1, store.reservations);
+        assertEquals(1, store.releases);
+    }
+
+    @Test
+    public void unavailablePaidStorageRejectsBeforeProviderCall() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        store.rejectedReservationStatus = AiRecordStore.Reservation.Status.UNAVAILABLE;
+        FakeAiProvider provider = new FakeAiProvider();
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("storage_unavailable", outcome.failureToken);
+        assertTrue(provider.calls.isEmpty());
+        assertEquals(1, store.releases);
+    }
+
+    @Test
+    public void terminalProtocolFailureKeepsItsPrivacySafeRule() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(
+                FakeAiProvider.body("{\"items\":[]}"),
+                FakeAiProvider.body("{\"items\":[]}"));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("protocol_invalid", outcome.failureToken);
+        assertEquals("id_set_mismatch:missing:r0", outcome.failureDetail);
+    }
+
+    @Test
+    public void aChunkThatFinishesWithFallbacksIsTerminalButNeverReusableAsComplete() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(
+                // r0 validates; r1 breaks the joined-row delimiter rule.
+                FakeAiProvider.body("{\"items\":[{\"id\":\"r0\",\"t\":\"line 0\"},"
+                        + "{\"id\":\"r1\",\"t\":\"a / b\"}]}"),
+                FakeAiProvider.body("{\"items\":[{\"id\":\"r1\",\"t\":\"c / d\"}]}"));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(2), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, outcome.kind);
+        AiPaidRecord stored = store.peek(config());
+        assertEquals(AiPaidRecord.Status.PARTIAL, stored.status);
+        assertFalse("a half-AI record must never pass the reuse gate", stored.isComplete());
+
+        // A later visit re-plans but must not re-bill a single row.
+        FakeAiProvider secondVisit = new FakeAiProvider();
+        AiLayerRunner.run(args(rows(2), secondVisit, store));
+        assertTrue(secondVisit.calls.isEmpty());
+        assertEquals(AiPaidRecord.Status.PARTIAL, store.peek(config()).status);
+    }
+
+    @Test
+    public void aCeilingTruncationReplansAndKeepsTheBilledAttempt() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(
+                FakeAiProvider.body("{\"items\":[]}", AiUsage.of(40, 900),
+                        AiFinishReason.LENGTH));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(8), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, outcome.kind);
+        assertEquals("one failed parent plus two smaller children", 3, provider.calls.size());
+        assertEquals(8, provider.calls.get(0).request.items.size());
+        assertEquals(4, provider.calls.get(1).request.items.size());
+        assertEquals(4, provider.calls.get(2).request.items.size());
+        assertEquals("the truncated output and both child answers stay counted",
+                920, outcome.record.outputTokens);
+        assertEquals(AiChunkRecord.Status.COMPLETE, outcome.record.chunk("C0").status);
+        assertTrue(outcome.record.chunk("C0.0").isComplete());
+        assertTrue(outcome.record.chunk("C0.1").isComplete());
+    }
+
+    @Test
+    public void aReplannedChildKeepsItsOwnTwoAttemptRepairBudget() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(
+                FakeAiProvider.body("{\"items\":[]}", AiUsage.of(40, 900),
+                        AiFinishReason.LENGTH),
+                FakeAiProvider.body("{\"items\":[]}"));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(8), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, outcome.kind);
+        assertEquals("parent + child repair + repaired child + second child", 4,
+                provider.calls.size());
+        assertEquals(2, outcome.record.chunk("C0.0").attempts);
+        assertEquals(1, outcome.record.chunk("C0.0").repairs);
+    }
+
+    @Test
+    public void aReplannedResumeDoesNotResendTheParentOrACompletedChild() {
+        final AiSignal signal = new AiSignal();
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider first = new FakeAiProvider(
+                FakeAiProvider.body("{\"items\":[]}", AiUsage.of(40, 900),
+                        AiFinishReason.LENGTH),
+                new FakeAiProvider.Step() {
+                    @Override public AiProviderResult answer(AiProviderRequest request,
+                                                             AiProviderConfig config,
+                                                             AiSignal callSignal) {
+                        AiProviderResult answer = AiProviderResult.ok(FakeAiProvider.echo(request),
+                                AiUsage.of(10, 10), AiFinishReason.STOP, 64L);
+                        signal.abort("track_change");
+                        return answer;
+                    }
+                });
+        AiLayerRunner.Args firstArgs = args(rows(8), first, store);
+        firstArgs.signal = signal;
+
+        AiRunOutcome stopped = AiLayerRunner.run(firstArgs);
+
+        assertEquals(AiRunOutcome.Kind.CANCELLED, stopped.kind);
+        assertEquals(2, first.calls.size());
+        assertEquals(AiChunkRecord.Status.REPLANNED, stopped.record.chunk("C0").status);
+        assertTrue(stopped.record.chunk("C0.0").isComplete());
+
+        FakeAiProvider resumedProvider = new FakeAiProvider();
+        AiRunOutcome resumed = AiLayerRunner.run(args(rows(8), resumedProvider, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, resumed.kind);
+        assertEquals("only the unfinished sibling child is sent", 1, resumedProvider.calls.size());
+        assertEquals(4, resumedProvider.calls.get(0).request.items.size());
+        assertEquals(920, resumed.record.outputTokens);
+    }
+
+    @Test
+    public void aSingleItemCeilingTruncationRemainsTerminal() {
+        FakeAiProvider provider = new FakeAiProvider(
+                FakeAiProvider.body("{\"items\":[]}", AiUsage.of(10, 512),
+                        AiFinishReason.LENGTH));
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(1), provider,
+                new FakeAiRecordStore()));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("truncated", outcome.failureToken);
+        assertEquals(1, provider.calls.size());
+    }
+
+    // --- keeping what was bought --------------------------------------------
+
+    @Test
+    public void everyChunkIsStoredAsItCompletesRatherThanOnlyAtTheEnd() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        AiLayerRunner.run(args(chunkedRows(), new FakeAiProvider(), store));
+
+        AiPaidRecord stored = store.peek(config());
+        assertNotNull(stored);
+        assertEquals(AiPaidRecord.Status.COMPLETE, stored.status);
+        assertEquals(3, stored.chunks().size());
+        assertEquals(129, stored.items().size());
+    }
+
+    @Test
+    public void aRunStoppedPartWayKeepsTheChunksItFinished() {
+        final AiSignal signal = new AiSignal();
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        // Answer the first chunk, then cancel from outside before the second is dispatched.
+        FakeAiProvider provider = new FakeAiProvider(new FakeAiProvider.Step() {
+            @Override public AiProviderResult answer(AiProviderRequest request,
+                                                     AiProviderConfig config, AiSignal callSignal) {
+                AiProviderResult result = AiProviderResult.ok(FakeAiProvider.echo(request),
+                        AiUsage.of(10, 10), AiFinishReason.STOP, 64L);
+                signal.abort("track_change");
+                return result;
+            }
+        });
+
+        AiLayerRunner.Args args = args(chunkedRows(), provider, store);
+        args.signal = signal;
+        AiRunOutcome outcome = AiLayerRunner.run(args);
+
+        assertEquals(AiRunOutcome.Kind.CANCELLED, outcome.kind);
+        assertEquals("track_change", outcome.cancelReason);
+        assertEquals("only the first chunk should have been dispatched", 1, provider.calls.size());
+
+        AiPaidRecord stored = store.peek(config());
+        assertNotNull("a cancelled run must still store what it paid for", stored);
+        assertEquals(AiPaidRecord.Status.PARTIAL, stored.status);
+        assertEquals(64, stored.items().size());
+        assertTrue(stored.chunk("C0").isComplete());
+    }
+
+    @Test
+    public void aResumeSendsOnlyTheChunksItDoesNotAlreadyHold() {
+        final AiSignal signal = new AiSignal();
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider first = new FakeAiProvider(new FakeAiProvider.Step() {
+            @Override public AiProviderResult answer(AiProviderRequest request,
+                                                     AiProviderConfig config, AiSignal callSignal) {
+                AiProviderResult result = AiProviderResult.ok(FakeAiProvider.echo(request),
+                        AiUsage.of(10, 10), AiFinishReason.STOP, 64L);
+                signal.abort("track_change");
+                return result;
+            }
+        });
+        AiLayerRunner.Args firstArgs = args(chunkedRows(), first, store);
+        firstArgs.signal = signal;
+        AiLayerRunner.run(firstArgs);
+
+        FakeAiProvider second = new FakeAiProvider();
+        AiRunOutcome resumed = AiLayerRunner.run(args(chunkedRows(), second, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, resumed.kind);
+        assertEquals("the completed chunk must not be resent", 2, second.calls.size());
+        assertEquals(129, resumed.record.items().size());
+    }
+
+    @Test
+    public void aFailedChunkStopsTheRunAndLeavesTheEarlierOnesStored() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(
+                new FakeAiProvider.Step() {
+                    @Override public AiProviderResult answer(AiProviderRequest request,
+                                                             AiProviderConfig config,
+                                                             AiSignal signal) {
+                        return AiProviderResult.ok(FakeAiProvider.echo(request),
+                                AiUsage.of(10, 10), AiFinishReason.STOP, 64L);
+                    }
+                },
+                new FakeAiProvider.Step() {
+                    @Override public AiProviderResult answer(AiProviderRequest request,
+                                                             AiProviderConfig config,
+                                                             AiSignal signal) {
+                        return AiProviderResult.failed(AiProviderFailure.auth());
+                    }
+                });
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(chunkedRows(), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("auth_rejected", outcome.failureToken);
+        assertEquals(LayerFailure.Reason.CLIENT_ERROR, outcome.failure.reason);
+
+        AiPaidRecord stored = store.peek(config());
+        assertEquals(AiPaidRecord.Status.FAILED, stored.status);
+        assertTrue("the chunk that succeeded is still paid for", stored.chunk("C0").isComplete());
+        assertEquals(64, stored.items().size());
+    }
+
+    @Test
+    public void anExplicitRetryReopensOnlyTheFailedChunks() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider failing = new FakeAiProvider(
+                new FakeAiProvider.Step() {
+                    @Override public AiProviderResult answer(AiProviderRequest request,
+                                                             AiProviderConfig config,
+                                                             AiSignal signal) {
+                        return AiProviderResult.ok(FakeAiProvider.echo(request),
+                                AiUsage.of(10, 10), AiFinishReason.STOP, 64L);
+                    }
+                },
+                new FakeAiProvider.Step() {
+                    @Override public AiProviderResult answer(AiProviderRequest request,
+                                                             AiProviderConfig config,
+                                                             AiSignal signal) {
+                        return AiProviderResult.failed(AiProviderFailure.quota());
+                    }
+                });
+        AiLayerRunner.run(args(chunkedRows(), failing, store));
+
+        FakeAiProvider retry = new FakeAiProvider();
+        AiRunOutcome outcome = AiLayerRunner.run(args(chunkedRows(), retry, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, outcome.kind);
+        assertEquals("the completed chunk must not be bought again", 2, retry.calls.size());
+    }
+
+    // --- accounting ---------------------------------------------------------
+
+    @Test
+    public void aResumeCountsOnlyWhatTheNewAttemptAdded() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider();
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(10, outcome.record.inputTokens);
+        assertEquals(10, outcome.record.outputTokens);
+        assertFalse(outcome.record.usageEstimated);
+    }
+
+    @Test
+    public void unreportedUsageIsEstimatedAndSaysSo() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(new FakeAiProvider.Step() {
+            @Override public AiProviderResult answer(AiProviderRequest request,
+                                                     AiProviderConfig config, AiSignal signal) {
+                return AiProviderResult.ok(FakeAiProvider.echo(request), AiUsage.UNREPORTED,
+                        AiFinishReason.STOP, 64L);
+            }
+        });
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.COMPLETED, outcome.kind);
+        assertTrue("an unknown cost must never be recorded as zero",
+                outcome.record.inputTokens > 0 && outcome.record.outputTokens > 0);
+        assertTrue(outcome.record.usageEstimated);
+    }
+
+    @Test
+    public void aFailedAttemptIsStillCountedBecauseItStillBilled() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(new FakeAiProvider.Step() {
+            @Override public AiProviderResult answer(AiProviderRequest request,
+                                                     AiProviderConfig config, AiSignal signal) {
+                return AiProviderResult.failed(AiProviderFailure.quota());
+            }
+        });
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertTrue(outcome.record.inputTokens > 0);
+        assertTrue(outcome.record.usageEstimated);
+    }
+
+    // --- durability ---------------------------------------------------------
+
+    @Test
+    public void aResultThatCouldNotBeStoredStopsAsStorageFailure() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        store.rejectWrites = true;
+        FakeAiProvider provider = new FakeAiProvider();
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("storage_unavailable", outcome.failureToken);
+        assertFalse(outcome.hasOutput());
+        assertFalse(outcome.durable);
+        assertEquals(1, provider.calls.size());
+        assertNull(store.peek(config()));
+        assertEquals(1, store.releases);
+    }
+
+    @Test
+    public void reservationFailureAfterFirstChunkKeepsFirstChunkAndStopsSpending() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        store.rejectedReservationStatus = AiRecordStore.Reservation.Status.FULL;
+        store.rejectReservationAt = 2;
+        FakeAiProvider provider = new FakeAiProvider();
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(chunkedRows(), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("storage_full", outcome.failureToken);
+        assertEquals(1, provider.calls.size());
+        assertNotNull(store.peek(config()));
+        assertEquals(1, store.peek(config()).chunks().size());
+        assertTrue(outcome.durable);
+        assertEquals(1, store.releases);
+    }
+
+    @Test
+    public void commitFailureAfterFirstChunkStopsBeforeSecondProviderCall() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        store.rejectWrites = true;
+        FakeAiProvider provider = new FakeAiProvider();
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(chunkedRows(), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("storage_unavailable", outcome.failureToken);
+        assertEquals(1, provider.calls.size());
+        assertEquals(1, store.commits);
+        assertEquals(1, store.releases);
+    }
+
+    @Test
+    public void deliveryUnknownIsFlaggedAsPossiblyBilled() {
+        FakeAiRecordStore store = new FakeAiRecordStore();
+        FakeAiProvider provider = new FakeAiProvider(new FakeAiProvider.Step() {
+            @Override public AiProviderResult answer(AiProviderRequest request,
+                                                     AiProviderConfig config, AiSignal signal) {
+                return AiProviderResult.failed(
+                        AiProviderFailure.deliveryUnknown(AiProviderFailure.Cause.NETWORK, 0));
+            }
+        });
+
+        AiRunOutcome outcome = AiLayerRunner.run(args(rows(3), provider, store));
+
+        assertEquals(AiRunOutcome.Kind.FAILED, outcome.kind);
+        assertEquals("delivery_unknown", outcome.failureToken);
+        assertTrue(outcome.mayHaveBilledUnconfirmed());
+        assertEquals(LayerFailure.Reason.TIMEOUT, outcome.failure.reason);
+        assertEquals("a delivery-unknown result is never retried automatically",
+                1, provider.calls.size());
+    }
+}

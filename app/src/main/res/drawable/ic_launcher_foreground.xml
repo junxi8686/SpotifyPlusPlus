@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Brand mark: a music note with two plus signs - the module's job, and the reason it is not the
+  official app. Kept inside the 72dp safe zone (18..90) so no launcher mask clips it.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Note head, stem and flag. -->
+    <path
+        android:pathData="M36,64m-11,0a11,11 0 1,0 22,0a11,11 0 1,0 -22,0"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M44,64 L44,30 L50,28 L50,62 Z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M50,28 C58,30 64,36 65,45 C60,40 55,38 50,38 Z"
+        android:fillColor="#FFFFFFFF" />
+
+    <!-- The two pluses: one solid, one outlined, reading as "more than the original". -->
+    <path
+        android:pathData="M72,26 h7 v7 h7 v7 h-7 v7 h-7 v-7 h-7 v-7 h7 z"
+        android:fillColor="#FFFFFFFF" />
+    <path
+        android:pathData="M76,52 h6 v6 h6 v6 h-6 v6 h-6 v-6 h-6 v-6 h6 z"
+        android:fillColor="#FF0A4A22" />
+    <path
+        android:pathData="M82,52 h6 v6 h6 v6 h-6 v6 h-6 v-6 h-6 v-6 h6 z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

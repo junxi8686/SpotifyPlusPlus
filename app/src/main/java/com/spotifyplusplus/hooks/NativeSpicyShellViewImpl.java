@@ -1,0 +1,5653 @@
+package com.spotifyplusplus.hooks;
+
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.dp;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.emptyFallback;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.formatMs;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.hasJapaneseReading;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.isBlank;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.safe;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.setTextIfChanged;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.shortTrackId;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.sideSystemPadding;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.sourceProviderLabel;
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.trackIdFromUri;
+import static com.spotifyplusplus.hooks.NativeRuntime.AI_WORKERS;
+import static com.spotifyplusplus.hooks.NativeRuntime.GOOGLE_PROCESSING_VERSION;
+import static com.spotifyplusplus.hooks.NativeRuntime.HTTP;
+import static com.spotifyplusplus.hooks.NativeRuntime.LYRIC_ESTIMATED_ROW_HEIGHT_DP;
+import static com.spotifyplusplus.hooks.NativeRuntime.LYRIC_FULL_RENDER_THRESHOLD;
+import static com.spotifyplusplus.hooks.NativeRuntime.LYRIC_WINDOW_AFTER_ACTIVE;
+import static com.spotifyplusplus.hooks.NativeRuntime.LYRIC_WINDOW_BEFORE_ACTIVE;
+import static com.spotifyplusplus.hooks.NativeRuntime.MEANING_WORKERS;
+import static com.spotifyplusplus.hooks.NativeRuntime.SOUND_PROCESSOR;
+import static com.spotifyplusplus.hooks.NativeRuntime.SOUND_WORKERS;
+import static com.spotifyplusplus.hooks.NativeRuntime.SCROLL_SETTLE_REMEASURE_DELAY_MS;
+import static com.spotifyplusplus.hooks.NativeSpicyLyricsHook.TAG;
+import static com.spotifyplusplus.hooks.NativeSpicyLyricsHook.dbg;
+import static com.spotifyplusplus.hooks.NativeSpicyLyricsHook.dbgEnter;
+
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.app.Activity;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.Color;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowInsets;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+
+import com.spotifyplusplus.sharecard.LyricsShareCardController;
+
+import com.spotifyplusplus.CurrentLyricState;
+import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.SettingsStore;
+import com.spotifyplusplus.ui.SettingsUiStrings;
+import com.spotifyplusplus.SpotifyPlusConfig;
+import com.spotifyplusplus.SpotifyTrack;
+import com.spotifyplusplus.ui.VsyncFrameScheduler;
+import com.spotifyplusplus.lyrics.AppliedLine;
+import com.spotifyplusplus.lyrics.ai.AiSettings;
+import com.spotifyplusplus.lyrics.ChipSpinnerDrawable;
+import com.spotifyplusplus.lyrics.FrameStyleBatcher;
+import com.spotifyplusplus.lyrics.GlyphIconDrawable;
+import com.spotifyplusplus.lyrics.LyricCascadeProfile;
+import com.spotifyplusplus.lyrics.LyricTimeline;
+import com.spotifyplusplus.lyrics.LyricsAmbientController;
+import com.spotifyplusplus.lyrics.LyricsDocument;
+import com.spotifyplusplus.lyrics.processing.LyricsDocumentProcessor;
+import com.spotifyplusplus.lyrics.LyricsFrameRenderer;
+import com.spotifyplusplus.lyrics.LyricsLineViewState;
+import com.spotifyplusplus.lyrics.LyricsLineVisualController;
+import com.spotifyplusplus.lyrics.LyricsLine;
+import com.spotifyplusplus.lyrics.language.LyricsLocalRomanizer;
+import com.spotifyplusplus.lyrics.LyricsPlaybackClock;
+import com.spotifyplusplus.lyrics.LyricsRenderConfig;
+import com.spotifyplusplus.lyrics.LyricsRenderMode;
+import com.spotifyplusplus.lyrics.processing.LyricsLocalReprocessController;
+import com.spotifyplusplus.lyrics.LyricsRowMountController;
+import com.spotifyplusplus.lyrics.LyricsRowViewFactory;
+import com.spotifyplusplus.lyrics.LyricsScrollController;
+import com.spotifyplusplus.lyrics.processing.LyricsSecondaryProcessor;
+import com.spotifyplusplus.lyrics.processing.LyricsSecondaryRowUpdater;
+import com.spotifyplusplus.lyrics.LyricsShellLifecycle;
+import com.spotifyplusplus.lyrics.session.LyricPipelineMetrics;
+import com.spotifyplusplus.lyrics.LyricsShellSettings;
+import com.spotifyplusplus.lyrics.SkipGapPolicy;
+import com.spotifyplusplus.lyrics.LyricsSpaceView;
+import com.spotifyplusplus.lyrics.LyricsSurfaceRowPlanner;
+import com.spotifyplusplus.lyrics.LyricsTapSeekHandler;
+import com.spotifyplusplus.lyrics.LyricsTextFactory;
+import com.spotifyplusplus.lyrics.LyricsToggleSpinnerController;
+import com.spotifyplusplus.lyrics.processing.LyricsTransliterationSession;
+import com.spotifyplusplus.lyrics.language.RomanizationOptions;
+import com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor;
+import com.spotifyplusplus.lyrics.processing.SpicyProcessing;
+import com.spotifyplusplus.lyrics.language.SpicyTextDetection;
+import com.spotifyplusplus.lyrics.cache.SpotifyArtworkCache;
+import com.spotifyplusplus.lyrics.Spring;
+import com.spotifyplusplus.lyrics.SyllableSegment;
+
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
+
+import com.spotifyplusplus.xposed.XpLog;
+
+import com.spotifyplusplus.hooks.NativeSpicyLyricsHook.LyricsResultCallback;
+
+final class NativeSpicyShellViewImpl extends FrameLayout {
+    private final LyricsHost host;
+    private final Activity activity;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable languageModelReadyListener =
+            () -> handler.post(this::reprocessForInstalledLanguageModels);
+    private final TextView title;
+    private final TextView subtitle;
+    private final TextView progress;
+    private final TextView status;
+    private final ImageButton romanToggle;
+    private final ImageButton translationToggle;
+    private final ImageButton likeButton;
+    private String likedMode;
+    private Boolean lastLikedSaved;
+    private com.spotifyplusplus.ui.ActionIconDrawable.Kind lastLikedKind;
+    private String pendingLikedUri = "";
+    private final LyricsJumpToCurrentController jumpToCurrentController;
+    private final LyricsSkipGapController skipGapController;
+    /** Track URI + gap start the skip acknowledged; the gap must not re-fire while landing. */
+    private String skipAckUri = "";
+    private long skipAckGapStartMs = -1;
+    private long lastSkipSeenPosMs = -1;
+    /** Apple-owned row-scroll cascade (LINE_SLIDE_ANIMATION under Apple Music). */
+    private boolean slideAnimationEnabled;
+    /** Set at the one real "new document" assignment site; consumed (and cleared) the next time
+     *  renderDocument() mounts that document's initial row window, so the LOAD_LIFT_ANIMATION
+     *  reveal plays once per freshly loaded document, never on a same-document re-render (e.g. a
+     *  preference change via rerenderKeepingPosition). */
+    private boolean pendingLoadEntrance;
+    /** Row the pending reveal staggers outward from - the row playback is really on, which is not
+     *  necessarily row 0 (resuming, a late fetch, a source swap all open mid-song). */
+    private int loadEntranceAnchor;
+    private int loadEntranceAttempts;
+    private static final int LOAD_ENTRANCE_MAX_ATTEMPTS = 20;
+    private boolean applyingLyricScroll;
+    // Apple Music's line advance: one spring shared by every row, released row by row behind the
+    // focused line. Damping 0.72 overshoots by ~4% of the move - a few pixels on a line advance -
+    // so each row visibly settles into place rather than merely stopping.
+    private static final float ROW_CASCADE_STAGGER_SEC = 0.045f;
+    private static final float ROW_CASCADE_MAX_DELAY_SEC = 0.32f;
+    private static final float ROW_CASCADE_FREQUENCY_HZ = 1.7f;
+    private static final float ROW_CASCADE_DAMPING = 0.72f;
+    private static final float ROW_CASCADE_MAX_OFFSET_PX = 900f;
+    /** Slower and more heavily damped than the per-row cascade spring - this one is carrying the
+     *  whole visible column, so a lively wobble that looks great on a single line would look like
+     *  the screen itself overshooting. */
+    private static final float SCROLL_SPRING_FREQUENCY_HZ = 1.3f;
+    /** Used for a hop of roughly one row; blended toward the frequency above as the jump grows
+     *  (see scrollSpringFrequency). A line-to-line advance has to keep up with the song. */
+    private static final float SCROLL_SPRING_NEAR_FREQUENCY_HZ = 1.55f;
+    private static final float SCROLL_SPRING_DAMPING = 0.9f;
+    // Returning to the playing line after reading ahead. Livelier than an ordinary advance on
+    // purpose: this one is a deliberate request, and Apple answers it with motion that clearly
+    // travels rather than a polite ease. Lower damping leaves a touch of overshoot at the end.
+    private static final float RETURN_SPRING_FREQUENCY_HZ = 1.30f;
+    private static final float RETURN_SPRING_DAMPING = 0.90f;
+    /** Launch speed given per pixel of distance, so a longer return leaves faster. */
+    private static final float RETURN_LAUNCH_VELOCITY_PER_PX = 1.05f;
+    private static final float RETURN_MAX_LAUNCH_VELOCITY_PX_PER_SEC = 2600f;
+    /** Set while a return is being scheduled, consumed by scrollToActiveTarget. */
+    private boolean returnToCurrentPending;
+    private static final long ROW_CASCADE_MAX_LIFETIME_MS = 1600L;
+    private final Map<AppliedLine, RowCascade> rowCascades = new WeakHashMap<>();
+    /** Load reveal, driven off the same vsync tick as everything else rather than by a per-row
+     *  ViewPropertyAnimator. The reveal and the renderer both have an opinion about a row's alpha,
+     *  so the reveal publishes a 0..1 factor the renderer multiplies in (see
+     *  {@link LyricsLineViewState#setEntranceProgress}) instead of writing View.alpha behind its
+     *  back. Everything else it owns - the row's scale and its direct children's translation - is
+     *  untouched by the renderer, so those compose with the Apple slide's own row translation. */
+    private final Map<AppliedLine, LoadEntrance> loadEntrances = new WeakHashMap<>();
+
+    private static final class LoadEntrance {
+        final float travelPx;
+        /** Time scale: 1 at 100% cascade speed, smaller is faster. */
+        final float timeScale;
+        float delayRemaining;
+        float elapsed;
+
+        LoadEntrance(float travelPx, float delaySeconds, float timeScale) {
+            this.travelPx = travelPx;
+            this.timeScale = Math.max(0.05f, timeScale);
+            this.delayRemaining = Math.max(0f, delaySeconds);
+        }
+    }
+
+    // Load reveal: each row rises into place on an underdamped spring (a soft landing with a hint
+    // of settle, like the line slide) while it fades in and pulls into focus from a blur. It does
+    // not scale: growing from small reads as a zoom, not as the lyrics arriving. The fade
+    // and blur finish well before the motion does, so the text is legible while it is still
+    // arriving instead of the whole reveal reading as one long dissolve.
+    private static final float LOAD_REVEAL_FREQUENCY_HZ = 1.25f;
+    private static final float LOAD_REVEAL_DAMPING = 0.78f;
+    private static final float LOAD_REVEAL_DURATION_SEC = 1.05f;
+    private static final float LOAD_REVEAL_FADE_SEC = 0.5f;
+    private static final int LOAD_REVEAL_BLUR_DP = 7;
+    private static final float LOAD_REVEAL_STAGGER_SEC = 0.055f;
+    private static final float LOAD_REVEAL_MAX_DELAY_SEC = 0.38f;
+
+    private static final class RowCascade {
+        final Spring spring;
+        long startedAtMs;
+        float delayRemaining;
+        /** Reflow springs keep following the row's layout: see followReflowLayout(). */
+        boolean followLayout;
+        float layoutTop = Float.NaN;
+
+        RowCascade(float startOffset, LyricCascadeProfile profile) {
+            spring = new Spring(startOffset, profile.frequencyHz, profile.damping);
+            spring.setGoal(0f);
+            delayRemaining = profile.delaySeconds;
+            startedAtMs = SystemClock.uptimeMillis();
+        }
+
+        /** Folds another wave's displacement into this still-settling row instead of restarting
+         *  its spring. Also resets the max-lifetime clock: the extra distance this adds needs its
+         *  own budget to decay, or the hard cutoff below can clip it mid-motion into a visible pop. */
+        void bump(float delta) {
+            spring.nudgePosition(delta);
+            startedAtMs = SystemClock.uptimeMillis();
+        }
+    }
+    private TrackInfoReadoutController trackInfoController;
+    private final LyricsAmbientController ambientController;
+    private final ScrollView lyricsScroll;
+    private final FrameLayout lyricsFrame;
+    private final LinearLayout lyricsColumn;
+    private final LinearLayout mountedRowsHost;
+    private final LyricsSpaceView topStaticSpacer;
+    private final LyricsSpaceView topVirtualSpacer;
+    private final LyricsSpaceView bottomVirtualSpacer;
+    private final TextView sourceFooter;
+    private final SpotifyPlusConfig config;
+    private final AiSettings aiSettings;
+    private final FrameStyleBatcher styleBatcher;
+    private final LyricsFrameRenderer frameRenderer;
+    private final LyricsLineVisualController lineVisualController;
+    private LyricsScrollController scrollController;
+    private final LyricsTextFactory textFactory;
+    private final LyricsRowViewFactory rowViewFactory;
+    private final LyricsSecondaryProcessor secondaryProcessor;
+    private final LyricsSecondaryRowUpdater secondaryRowUpdater;
+    private final LyricsLocalReprocessController localReprocessController;
+    private final LyricsShellLifecycle shellLifecycle;
+    private final LyricsSettingsDialogController settingsDialogController;
+    private final LyricsFollowState followState = new LyricsFollowState();
+    private final LyricsShellEmptyStateController emptyStateController;
+    /** Lazily built: the long-press-to-share preview is opened far less often than the screen itself. */
+    private LyricsShareCardController shareCardController;
+    private LyricsRowMountController rowMountController;
+    private LinearLayout contentColumn;
+    /** Non-null only in the adaptive two-column landscape mode; owns header/lyrics/status. */
+    private LinearLayout landscapeRightColumn;
+    /** Non-null only in the adaptive two-column landscape mode; hosts the readout's column
+     *  placement (cover + song info) beside the lyrics column. */
+    private LinearLayout landscapeLeftColumn;
+    /** Construction-time two-column decision (rotation remounts, same as the readout). */
+    private final boolean twoColumn;
+    private ViewGroup chromeHeader;
+    private LyricsShellChromeController.ChromeViews chromeViews;
+    private LyricsLayoutEditController.EditorHandle layoutEditorHandle;
+    private boolean clusterLayoutListenerAdded;
+    private boolean chromeLayoutApplied;
+    private boolean chromeLayoutTop;
+    private int chromeLayoutGap;
+    /** {@link Settings#CHROME_CLUSTER_LAYOUT} for this orientation, read at mount and on
+     *  preference change only: the chrome refresh runs every frame. */
+    private String chromeLayoutMode = Settings.CHROME_CLUSTER_LAYOUT.defaultValue;
+    private int chromeReserveApplied = -1;
+    /** Top controls on the left edge; cached with the header padding for the per-frame fit check. */
+    private boolean chromeMirrored;
+    private boolean chromeLayoutLandscape;
+    private int chromeLayoutSize = -1;
+    private final Runnable hideChromeRunnable = this::hideChrome;
+    private boolean scrollInProgress;
+    private boolean scrollSettleScheduled;
+    private long lastScrollEventMs;
+    /** Drives the ScrollView's own position for a far jump (resume-after-scroll, seek) as one
+     *  physical motion instead of an eased ValueAnimator running alongside the independent
+     *  per-row cascade spring - two differently-timed animations of the same rows read as
+     *  disjointed ("따로따로 움직이는 느낌"); one spring owning the actual scroll position doesn't. */
+    private com.spotifyplusplus.lyrics.Spring scrollSpring;
+    private final Runnable scrollSettleRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!running) {
+                scrollSettleScheduled = false;
+                scrollInProgress = false;
+                return;
+            }
+            long remaining = SCROLL_SETTLE_REMEASURE_DELAY_MS
+                    - (SystemClock.elapsedRealtime() - lastScrollEventMs);
+            if (remaining > 0) {
+                handler.postDelayed(this, remaining);
+                return;
+            }
+            scrollSettleScheduled = false;
+            scrollInProgress = false;
+            remeasureMountedRows();
+            renderWindowForActive(currentWindowAnchor());
+            // Blur springs are renderer-owned and may still be releasing after the scroll
+            // callback. Keep vsync alive until the rows have actually returned to their target;
+            // otherwise paused playback could stop the scheduler with a few rows still blurred.
+            frameScheduler.setContinuous(true);
+            frameScheduler.requestFrame();
+        }
+    };
+    private String lastUri = "";
+    private String loadingTrackId = "";
+    private LyricsDocument document;
+    private boolean running;
+    /**
+     * Notification that a model resolved alternative names for the playing track. Delivered on
+     * the alias worker thread and bounced to the UI thread; see {@link #retryWithAliases}.
+     */
+    private final com.spotifyplusplus.lyrics.ai.AiTrackAliases.Listener aliasListener =
+            (aliasTitle, aliasArtist) -> {
+                android.os.Handler target = handler;
+                if (target != null) target.post(() -> retryWithAliases(aliasTitle, aliasArtist));
+            };
+    /** Track the alias retry already ran for, so one recording is never re-searched twice. */
+    private String aliasRetriedTrackId = "";
+    private boolean chromeRevealAnimating;
+    private boolean scrollWindowRenderScheduled;
+    private boolean resetScrollForNextDocument;
+    private boolean showTranslation;
+    /** Layout editor's Demo toggle - see enableDemoMode()/disableDemoMode(). While active,
+     *  updateState() stands down entirely so the real per-frame track/lyrics pipeline can't
+     *  clobber (or be clobbered by) the synthetic preview content. */
+    private boolean demoModeActive;
+    private SpotifyTrack demoTrack;
+    private Bitmap demoArtBitmap;
+    private long demoStartElapsedMs;
+
+    /** Shown in a picture-in-picture window (LyricsPipController): no touch reaches it, so
+     *  every control is left out - the header and the skip/follow chips. */
+    private boolean pipPresentation;
+    /** The full screen's height, kept while in PiP: the shell is laid out at full-screen size
+     *  and scaled down, but the activity's own metrics shrink to the PiP window. */
+    private int pipScreenHeightPx;
+    /** Rows of the layout PiP crops off the top (room for a status bar it doesn't have). */
+    private int pipCropTopPx;
+    /** The focus line's place mapped into the PiP lyrics area; NaN until measured. */
+    private float pipAnchorFraction = Float.NaN;
+
+    boolean hasLyricsDocument() {
+        return document != null;
+    }
+
+    void setPipPresentation(int screenHeightPx, int cropTopPx) {
+        boolean first = !pipPresentation;
+        pipPresentation = true;
+        pipScreenHeightPx = screenHeightPx;
+        pipCropTopPx = Math.max(0, cropTopPx);
+        // Where the content sits on screen is shared with the full-screen shell; a PiP window's
+        // position must not become it.
+        watchContentScreenTop(false);
+        if (first) addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> post(this::fitPipLyrics));
+        if (trackInfoController != null) trackInfoController.setPipPresentation();
+        if (chromeHeader != null) {
+            chromeHeader.animate().cancel();
+            chromeHeader.setVisibility(View.GONE);
+        }
+        if (skipGapController != null) skipGapController.hide();
+        if (jumpToCurrentController != null) jumpToCurrentController.update(false);
+    }
+
+    /** Keep the lyrics area at full height after the readout is removed. */
+    private void fitPipLyrics() {
+        if (!pipPresentation || lyricsFrame == null) return;
+        if (!(lyricsFrame.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)
+                || !(lyricsFrame.getParent() instanceof View)) return;
+        ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) lyricsFrame.getLayoutParams();
+        android.graphics.Rect parent = new android.graphics.Rect(0, 0, 1, 1);
+        offsetDescendantRectToMyCoords((View) lyricsFrame.getParent(), parent);
+        if (lp.topMargin != 0) {
+            lp.topMargin = 0;
+            lyricsFrame.setLayoutParams(lp);
+            return; // measured again on the layout this causes
+        }
+        applyPipAnchor(parent.top + lp.topMargin, lyricsFrame.getHeight());
+    }
+
+    /** Map the focus setting into the visible PiP window and keep it inside the lyrics area. */
+    private void applyPipAnchor(int areaTop, int areaHeight) {
+        int visible = getHeight() - pipCropTopPx;
+        if (scrollController == null || areaHeight <= 0 || visible <= 0) return;
+        float wantedY = "Center".equals(config.get(Settings.PIP_FOCUS))
+                ? areaTop + areaHeight / 2f
+                : pipCropTopPx + baseFocusAnchorFraction() * visible;
+        float fraction = Math.max(0.12f, Math.min(0.88f, (wantedY - areaTop) / areaHeight));
+        if (Math.abs(fraction - pipAnchorFraction) < 0.005f) return;
+        pipAnchorFraction = fraction;
+        scrollController.setAnchorFraction(fraction);
+        lastAppliedAnchorFraction = fraction;
+        applyLyricsScrollPadding();
+    }
+
+    private int screenHeightPx() {
+        return pipPresentation && pipScreenHeightPx > 0
+                ? pipScreenHeightPx : getResources().getDisplayMetrics().heightPixels;
+    }
+
+    private void hideChrome() {
+        // The editor's top-control capture is a real editing target. Never fade its source out
+        // underneath the outline; close() calls revealChrome() after removing the editor, which
+        // resumes the configured timer from a clean baseline.
+        boolean editorAttached = findViewWithTag(LyricsLayoutEditController.OVERLAY_TAG) != null;
+        if (running && chromeHeader != null
+                && LyricsLayoutEditorRuntimePolicy.chromeAutoHideAllowed(
+                        editorAttached, fullscreenControlsTimeoutSeconds())) {
+            chromeRevealAnimating = false;
+            chromeHeader.animate().alpha(0f).setDuration(240L).start();
+        }
+    }
+    private LyricsTransliterationSession transliterationSession;
+    private LyricsSessionManager.SessionSubscription sessionSubscription;
+    private LyricsSessionManager.LyricsRequest lyricRequest;
+    private String sessionStatus = "";
+    private final LyricsSurfaceDocumentGate documentGate = new LyricsSurfaceDocumentGate();
+    private final LyricsSessionManager.Listener sessionListener = new LyricsSessionManager.Listener() {
+        @Override public void onSessionChanged(LyricsSessionManager.Snapshot snapshot) {
+            if (!running || snapshot == null) return;
+            boolean changed = !snapshot.status.equals(sessionStatus);
+            sessionStatus = snapshot.status;
+            if (changed && document == null && "no_lyrics".equals(snapshot.status)) {
+                showError(uiText("lyrics_error_unavailable", "Lyrics unavailable"));
+            }
+        }
+
+        @Override public void onDocumentChanged(LyricsSessionManager.Snapshot snapshot,
+                                                LyricsDocument nextDocument) {
+            if (!running || snapshot == null) return;
+            if (nextDocument == null) {
+                retireSessionDocument(snapshot);
+                return;
+            }
+            prepareAndScheduleDocument(snapshot.trackUri, nextDocument);
+        }
+    };
+
+    private void retireSessionDocument(LyricsSessionManager.Snapshot snapshot) {
+        documentGate.invalidate();
+        ++NativeSpicyLyricsHook.fetchGeneration;
+        document = null;
+        String id = trackIdFromUri(snapshot.trackUri);
+        loadingTrackId = id;
+        pendingSourceSwap = null;
+        pendingSourceSwapUri = "";
+        sessionStatus = snapshot.status;
+        if ("no_lyrics".equals(snapshot.status)) {
+            showError(uiText("lyrics_error_unavailable", "Lyrics unavailable"));
+            return;
+        }
+        beginLoadingTransition(id);
+    }
+    private LyricsRenderConfig renderConfig;
+    private final SharedPreferences preferences;
+    private boolean preferencesRegistered;
+    private boolean preferenceRefreshPosted;
+    private final Runnable preferenceRefreshRunnable = this::refreshPreferences;
+    private final SharedPreferences.OnSharedPreferenceChangeListener preferenceListener =
+            (prefs, key) -> schedulePreferenceRefresh();
+
+    /** Package-private so the in-place layout editor can force a synchronous re-apply right
+     *  after a live write, instead of waiting on the async SharedPreferences-listener round trip
+     *  (registerPreferenceListener's callback is posted, not immediate) - without this, reading
+     *  real view geometry back right after a write sees stale pre-change values. */
+    void refreshPreferences() {
+        preferenceRefreshPosted = false;
+        if (!running) return;
+        applyStatusBarPreference();
+        likedMode = config.get(Settings.LIKED_SONGS_BUTTON);
+        refreshLikedButton(currentTrackThrottled());
+        applyRenderConfigChanges("preference changed", false);
+        ambientController.applySettings(renderConfig.backgroundStyle, renderConfig.forceDarkBackground,
+                renderConfig.extraDarkBackground);
+        if (trackInfoController != null) trackInfoController.onPreferenceChanged();
+        if (jumpToCurrentController != null) jumpToCurrentController.onPreferenceChanged();
+        if (skipGapController != null) skipGapController.onPreferenceChanged();
+        if (chromeViews != null) {
+            updatePipButtonVisibility();
+            chromeLayoutMode = config.get(Settings.CHROME_CLUSTER_LAYOUT);
+            LyricsShellChromeController.applyClusterPosition(chromeViews,
+                    "Left".equals(config.get(Settings.CHROME_CLUSTER_POSITION)));
+            chromeLayoutApplied = false;
+            refreshChromeClusterSpacing();
+            applyBackVisibility();
+        }
+        revealChrome();
+    }
+
+    /** Top readout owns the top corners: art top-left, controls top-right, no Back. */
+    private boolean isTopReadout() {
+        try {
+            return "Top".equals(config.get(Settings.TRACK_INFO_POSITION));
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /** The top controls stand as a vertical rail (true) or a horizontal row. Auto keeps the rail
+     *  beside a Top readout and the row otherwise. */
+    private boolean verticalChrome() {
+        if ("Horizontal".equals(chromeLayoutMode)) return false;
+        if (!"Vertical".equals(chromeLayoutMode) && !isTopReadout()) return false;
+        return railGapPx() >= 0;
+    }
+
+    /**
+     * The gap a rail uses between its buttons: the normal one, or a tighter one (down to 2dp) so
+     * the rail ends 8dp above the Follow or skip chip on its own edge. -1 when even that does not
+     * fit, and the controls stand as a row instead. Runs every frame, so it reads only laid-out
+     * views: the header's padding already holds the corner top, and the chips' own layout params
+     * hold where they sit.
+     */
+    private int railGapPx() {
+        boolean landscape = isLandscape();
+        int normal = LyricsShellChromeController.defaultGapPx(landscape);
+        if (chromeHeader == null || chromeViews == null || chromeViews.configCluster == null) return normal;
+        int buttons = 0;
+        for (int i = 0; i < chromeViews.configCluster.getChildCount(); i++) {
+            if (chromeViews.configCluster.getChildAt(i).getVisibility() != GONE) buttons++;
+        }
+        if (buttons <= 1) return normal;
+        boolean rightEdge = !chromeMirrored;
+        int limit = Math.min(
+                chipTopOnEdge(jumpToCurrentController == null ? null : jumpToCurrentController.view(), rightEdge),
+                chipTopOnEdge(skipGapController == null ? null : skipGapController.view(), rightEdge));
+        if (limit == Integer.MAX_VALUE) return normal;
+        int[] shell = new int[2];
+        getLocationOnScreen(shell);
+        int room = limit - dp(8) - (shell[1] + chromeHeader.getPaddingTop())
+                - buttons * dp(chromeButtonDp());
+        int gap = Math.min(normal, room / (buttons - 1));
+        return gap >= dp(2) ? gap : -1;
+    }
+
+    /** Screen top of a bottom chip anchored on the given edge; unbounded for any other chip. */
+    private static int chipTopOnEdge(View chip, boolean rightEdge) {
+        if (chip == null || !(chip.getLayoutParams() instanceof FrameLayout.LayoutParams)
+                || !(chip.getParent() instanceof View)) {
+            return Integer.MAX_VALUE;
+        }
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) chip.getLayoutParams();
+        int horizontal = Gravity.getAbsoluteGravity(lp.gravity, chip.getLayoutDirection())
+                & Gravity.HORIZONTAL_GRAVITY_MASK;
+        if (horizontal != (rightEdge ? Gravity.RIGHT : Gravity.LEFT)) return Integer.MAX_VALUE;
+        View host = (View) chip.getParent();
+        if (host.getHeight() <= 0) return Integer.MAX_VALUE;
+        int[] loc = new int[2];
+        host.getLocationOnScreen(loc);
+        int height = lp.height > 0 ? lp.height : chip.getHeight();
+        return loc[1] + host.getHeight() - host.getPaddingBottom() - lp.bottomMargin - height;
+    }
+
+    /**
+     * The top controls keep the Follow chip's gap from the edge they hug, so both line up, and
+     * sit that gap below the top - below the status bar or cutout when either takes room - so a
+     * row or a rail starts in the corner. Back keeps its own side's system padding.
+     */
+    private void applyChromeHeaderPadding() {
+        if (chromeHeader == null) return;
+        boolean mirrored = "Left".equals(config.get(Settings.CHROME_CLUSTER_POSITION));
+        chromeMirrored = mirrored;
+        int edge = chromeEdgePx(mirrored);
+        int backSide = sideSystemPadding(activity);
+        int left = mirrored ? edge : backSide;
+        int right = mirrored ? backSide : edge;
+        int top = chromeCornerTopPx();
+        if (left != chromeHeader.getPaddingLeft() || top != chromeHeader.getPaddingTop()
+                || right != chromeHeader.getPaddingRight()) {
+            chromeHeader.setPadding(left, top, right, chromeHeader.getPaddingBottom());
+        }
+    }
+
+    /** The Follow chip's gap from the screen edge: its own margin, plus the content column's side
+     *  padding in single-column landscape, where the chip lives inside that column. */
+    private int chromeEdgePx(boolean clusterLeft) {
+        int column = 0;
+        if (contentColumn != null && isLandscape() && !twoColumn) {
+            column = clusterLeft ? contentColumn.getPaddingLeft() : contentColumn.getPaddingRight();
+        }
+        return column + dp(NativeLyricsUtils.EDGE_BUTTON_MARGIN_DP);
+    }
+
+    /** Where the top controls' top edge goes: the edge gap below whatever takes the top. */
+    private int chromeCornerTopPx() {
+        int floor = NativeLyricsUtils.statusBarHidden(activity) ? cutoutTopPx
+                : Math.max(NativeLyricsUtils.statusBarClearance(activity), cutoutTopPx);
+        return floor + dp(NativeLyricsUtils.EDGE_BUTTON_MARGIN_DP);
+    }
+
+    /** Room the Top readout keeps free beside the controls: a rail's width, or the whole row. */
+    private int chromeReservePx() {
+        int rail = dp(44 + 8);
+        if (verticalChrome() || chromeViews == null || chromeViews.configCluster == null) return rail;
+        int width = chromeViews.configCluster.getWidth();
+        return width > 0 ? width + dp(8) : rail;
+    }
+
+    /** Two-column owns the left edge with its panel art; Back stays gone while engaged
+     * (applyTopMode would otherwise restore it on every preference change). */
+    private void applyBackVisibility() {
+        if (chromeViews == null || chromeViews.back == null) return;
+        boolean show = Boolean.TRUE.equals(config.get(Settings.SHOW_FULLSCREEN_BACK_BUTTON));
+        chromeViews.back.setVisibility(show && !twoColumn && !isTopReadout() ? VISIBLE : GONE);
+    }
+
+    private void updatePipButtonVisibility() {
+        if (chromeViews == null || chromeViews.pipButton == null) return;
+        boolean show = !pipPresentation && LyricsPipController.isSupported(activity)
+                && Boolean.TRUE.equals(config.get(Settings.PIP_ENABLED));
+        chromeViews.pipButton.setVisibility(show ? VISIBLE : GONE);
+    }
+    private long lastKeepAliveArmMs;
+    // Unsynced (plain) lyrics: no per-line timing, so don't auto-follow or karaoke-wash — render every
+    // line uniformly bright + readable and let the user scroll freely (a "static screen").
+    private boolean staticDoc;
+    /**
+     * Source swap deferred while the user holds follow: a manual pick must not yank the rows
+     * out from under a manual scroll. Applied when follow resumes; a track change always
+     * renders immediately and drops any stash.
+     */
+    private LyricsDocument pendingSourceSwap;
+    private String pendingSourceSwapUri = "";
+    private boolean songChangeHadSkeleton;
+    private boolean hasRenderedDocument;
+    private final LyricsPlaybackClock playbackClock;
+    private SpotifyTrack throttledTrack;
+    private long throttledTrackAtMs;
+    private final ChipSpinnerDrawable romanSpinner;
+    private final ChipSpinnerDrawable translationSpinner;
+    private final LyricsToggleSpinnerController toggleSpinnerController;
+    private final com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState soundAiFeedback =
+            new com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState();
+    private final com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState meaningAiFeedback =
+            new com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState();
+    private final GlyphIconDrawable romanGlyph = new GlyphIconDrawable(
+            "A", android.graphics.Typeface.DEFAULT_BOLD);
+    private int lyricsTopInsetPx;
+    /** Seeded from the fixed {@link NativeLyricsUtils#sideSystemPadding} guess, then refined to
+     *  the real display-cutout side inset once WindowInsets dispatch on attach. */
+    private int lyricsSideInsetPx;
+    /** Real per-side system insets (cutout, navigation bar); 0 where that edge is free. */
+    private int safeLeftInsetPx;
+    private int safeRightInsetPx;
+    /** Landscape content clearance on an edge with nothing on it. */
+    private static final int LANDSCAPE_EDGE_MIN_DP = 24;
+    private static final int LANDSCAPE_TRAILING_EDGE_MIN_DP = 12;
+    /** Last anchor fraction actually applied - lets applyRenderConfigChanges() tell a real change
+     *  (drag the layout editor's focus handle) from a no-op re-apply (any other setting changing)
+     *  so it only forces an immediate re-scroll when the anchor itself moved. NaN so the very
+     *  first call always counts as a change and seeds this properly. */
+    private float lastAppliedAnchorFraction = Float.NaN;
+    private long lastLyricPositionMs = -1;
+    private long lastDisplayedProgressSecond = Long.MIN_VALUE;
+    private String lastDisplayedTitle = "";
+    private String lastDisplayedArtist = "";
+    private String lastDisplayedAlbum = "";
+    private boolean autoResumeFollow;
+    private static final long IDLE_FRAME_PROBE_MS = 250L;
+    private static final int SETTLE_FRAMES_BEFORE_IDLE = 15;
+    private int visuallySettledFrames;
+    private final Runnable idleFrameProbe = new Runnable() {
+        @Override
+        public void run() {
+            if (!running || frameScheduler.isContinuous()) return;
+            frameScheduler.requestFrame();
+            handler.postDelayed(this, IDLE_FRAME_PROBE_MS);
+        }
+    };
+
+    /** Opens the direct-manipulation layout editor as an overlay directly on this shell (same
+     *  view hierarchy as the real artwork/lyrics, not a separate window) - see
+     *  LyricsLayoutEditController. Called from the settings panel's "Layout editor…" row via
+     *  LyricsSettingsDialogController, after that dialog has already closed itself. */
+    private void enterLayoutEditMode() {
+        enterLayoutEditMode(false);
+    }
+
+    private void enterLayoutEditMode(boolean cardMode) {
+        // When the settings dialog dismisses, its window-teardown can momentarily detach the
+        // shell's content parent. If the shell is not yet attached, defer so the overlay gets
+        // a proper layout pass instead of being silently added to an invisible subtree.
+        if (!isAttachedToWindow()) {
+            post(() -> enterLayoutEditMode(cardMode));
+            return;
+        }
+        // Suppliers, not captured Views: which real frame is "current" can change (a position
+        // change moves the artwork/text to a different view - top/bottom/side/column are all
+        // separate objects), so the editor re-queries these after anything that could change them.
+        LyricsLayoutEditController.EditableChip skipChip = new LyricsLayoutEditController.EditableChip(
+                () -> skipGapController == null ? null : skipGapController.view(),
+                () -> { if (skipGapController != null) skipGapController.showForEditing(); },
+                () -> { if (skipGapController != null) skipGapController.restoreAfterEditing(); });
+        LyricsLayoutEditController.EditableChip followChip = new LyricsLayoutEditController.EditableChip(
+                () -> jumpToCurrentController == null ? null : jumpToCurrentController.view(),
+                () -> { if (jumpToCurrentController != null) jumpToCurrentController.showForEditing(); },
+                () -> { if (jumpToCurrentController != null) jumpToCurrentController.restoreAfterEditing(); });
+        layoutEditorHandle = new LyricsLayoutEditController.Request()
+                .activity(activity)
+                .shellRoot(this)
+                .artFrameSupplier(() -> trackInfoController == null
+                        ? null : trackInfoController.currentArtFrame())
+                .trackTextFrameSupplier(() -> trackInfoController == null
+                        ? null : trackInfoController.currentTextFrame())
+                .focusArea(lyricsFrame)
+                .mountedRowsHostSupplier(() -> mountedRowsHost)
+                .chromeClusterSupplier(() -> chromeViews == null ? null : chromeViews.configCluster)
+                .backButtonSupplier(() -> chromeViews == null ? null : chromeViews.back)
+                .landscape(isLandscape() || twoColumn)
+                .twoColumn(twoColumn)
+                .focusFraction(this::resolveFocusAnchorFraction)
+                .artSizeMaxDp(() -> twoColumn && trackInfoController != null
+                        && trackInfoController.columnFitSidePx() > 0
+                        ? Math.round(trackInfoController.columnFitSidePx()
+                                / getResources().getDisplayMetrics().density)
+                        : TrackInfoReadoutController.READOUT_MAX_ART_DP)
+                .applyPreferences(this::refreshPreferences)
+                .onChromeReveal(this::revealChrome)
+                .onClosed(() -> {
+                    LyricsLayoutEditorReopenPolicy.clear();
+                    layoutEditorHandle = null;
+                })
+                .enableDemoData(this::enableDemoMode)
+                .disableDemoData(this::disableDemoMode)
+                .skipChip(skipChip)
+                .followChip(followChip)
+                .cardMode(cardMode)
+                .show();
+    }
+
+    boolean consumeBack() {
+        return consumeShareSheetBack() || consumeLayoutEditorBack();
+    }
+
+    /** Back closes the lyric share sheet first, like any other sheet over the lyrics. */
+    private boolean consumeShareSheetBack() {
+        if (shareCardController == null || !shareCardController.isShowing()) return false;
+        // The line picker first, then the sheet.
+        if (!shareCardController.closePickerIfOpen()) shareCardController.dismiss();
+        return true;
+    }
+
+    private boolean consumeLayoutEditorBack() {
+        LyricsLayoutEditController.EditorHandle editor = layoutEditorHandle;
+        if (editor == null || !editor.onBackPressed()) {
+            layoutEditorHandle = null;
+            LyricsLayoutEditorReopenPolicy.clear();
+            return false;
+        }
+        return true;
+    }
+
+    // -- agent layout probe (debug only) -------------------------------------------
+    // Reached only from the file command channel, which itself starts only on a debug build and
+    // only while its arm file exists (see AgentCommandChannel). Nothing here is wired into any
+    // user-facing path, opening the editor goes through the same enterLayoutEditMode() the
+    // settings row does, and every reading is a plain read of views already on screen.
+
+    /** @return false when the editor is already open, so a caller can tell it did not change. */
+    boolean agentOpenEditor(boolean card) {
+        if (layoutEditorHandle != null) return false;
+        enterLayoutEditMode(card);
+        return true;
+    }
+
+    boolean agentCloseEditor() {
+        LyricsLayoutEditorReopenPolicy.clear();
+        LyricsLayoutEditController.EditorHandle editor = layoutEditorHandle;
+        if (editor == null) return false;
+        editor.agentClose();
+        return true;
+    }
+
+    boolean agentSelectElement(String name) {
+        LyricsLayoutEditController.EditorHandle editor = layoutEditorHandle;
+        return editor != null && editor.agentSelect(name);
+    }
+
+    boolean agentEditorAction(String action, String argument) {
+        return layoutEditorHandle != null && layoutEditorHandle.agentAction(action, argument);
+    }
+
+    boolean agentSettings(String action) {
+        if ("open".equals(action)) return settingsDialogController.show();
+        if ("close".equals(action)) return settingsDialogController.close();
+        return settingsDialogController.isShowing();
+    }
+
+    boolean agentAction(String action) {
+        switch (action) {
+            case "sound-cycle": cycleTransliterationMode(preferences); return true;
+            case "meaning-toggle": onTranslationTapped(); return true;
+            case "ai-sound": openAiLayerPanel(com.spotifyplusplus.lyrics.session.LayerKind.SOUND); return true;
+            case "ai-meaning": openAiLayerPanel(com.spotifyplusplus.lyrics.session.LayerKind.MEANING); return true;
+            case "follow": resumeFollowCurrentLine(); return true;
+            case "skip-gap": skipCurrentGap(); return true;
+            case "sync-reset":
+                new com.spotifyplusplus.settings.SettingsWriter(new SettingsStore(activity))
+                        .put(Settings.SYNC_OFFSET_MS, 0);
+                resyncLyricsTiming();
+                return true;
+            default: return false;
+        }
+    }
+
+    /**
+     * Reads the live screen and the open editor as one JSON line, or null when it could not be
+     * built. Never throws: the channel turns a thrown probe into an {@code error} reply, and a
+     * half-built report would be a plausible-looking wrong answer.
+     */
+    String agentLayoutReport() {
+        try {
+            LayoutProbeReport report = new LayoutProbeReport();
+            report.rect("screen", agentScreenRect());
+            report.number("density", getResources().getDisplayMetrics().density);
+            report.text("orientation", isLandscape() ? "landscape" : "portrait");
+            report.flag("two_column", twoColumn);
+            report.flag("editor_open", layoutEditorHandle != null);
+            report.number("chrome_alpha", chromeHeader == null ? 0f : chromeHeader.getAlpha());
+            report.rect("artwork", LyricsLayoutEditController.screenRectOf(agentArtworkFrame()));
+            report.rect("track_text", LyricsLayoutEditController.screenRectOf(agentTrackTextFrame()));
+            report.rect("dock", LyricsLayoutEditController.screenRectOf(
+                    chromeViews == null ? null : chromeViews.configCluster));
+            report.rect("back", LyricsLayoutEditController.screenRectOf(
+                    chromeViews == null ? null : chromeViews.back));
+            int[] shellOnScreen = new int[2];
+            getLocationOnScreen(shellOnScreen);
+            int edgeMargin = dp(NativeLyricsUtils.EDGE_BUTTON_MARGIN_DP);
+            report.flag("chrome_row", !verticalChrome());
+            report.number("edge_margin", edgeMargin);
+            report.number("chrome_top_floor", shellOnScreen[1] + chromeCornerTopPx() - edgeMargin);
+            report.rect("lyrics_frame", LyricsLayoutEditController.screenRectOf(lyricsFrame));
+            addChipFact(report, "skip", skipGapController == null ? null : skipGapController.view());
+            addChipFact(report, "follow",
+                    jumpToCurrentController == null ? null : jumpToCurrentController.view());
+            addFocusAnchorFact(report);
+            addLyricRowFacts(report);
+            LyricsLayoutEditController.EditorHandle editor = layoutEditorHandle;
+            if (editor != null) editor.agentReport(report);
+            return reportJson(report);
+        } catch (Throwable t) {
+            XpLog.log("[SpicyLayoutProbe] report failed: " + t);
+            return null;
+        }
+    }
+
+    /** Whichever art frame is really showing, and its title/artist(/album) block - the readout
+     *  knows: the two-column column is one of its own placements. */
+    private View agentArtworkFrame() {
+        return trackInfoController == null ? null : trackInfoController.currentArtFrame();
+    }
+
+    private View agentTrackTextFrame() {
+        return trackInfoController == null ? null : trackInfoController.currentTextFrame();
+    }
+
+    /** This shell is the editor overlay's parent, so it is also the only parent a chip could
+     *  share with it - a chip nested anywhere else is under the overlay by Android's own tree
+     *  order and cannot out-draw it however high its z is. */
+    private void addChipFact(LayoutProbeReport report, String name, View chip) {
+        report.rect("chip." + name, LyricsLayoutEditController.screenRectOf(chip));
+        if (chip == null) return;
+        report.number("z.chip." + name, Math.round(chip.getZ()));
+        report.flag("chip." + name + ".sibling", chip.getParent() == this);
+    }
+
+    /** Where the focus line is drawn, per the anchor the shell actually scrolled to. */
+    private void addFocusAnchorFact(LayoutProbeReport report) {
+        int[] lyrics = LyricsLayoutEditController.screenRectOf(lyricsFrame);
+        if (lyrics == null) return;
+        float fraction = resolveFocusAnchorFraction();
+        report.number("focus_anchor_y", Math.round(lyrics[1] + fraction * (lyrics[3] - lyrics[1])));
+    }
+
+    private void addLyricRowFacts(LayoutProbeReport report) {
+        if (mountedRowsHost == null) return;
+        for (int i = 0; i < mountedRowsHost.getChildCount(); i++) {
+            addLyricRowFact(report, mountedRowsHost.getChildAt(i));
+        }
+    }
+
+    /** A mounted row's text content: its own bounds minus its line-spacing padding, which is how
+     *  the editor's own hit test and per-row outlines measure a row. */
+    private static void addLyricRowFact(LayoutProbeReport report, View row) {
+        int[] bounds = LyricsLayoutEditController.screenRectOf(row);
+        if (bounds == null) return;
+        int left = bounds[0] + row.getPaddingLeft();
+        int top = bounds[1] + row.getPaddingTop();
+        int right = bounds[2] - row.getPaddingRight();
+        int bottom = bounds[3] - row.getPaddingBottom();
+        if (right <= left || bottom <= top) {
+            // No padding, or it consumed the whole row: the full bounds are the honest answer.
+            report.lyricRow(bounds);
+            return;
+        }
+        report.lyricRow(new int[]{left, top, right, bottom});
+    }
+
+    /** The shell's own screen rect, which is the display's content area rather than the whole
+     *  panel, so a probe can tell a control that ran off screen from one that is merely near it. */
+    private int[] agentScreenRect() {
+        int[] loc = new int[2];
+        getLocationOnScreen(loc);
+        int width = getWidth() > 0 ? getWidth() : getResources().getDisplayMetrics().widthPixels;
+        int height = getHeight() > 0 ? getHeight() : getResources().getDisplayMetrics().heightPixels;
+        return new int[]{loc[0], loc[1], loc[0] + width, loc[1] + height};
+    }
+
+    private static String reportJson(LayoutProbeReport report) throws Exception {
+        org.json.JSONObject json = new org.json.JSONObject();
+        for (Map.Entry<String, int[]> entry : report.rects().entrySet()) {
+            int[] rect = entry.getValue();
+            json.put(entry.getKey(), new org.json.JSONArray()
+                    .put(rect[0]).put(rect[1]).put(rect[2]).put(rect[3]));
+        }
+        for (Map.Entry<String, Object> entry : report.facts().entrySet()) {
+            json.put(entry.getKey(), entry.getValue());
+        }
+        org.json.JSONArray rows = new org.json.JSONArray();
+        for (int[] row : report.lyricRows()) {
+            rows.put(new org.json.JSONArray().put(row[0]).put(row[1]).put(row[2]).put(row[3]));
+        }
+        json.put("lyric_rows", rows);
+        org.json.JSONArray violations = new org.json.JSONArray();
+        for (String violation : report.violations()) violations.put(violation);
+        json.put("violations", violations);
+        return json.toString();
+    }
+
+    /** Layout editor's Demo toggle: swaps in a synthetic track/artwork/lyrics document so the
+     *  editor previews something even with nothing (useful) actually playing. See
+     *  {@link #updateState}'s early-return guard, which stands the real per-frame pipeline down
+     *  for the duration so it can't race this synthetic content. */
+    private void enableDemoMode() {
+        if (demoModeActive) return;
+        demoModeActive = true;
+        if (demoTrack == null) demoTrack = DemoLyricsContent.demoTrack();
+        if (demoArtBitmap == null) demoArtBitmap = DemoLyricsContent.demoArtBitmap();
+        document = DemoLyricsContent.demoDocument();
+        demoStartElapsedMs = SystemClock.elapsedRealtime();
+        clearRowCascade();
+        followState.resetActive();
+        resetScrollForNextDocument = true;
+        pendingLoadEntrance = true;
+        renderDocument();
+        if (trackInfoController != null) trackInfoController.showDemoTrack(demoTrack, demoArtBitmap);
+        skipGapController.show(SkipGapPolicy.defaultLabel(SkipGapPolicy.GapKind.LEADING));
+        jumpToCurrentController.update(true);
+    }
+
+    /** Reverts everything {@link #enableDemoMode} touched; the next real per-frame update (now
+     *  unfrozen) repaints title/artwork/lyrics from the real track normally. */
+    private void disableDemoMode() {
+        if (!demoModeActive) return;
+        demoModeActive = false;
+        skipGapController.hide();
+        jumpToCurrentController.restoreAfterEditing();
+        if (trackInfoController != null) trackInfoController.clearDemoArt();
+        // The demo strings went into the readout's own text stack (two-column included); the real
+        // per-frame update only repaints a field whose last-displayed value differs, so the
+        // trackers have to be cleared here or the demo text would survive the toggle.
+        lastDisplayedTitle = "";
+        lastDisplayedArtist = "";
+        lastDisplayedAlbum = "";
+        document = null;
+        lastUri = "";
+        showLoading(uiText("lyrics_shell_loading_track", "Waiting for Spotify track…"));
+    }
+
+    private boolean isLandscape() {
+        // A PiP shell is laid out once, for the window's shape, and scaled: the host's own
+        // orientation (it changes as the window does) must not switch it halfway.
+        if (pipLayout == PIP_LAYOUT_LANDSCAPE) return true;
+        if (pipPresentation || pipLayout == PIP_LAYOUT_PORTRAIT) return false;
+        return getResources().getConfiguration().orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+    }
+
+    /**
+     * True once <em>this</em> screen has hidden the status bar, so it is the only thing allowed to
+     * put it back. With both "Hide status bar" rows off it stays false and Spotify's window flags
+     * and insets are never touched - see {@link #applyStatusBarPreference()}.
+     */
+    private boolean statusBarHiddenByUs;
+
+    /**
+     * Hides or shows the system status bar for the lyrics screen, per the "Hide status bar"
+     * selector. A swipe from the edge still shows it for a moment
+     * (BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE / the pre-R sticky-immersive equivalent). See
+     * {@link NativeLyricsUtils#topSystemPadding}, which pins the chrome to the bar's place
+     * whether or not it is showing, so toggling never moves the layout.
+     *
+     * <p>Only the hide path and the restore-after-our-own-hide path touch the window. With the
+     * selector off this method is a no-op against the window: {@code setDecorFitsSystemWindows}
+     * and the system-bar insets stay exactly as Spotify's own page set them up, which is what
+     * this screen did before the selector existed.
+     */
+    private void applyStatusBarPreference() {
+        boolean hide = NativeLyricsUtils.statusBarHidden(activity);
+        if (hide) {
+            hideStatusBar();
+        } else if (statusBarHiddenByUs) {
+            showStatusBar();
+        }
+        if (hide != statusBarHiddenByUs) {
+            statusBarHiddenByUs = hide;
+            // Showing or hiding moves where the window's content starts; the layout listener
+            // re-pins everything once that relayout lands (see trackContentScreenTop).
+            reapplyTopClearance();
+        }
+    }
+
+    private final int[] contentLocation = new int[2];
+    private final View.OnLayoutChangeListener contentTopListener =
+            (v, l, t, r, b, ol, ot, or, ob) -> trackContentScreenTop();
+
+    /** Watches where the activity's content area sits on screen, which the status bar moves. */
+    private void watchContentScreenTop(boolean watch) {
+        View content = activity == null ? null : activity.findViewById(android.R.id.content);
+        if (content == null) return;
+        content.removeOnLayoutChangeListener(contentTopListener);
+        if (watch) {
+            content.addOnLayoutChangeListener(contentTopListener);
+            trackContentScreenTop();
+        }
+    }
+
+    private void trackContentScreenTop() {
+        View content = activity == null ? null : activity.findViewById(android.R.id.content);
+        if (content == null || !content.isAttachedToWindow()) return;
+        content.getLocationOnScreen(contentLocation);
+        int top = Math.max(0, contentLocation[1]);
+        if (top == NativeLyricsUtils.contentScreenTop) return;
+        NativeLyricsUtils.contentScreenTop = top;
+        // Posted: this runs inside a layout pass.
+        post(this::reapplyTopClearance);
+    }
+
+    /** Re-pins the header, the lyrics and the track readout below the status bar's place. */
+    private void reapplyTopClearance() {
+        applyChromeHeaderPadding();
+        lyricsTopInsetPx = Math.max(NativeLyricsUtils.statusBarClearance(activity), cutoutTopPx);
+        applyLyricsScrollPadding();
+        if (trackInfoController != null) trackInfoController.onPreferenceChanged();
+    }
+
+    /** A display cutout reaching lower than the status bar, when there is one. */
+    private int cutoutTopPx;
+
+    private void hideStatusBar() {
+        android.view.Window window = activity == null ? null : activity.getWindow();
+        if (window == null) return;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(false);
+                android.view.WindowInsetsController controller = window.getInsetsController();
+                if (controller != null) {
+                    controller.hide(android.view.WindowInsets.Type.statusBars());
+                    controller.setSystemBarsBehavior(
+                            android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                }
+            } else {
+                View decor = window.getDecorView();
+                decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+            }
+        } catch (Throwable t) {
+            XpLog.log(TAG + " hideStatusBar failed: " + t);
+        }
+    }
+
+    /** Restores the window. Only ever called after {@link #hideStatusBar()} actually hid the bar. */
+    private void showStatusBar() {
+        android.view.Window window = activity == null ? null : activity.getWindow();
+        if (window == null) return;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                window.setDecorFitsSystemWindows(true);
+                android.view.WindowInsetsController controller = window.getInsetsController();
+                if (controller != null) controller.show(android.view.WindowInsets.Type.statusBars());
+            } else {
+                View decor = window.getDecorView();
+                decor.setSystemUiVisibility(decor.getSystemUiVisibility()
+                        & ~(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY));
+            }
+        } catch (Throwable t) {
+            XpLog.log(TAG + " showStatusBar failed: " + t);
+        }
+    }
+
+    /** Minimum width/height ratio at which any screen counts as wide (PR9's landscape gate). */
+    static final float TWO_COLUMN_ASPECT_MIN = 1.2f;
+    /** Material "medium" window width: from here a screen has room for two columns... */
+    static final float TWO_COLUMN_MIN_WIDTH_DP = 600f;
+    /** ...as long as it is not much taller than wide - an unfolded foldable, not a tall tablet. */
+    static final float TWO_COLUMN_SQUARE_ASPECT_MIN = 0.8f;
+
+    /**
+     * Two-column (artwork panel + lyrics) engages on landscape-shaped screens, and also on large
+     * near-square ones such as an unfolded foldable, whichever way it is held. Those used to get
+     * the phone layout, stretched: a small artwork in the corner and lyric lines 800dp long. It is
+     * a separate mode from the Off/Top/Bottom readout, whose overlays stand down while engaged.
+     */
+    static boolean twoColumnEngaged(float widthDp, float heightDp, boolean adaptive) {
+        if (!adaptive || widthDp <= 0f || heightDp <= 0f) return false;
+        float aspect = widthDp / heightDp;
+        if (aspect >= TWO_COLUMN_ASPECT_MIN) return true;
+        return widthDp >= TWO_COLUMN_MIN_WIDTH_DP && aspect >= TWO_COLUMN_SQUARE_ASPECT_MIN;
+    }
+
+    private LinearLayout rowContainer() {
+        return landscapeRightColumn != null ? landscapeRightColumn : contentColumn;
+    }
+
+    private int chromeButtonDp() {
+        // R4 acceptance: 44dp minimum touch targets in every orientation.
+        return 44;
+    }
+
+    private int lyricsTopPaddingDp() {
+        return isLandscape() ? 10 : 22;
+    }
+
+    private int lyricsBottomPaddingDp() {
+        return isLandscape() ? 86 : 118;
+    }
+
+    // Start the first lyric line near screen center (the active line is kept centered as the song
+    // plays, so the opening line should begin centered too, not pinned to the top). The top pad is
+    // ~0.44 of the viewport — far larger than the status-bar/cutout inset, so the safe-area concern
+    // is subsumed. Falls back to screen height before the scroll view is laid out.
+    /** (Re)applies contentColumn's landscape side/bottom clearance - see its construction-time
+     *  comment for why portrait drops this entirely. Split out so a later cutout-inset
+     *  refinement (see the WindowInsets listener above) can re-run it without duplicating
+     *  the padding logic. */
+    private void applyContentColumnPadding() {
+        if (contentColumn == null) return;
+        if (!isLandscape() && !twoColumn) {
+            contentColumn.setPadding(0, 0, 0, 0);
+            return;
+        }
+        // Per side, from the real insets. A single symmetric value sized for the cutout or the
+        // navigation bar (72dp by default) also went on the free edge, leaving a wide empty strip
+        // between the lyrics and the side of the screen with nothing in it.
+        contentColumn.setPadding(
+                Math.max(dp(LANDSCAPE_EDGE_MIN_DP), safeLeftInsetPx),
+                0,
+                Math.max(dp(LANDSCAPE_TRAILING_EDGE_MIN_DP), safeRightInsetPx), dp(16));
+    }
+
+    /**
+     * Rows carry the side inset in their own padding (so blur/glow can bleed past it), fixed when
+     * the row is built. The real inset only arrives with the window insets after attach, so rows
+     * built before that - the first screen, interlude rows - kept the provisional value and sat
+     * against the screen edge. Brings every built row to the current inset.
+     */
+    private void applyRowSideInsets() {
+        if (document == null || document.appliedLines == null) return;
+        for (com.spotifyplusplus.lyrics.AppliedLine line : document.appliedLines) {
+            applyRowSideInset(LyricsLineViewState.rowView(line));
+        }
+    }
+
+    /** Portrait keeps the reading margin on the row itself; the column and scroller carry none. */
+    private void applyRowSideInset(View view) {
+        if (!(view instanceof com.spotifyplusplus.lyrics.BlurredRowLayout)) return;
+        com.spotifyplusplus.lyrics.BlurredRowLayout row = (com.spotifyplusplus.lyrics.BlurredRowLayout) view;
+        int wanted = isLandscape() ? 0 : lyricsSideInsetPx;
+        int delta = wanted - row.horizontalOffsetPx;
+        if (delta == 0) return;
+        row.horizontalOffsetPx = wanted;
+        row.setPaddingRelative(Math.max(0, row.getPaddingStart() + delta), row.getPaddingTop(),
+                Math.max(0, row.getPaddingEnd() + delta), row.getPaddingBottom());
+    }
+
+    /** {left, right} system insets: bars plus display cutout, per edge. */
+    private static int[] safeSideInsets(android.view.WindowInsets insets) {
+        if (insets == null) return new int[]{0, 0};
+        try {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(
+                        android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+                return new int[]{bars.left, bars.right};
+            }
+            int left = insets.getSystemWindowInsetLeft();
+            int right = insets.getSystemWindowInsetRight();
+            if (Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null) {
+                left = Math.max(left, insets.getDisplayCutout().getSafeInsetLeft());
+                right = Math.max(right, insets.getDisplayCutout().getSafeInsetRight());
+            }
+            return new int[]{left, right};
+        } catch (Throwable t) {
+            return new int[]{0, 0};
+        }
+    }
+
+    private void applyLyricsScrollPadding() {
+        if (lyricsScroll == null) return;
+        int safeTop = lyricsTopInsetPx + dp(lyricsTopPaddingDp());
+        // The lyrics frame itself now reaches the true screen edges, so the reading margin
+        // lives on the scroll view's own padding in portrait; landscape keeps it clear of
+        // the control column instead (see applyLandscapeChromeClearance).
+        int sidePad = isLandscape() ? 0 : lyricsSideInsetPx;
+        if (scrollController != null) {
+            scrollController.applyCenterPadding(
+                    safeTop,
+                    dp(lyricsBottomPaddingDp()),
+                    screenHeightPx(),
+                    dp(56), sidePad);
+            applyLandscapeChromeClearance();
+            return;
+        }
+        int viewport = lyricsScroll.getHeight();
+        if (viewport <= 0) viewport = screenHeightPx();
+        int center = Math.max(0, viewport / 2 - dp(56));
+        lyricsScroll.setPadding(0, Math.max(safeTop, center), 0, Math.max(dp(lyricsBottomPaddingDp()), center));
+        applyLandscapeChromeClearance();
+    }
+
+    /** In landscape or two-column the control buttons can stand in a vertical rail at the
+     *  trailing edge, over the lyrics. Long lines used to run underneath them; wrap before
+     *  that column instead. */
+    private void applyLandscapeChromeClearance() {
+        if (lyricsScroll == null || (!isLandscape() && !twoColumn)) return;
+        if (pipPresentation) {
+            lyricsScroll.setPadding(0, lyricsScroll.getPaddingTop(), 0,
+                    lyricsScroll.getPaddingBottom());
+            return;
+        }
+        int fallbackPx = dp(chromeButtonDp() + 16);
+        int gapPx = dp(12);
+
+        int scrollLeft = 0;
+        int scrollRight = 0;
+        int railLeft = 0;
+        int railTop = 0;
+        int railRight = 0;
+        int railBottom = 0;
+
+        View cluster = chromeViews == null ? null : chromeViews.configCluster;
+        try {
+            if (lyricsScroll.getWidth() > 0 && lyricsScroll.getHeight() > 0) {
+                int[] scrollLoc = new int[2];
+                lyricsScroll.getLocationOnScreen(scrollLoc);
+                scrollLeft = scrollLoc[0];
+                scrollRight = scrollLeft + lyricsScroll.getWidth();
+            }
+            if (cluster != null && cluster.getWidth() > 0 && cluster.getHeight() > 0) {
+                int[] clusterLoc = new int[2];
+                cluster.getLocationOnScreen(clusterLoc);
+                railLeft = clusterLoc[0];
+                railTop = clusterLoc[1];
+                railRight = railLeft + cluster.getWidth();
+                railBottom = railTop + cluster.getHeight();
+            }
+        } catch (Throwable ignored) {
+        }
+
+        int[] pads = railClearancePx(scrollLeft, scrollRight, railLeft, railTop, railRight, railBottom, gapPx, fallbackPx);
+        int leftPad = pads[0];
+        int rightPad = pads[1];
+
+        if (leftPad != lyricsScroll.getPaddingLeft() || rightPad != lyricsScroll.getPaddingRight()) {
+            lyricsScroll.setPadding(leftPad, lyricsScroll.getPaddingTop(), rightPad, lyricsScroll.getPaddingBottom());
+        }
+    }
+
+    static int[] railClearancePx(int scrollLeft, int scrollRight, int railLeft,
+            int railTop, int railRight, int railBottom, int gapPx, int fallbackPx) {
+        int scrollWidth = scrollRight - scrollLeft;
+        int railWidth = railRight - railLeft;
+        int railHeight = railBottom - railTop;
+
+        if (railWidth <= 0 || railHeight <= 0 || scrollWidth <= 0) {
+            return new int[]{0, fallbackPx};
+        }
+
+        boolean isVerticalRail = railHeight > railWidth;
+        boolean overlaps = railRight > scrollLeft && railLeft < scrollRight;
+        boolean onLeft = (railLeft + railRight) < (scrollLeft + scrollRight);
+
+        if (isVerticalRail && overlaps) {
+            if (onLeft) {
+                int pad = Math.max(0, (railRight - scrollLeft) + gapPx);
+                return new int[]{pad, 0};
+            } else {
+                int pad = Math.max(0, (scrollRight - railLeft) + gapPx);
+                return new int[]{0, pad};
+            }
+        }
+
+        return onLeft ? new int[]{fallbackPx, 0} : new int[]{0, fallbackPx};
+    }
+
+    /** Real left/right safe inset (system bars + display cutout - a corner punch-hole or curved/
+     *  waterfall edge shows up here in landscape). Returns the larger of the two sides so the same
+     *  padding value can be applied symmetrically, matching how {@code sideSystemPadding} is used
+     *  today. Never shrinks below the fixed guess - a device with no real cutout just keeps it. */
+    private int computeSafeSideInset(android.view.WindowInsets insets) {
+        if (insets == null) return lyricsSideInsetPx;
+        try {
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(
+                        android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+                return Math.max(lyricsSideInsetPx, Math.max(bars.left, bars.right));
+            }
+            int left = insets.getSystemWindowInsetLeft();
+            int right = insets.getSystemWindowInsetRight();
+            if (Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null) {
+                left = Math.max(left, insets.getDisplayCutout().getSafeInsetLeft());
+                right = Math.max(right, insets.getDisplayCutout().getSafeInsetRight());
+            }
+            return Math.max(lyricsSideInsetPx, Math.max(left, right));
+        } catch (Throwable t) {
+            return lyricsSideInsetPx;
+        }
+    }
+
+    /** Lyrics frozen under the share sheet: no per-frame lyric work, so no row re-blurs. */
+    private boolean lyricsFrozen;
+    /** The share sheet hides everything: nothing but it is drawn, the background is paused. */
+    private boolean lyricsCovered;
+
+    private final VsyncFrameScheduler frameScheduler = new VsyncFrameScheduler(deltaTimeSeconds -> {
+        if (!running) return;
+        // The share sheet is up: the lyrics hold still under it (see onShareSheet).
+        if (lyricsFrozen) return;
+        float dt = deltaTimeSeconds <= 0d ? (1f / 60f) : (float) Math.max(0.001d, Math.min(0.08d, deltaTimeSeconds));
+        // Order matters: the reveal publishes this frame's alpha factor, then updateState() runs
+        // the renderer, which reads it. Stepping it after would show every row one frame stale.
+        stepLoadEntrance(dt);
+        stepRowCascade(dt);
+        stepScrollSpring(dt);
+        updateState(dt);
+    });
+
+    /** Not in a picture-in-picture host. */
+    static final int PIP_LAYOUT_NONE = 0;
+    /** PiP window of a portrait shape: the phone's portrait layout, scaled down. */
+    static final int PIP_LAYOUT_PORTRAIT = 1;
+    /** PiP window of a landscape shape: the landscape layout (two columns when that is on),
+     *  scaled down - a portrait layout stretched to a wide window made every line tiny. */
+    static final int PIP_LAYOUT_LANDSCAPE = 2;
+    private final int pipLayout;
+
+    NativeSpicyShellViewImpl(LyricsHost host, Activity activity) {
+        this(host, activity, PIP_LAYOUT_NONE);
+    }
+
+    NativeSpicyShellViewImpl(LyricsHost host, Activity activity, int pipLayout) {
+        super(activity);
+        this.host = host;
+        this.activity = activity;
+        this.pipLayout = pipLayout;
+        com.spotifyplusplus.ui.Motion.initialize(activity);
+        this.romanSpinner = new ChipSpinnerDrawable(activity);
+        this.translationSpinner = new ChipSpinnerDrawable(activity);
+        this.toggleSpinnerController = new LyricsToggleSpinnerController(romanSpinner, translationSpinner);
+        this.playbackClock = new LyricsPlaybackClock(host::readBestMeasuredProgressMs);
+        this.config = SpotifyPlusConfig.from(activity);
+        // Construction-time layout decision: rotation remounts the shell, and the adaptive
+        // toggle takes effect on the next open (same contract as PR9's landscape layout).
+        android.content.res.Configuration screen = activity.getResources().getConfiguration();
+        // A PiP host is still full screen (usually portrait) when the shell is built, so the
+        // window's shape decides there instead of the host's configuration.
+        this.twoColumn = pipLayout == PIP_LAYOUT_LANDSCAPE
+                ? Boolean.TRUE.equals(config.get(Settings.ADAPTIVE_LANDSCAPE_LAYOUT))
+                : pipLayout == PIP_LAYOUT_NONE && twoColumnEngaged(screen.screenWidthDp,
+                        screen.screenHeightDp, config.get(Settings.ADAPTIVE_LANDSCAPE_LAYOUT));
+        this.aiSettings = new AiSettings(activity);
+        this.styleBatcher = new FrameStyleBatcher(activity);
+        this.frameRenderer = new LyricsFrameRenderer(activity, styleBatcher);
+        this.lineVisualController = new LyricsLineVisualController(styleBatcher);
+        this.textFactory = new LyricsTextFactory(activity, config);
+        this.rowViewFactory = new LyricsRowViewFactory(activity, textFactory);
+        this.secondaryProcessor = new LyricsSecondaryProcessor(activity, HTTP, SOUND_PROCESSOR, SOUND_WORKERS,
+                MEANING_WORKERS, AI_WORKERS, handler, GOOGLE_PROCESSING_VERSION);
+        this.localReprocessController = new LyricsLocalReprocessController(secondaryProcessor);
+        this.ambientController = new LyricsAmbientController(activity, HTTP, config);
+        this.settingsDialogController = new LyricsSettingsDialogController(
+                activity, frameScheduler, ambientController, host, this::onSettingsClosed,
+                mode -> enterLayoutEditMode(mode == com.spotifyplusplus.settings.SettingsPanel.EDITOR_CARD),
+                this::resyncLyricsTiming, TAG);
+        this.emptyStateController = new LyricsShellEmptyStateController(activity, config, textFactory);
+        this.shellLifecycle = new LyricsShellLifecycle(activity, () -> {
+            if (consumeShareSheetBack() || consumeLayoutEditorBack()) return;
+            host.markExplicitLyricsExit(activity);
+            activity.finish();
+        });
+        SharedPreferences prefs = activity.getSharedPreferences(SpotifyPlusConfig.PREFS_NAME, Context.MODE_PRIVATE);
+        preferences = prefs;
+        renderConfig = LyricsRenderConfig.read(activity, config);
+        // SettingsStore normally attaches this context when the settings panel is opened, but
+        // lyrics can be mounted first (or restored from a warm Spotify process). Attach it here as
+        // well so post-install model packs are visible to the tokenizer/detector on every entry
+        // path, not only after the user has visited Settings.
+        com.spotifyplusplus.lyrics.language.LanguageModelPack.attachContext(activity);
+        com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor.attachContext(activity);
+        autoResumeFollow = config.get(Settings.AUTO_RESUME_FOLLOW);
+        slideAnimationEnabled = readSlideEnabled();
+        com.spotifyplusplus.lyrics.FuriganaText.applySettings(
+                config.get(Settings.FURIGANA_BRIGHTNESS), config.get(Settings.FURIGANA_POSITION_PERCENT));
+        transliterationSession = new LyricsTransliterationSession(
+                config.get(Settings.NATIVE_SPICY_ROMANIZATION),
+                renderConfig,
+                config.get(Settings.LAST_JAPANESE_CYCLE_MODE),
+                config.get(Settings.LAST_CHINESE_CYCLE_MODE),
+                config.get(Settings.LAST_KOREAN_CYCLE_MODE),
+                config.get(Settings.LAST_CYRILLIC_CYCLE_MODE));
+        showTranslation = config.get(Settings.NATIVE_SPICY_TRANSLATION);
+        // Seed with a status-bar-height estimate; the WindowInsets listener refines it with the
+        // real safe-area top (status bar + display cutout) once insets dispatch on attach.
+        lyricsTopInsetPx = NativeLyricsUtils.statusBarClearance(activity);
+        lyricsSideInsetPx = sideSystemPadding(activity);
+
+        setBackground(ambientController.pageBackground());
+        setClickable(true);
+        setFocusable(true);
+        ambientController.attachAnimatedLayer(this, renderConfig.backgroundStyle,
+                renderConfig.forceDarkBackground, renderConfig.extraDarkBackground);
+
+        contentColumn = new LinearLayout(activity);
+        contentColumn.setOrientation(twoColumn ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        contentColumn.setGravity(twoColumn ? Gravity.CENTER_VERTICAL : Gravity.CENTER_HORIZONTAL);
+        contentColumn.setClipChildren(false);
+        contentColumn.setClipToPadding(false);
+        // Portrait: title/subtitle/progress/status are GONE here (the track-info readout owns
+        // song text; see TrackInfoReadoutController), so the only persistently visible child is
+        // lyricsFrame itself - outer padding here just insets its background/blur surface from
+        // the true screen edges, reading as a visible border. Individual lyric rows already carry
+        // their own small text-safety padding (LyricsRowViewFactory#leadingPadding), so this
+        // outer padding is redundant for portrait and is dropped; landscape/two-column keep it,
+        // since its column gutters are sized assuming it's present.
+        applyContentColumnPadding();
+        addView(contentColumn, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (twoColumn) {
+            landscapeLeftColumn = new LinearLayout(activity);
+            landscapeLeftColumn.setOrientation(LinearLayout.VERTICAL);
+            landscapeLeftColumn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            landscapeLeftColumn.setClipChildren(false);
+            landscapeLeftColumn.setClipToPadding(false);
+            LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 0.8f);
+            // Equal screen-edge gutters: 40dp above the art matches the 24dp column
+            // gutter + 16dp landscape content padding below the song info. This screen
+            // is fully ours, so insets stay out of it — the chrome floats above.
+            leftLp.setMargins(0, dp(40), dp(20), dp(24));
+            leftLp.gravity = Gravity.CENTER_VERTICAL;
+            contentColumn.addView(landscapeLeftColumn, leftLp);
+            // The cover and song info themselves are the readout's column placement (see
+            // TrackInfoReadoutController#columnView): it is added below, once the readout is
+            // attached, so all four placements are built by one component.
+            landscapeRightColumn = new LinearLayout(activity);
+            landscapeRightColumn.setOrientation(LinearLayout.VERTICAL);
+            landscapeRightColumn.setGravity(Gravity.CENTER_HORIZONTAL);
+            landscapeRightColumn.setClipChildren(false);
+            landscapeRightColumn.setClipToPadding(false);
+            contentColumn.addView(landscapeRightColumn, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1.15f));
+        }
+
+        int chromeButton = chromeButtonDp();
+        likedMode = config.get(Settings.LIKED_SONGS_BUTTON);
+        chromeLayoutMode = config.get(Settings.CHROME_CLUSTER_LAYOUT);
+        LyricsShellChromeController.ChromeViews chrome = LyricsShellChromeController.attach(
+                activity,
+                this,
+                textFactory,
+                romanGlyph,
+                romanSpinner,
+                translationSpinner,
+                chromeButton,
+                isLandscape(),
+                verticalChrome(),
+                "Left".equals(config.get(Settings.CHROME_CLUSTER_POSITION)),
+                () -> {
+                    if (consumeLayoutEditorBack()) return;
+                    host.markExplicitLyricsExit(activity);
+                    activity.finish();
+                },
+                () -> cycleTransliterationMode(prefs),
+                this::onTranslationTapped,
+                () -> host.openLyricsPip(activity),
+                () -> settingsDialogController.show(),
+                com.spotifyplusplus.ui.ActionIconDrawable.likedSongsKind(likedMode),
+                this::onLikeTapped);
+        chromeHeader = chrome.header;
+        chromeViews = chrome;
+        applyChromeHeaderPadding();
+        updatePipButtonVisibility();
+        applyBackVisibility();
+        attachClusterLayoutListener();
+        romanToggle = chrome.romanToggle;
+        translationToggle = chrome.translationToggle;
+        likeButton = chrome.likeButton;
+        if (chrome.settingsButton != null) {
+            chrome.settingsButton.setOnLongClickListener(v -> {
+                enterLayoutEditMode();
+                return true;
+            });
+        }
+        refreshLikedButton(null);
+        romanToggle.setOnClickListener(v -> {
+            if (SoundToggleRouter.forGesture(false)
+                    == SoundToggleRouter.Action.CYCLE_LOCAL_MODE) cycleTransliterationMode(prefs);
+        });
+        romanToggle.setOnLongClickListener(v -> {
+            if (SoundToggleRouter.forGesture(true)
+                    == SoundToggleRouter.Action.OPEN_AI_PANEL) {
+                openAiLayerPanel(com.spotifyplusplus.lyrics.session.LayerKind.SOUND);
+            }
+            return true;
+        });
+        translationToggle.setOnLongClickListener(v -> {
+            openAiLayerPanel(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+            return true;
+        });
+        updateToggleVisuals();
+
+        // Legacy-GONE song-info views: the readout owns song text in every layout now, two-column
+        // included (its column placement carries the cover, title, artist and album). They stay
+        // only so the per-frame update has somewhere to write when they are shown.
+        title = textFactory.createText(activity, "Waiting for Spotify track…", 18, Color.WHITE, textFactory.resolveTypeface(true));
+        title.setVisibility(GONE);
+        title.setGravity(Gravity.CENTER);
+        title.setMaxLines(1);
+        title.setAlpha(0.92f);
+        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rowContainer().addView(title, titleLp);
+
+        subtitle = textFactory.createText(activity, "Open playback, then fullscreen lyrics", 13, Color.rgb(190, 190, 190), textFactory.resolveTypeface(false));
+        subtitle.setVisibility(GONE);
+        subtitle.setGravity(Gravity.CENTER);
+        subtitle.setMaxLines(1);
+        subtitle.setAlpha(0.72f);
+        LinearLayout.LayoutParams subtitleLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        subtitleLp.topMargin = dp(0);
+        rowContainer().addView(subtitle, subtitleLp);
+
+        lyricsScroll = new com.spotifyplusplus.lyrics.ElasticScrollView(activity);
+        // Rubber-banding and the shortened scroll end are Apple Music's; every other animation
+        // style scrolls like the plain ScrollView it was before.
+        setElasticScrollEnabled(appleStyle());
+        lyricsScroll.setFillViewport(false);
+        lyricsScroll.setClipToPadding(false);
+        lyricsScroll.setClipChildren(false);
+        applyLyricsScrollPadding();
+        lyricsScroll.setVerticalFadingEdgeEnabled(false);
+        lyricsScroll.setFadingEdgeLength(0);
+        lyricsScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        lyricsScroll.setVerticalScrollBarEnabled(false);
+        lyricsScroll.getViewTreeObserver().addOnPreDrawListener(() -> {
+            holdScrollAnchor();
+            return true;
+        });
+        LyricsTapSeekHandler tapSeekHandler = new LyricsTapSeekHandler(
+                activity,
+                config,
+                followState::holdUntil,
+                followState::setTouching,
+                this::seekNearestLineAt,
+                this::shareLyricLineAt);
+        lyricsScroll.setOnTouchListener((view, event) -> {
+            if (event.getActionMasked() == android.view.MotionEvent.ACTION_DOWN
+                    || event.getActionMasked() == android.view.MotionEvent.ACTION_MOVE) {
+                revealChrome();
+            }
+            trackPressedLyric(event);
+            int action = event.getActionMasked();
+            if (action != android.view.MotionEvent.ACTION_DOWN && tapSeekHandler.longPressFired()
+                    && shareCardController != null && shareCardController.isShowing()) {
+                // The finger that opened the share sheet is still down: its moves pull the card a
+                // little (the sheet's rubber band) instead of scrolling the lyrics underneath.
+                shareCardController.heldDrag(event);
+                tapSeekHandler.onTouch(view, event);
+                return true;
+            }
+            return tapSeekHandler.onTouch(view, event);
+        });
+        lyricsFrame = new FrameLayout(activity);
+        lyricsColumn = new LinearLayout(activity);
+        lyricsColumn.setOrientation(LinearLayout.VERTICAL);
+        lyricsColumn.setGravity(Gravity.CENTER_HORIZONTAL);
+        lyricsColumn.setClipChildren(false);
+        lyricsColumn.setClipToPadding(false);
+
+        topStaticSpacer = new LyricsSpaceView(activity, dp(96));
+        topVirtualSpacer = new LyricsSpaceView(activity, 0);
+        mountedRowsHost = new LinearLayout(activity);
+        mountedRowsHost.setOrientation(LinearLayout.VERTICAL);
+        mountedRowsHost.setGravity(Gravity.CENTER_HORIZONTAL);
+        mountedRowsHost.setClipChildren(false);
+        mountedRowsHost.setClipToPadding(false);
+        secondaryRowUpdater = new LyricsSecondaryRowUpdater(mountedRowsHost, lineVisualController::invalidate);
+        bottomVirtualSpacer = new LyricsSpaceView(activity, 0);
+        sourceFooter = textFactory.createText(activity, "", 12, Color.rgb(125, 125, 125), textFactory.resolveTypeface(false));
+        sourceFooter.setGravity(Gravity.CENTER);
+        sourceFooter.setAlpha(0.8f);
+        sourceFooter.setPadding(dp(16), dp(38), dp(16), dp(180));
+        // The source line is the picker action: it stays visually separated from the
+        // songwriter/provider credit below it, and reads as an action ("Source: … ›").
+        sourceFooter.setClickable(true);
+        sourceFooter.setFocusable(true);
+        sourceFooter.setOnClickListener(v -> openSourcePicker());
+        rowMountController = new LyricsRowMountController(
+                mountedRowsHost,
+                topVirtualSpacer,
+                bottomVirtualSpacer,
+                LYRIC_FULL_RENDER_THRESHOLD,
+                LYRIC_WINDOW_BEFORE_ACTIVE,
+                LYRIC_WINDOW_AFTER_ACTIVE,
+                NativeRuntime.LYRIC_WINDOW_EDGE_BUFFER);
+        scrollController = new LyricsScrollController(lyricsScroll, lyricsColumn, topStaticSpacer);
+        scrollController.setAnchorFraction(resolveFocusAnchorFraction());
+        applyLyricsScrollPadding();
+
+        ensureLyricsColumnScaffold();
+        lyricsScroll.setOnScrollChangeListener((v, scrollX, scrollY, oldScrollX, oldScrollY) -> {
+            if (!running) return;
+            if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+            // The shell's own scrolls come through here too. Treating them as user motion made
+            // every lyric advance mark a manual scroll (pushing the auto-resume cooldown back) and
+            // schedule a full remeasure + window render ~500ms later, so follow kept stuttering on
+            // work the user never asked for.
+            if (!applyingLyricScroll && scrollY != oldScrollY) {
+                // The user has taken the list over. Anything still driving the scroll position or
+                // the rows' offsets is now fighting their finger.
+                clearRowCascade();
+                scrollSpring = null;
+                clearScrollSubpixel();
+            }
+            frameScheduler.setContinuous(true);
+            frameScheduler.requestFrame();
+            scheduleScrollWindowRender();
+            if (applyingLyricScroll) return;
+            scrollInProgress = true;
+            scheduleScrollSettleRemeasure();
+        });
+        lyricsScroll.addView(lyricsColumn, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        lyricsFrame.addView(lyricsScroll, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout floatingChipHost = twoColumn ? this : lyricsFrame;
+        jumpToCurrentController = LyricsJumpToCurrentController.attach(
+                activity,
+                floatingChipHost,
+                textFactory,
+                config,
+                uiStrings(),
+                this::resumeFollowCurrentLine);
+        skipGapController = LyricsSkipGapController.attach(
+                activity,
+                floatingChipHost,
+                config,
+                () -> config == null ? Settings.FOLLOW_CHIP_POSITION.defaultValue
+                        : config.get(Settings.FOLLOW_CHIP_POSITION),
+                this::skipCurrentGap);
+        trackInfoController = TrackInfoReadoutController.attach(
+                activity,
+                this,
+                jumpToCurrentController,
+                textFactory,
+                host,
+                config,
+                this::revealChrome,
+                twoColumn,
+                chrome.header,
+                chrome.headerTitle);
+        trackInfoController.setSkipGapController(skipGapController);
+        trackInfoController.setChromeReserve(this::chromeReservePx);
+        // Two-column: the readout's column placement (cover + song info, one component with the
+        // other three) goes into the left column this shell owns, in place of the lyric stack it
+        // used to draw itself. Hiding it (Track info position Off) collapses the left column and
+        // the lyrics column takes the width.
+        if (twoColumn && trackInfoController.columnView() != null) {
+            landscapeLeftColumn.addView(trackInfoController.columnView(),
+                    new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+            // The readout set the box's visibility before it had a parent to mirror it onto.
+            landscapeLeftColumn.setVisibility(trackInfoController.columnView().getVisibility());
+        }
+        // TrackInfoReadoutController.attach() just added topBox/bottomBox/sideBox as later
+        // siblings of chromeHeader on this same shellRoot, so in Top position they paint (and
+        // steal touches) over the roman/translate/like/settings cluster wherever the two
+        // overlap. The chrome row must stay the topmost child so those buttons stay reachable.
+        // While the layout editor is open, its dock capture deliberately sits above this header
+        // so the real settings/reading actions cannot fire while selecting the grouped Dock
+        // element. Outside the editor, keep the header above readout overlays as usual.
+        if (findViewWithTag(LyricsLayoutEditController.OVERLAY_TAG) == null) {
+            chromeHeader.bringToFront();
+        }
+        LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        scrollLp.topMargin = 0;
+        rowContainer().addView(lyricsFrame, scrollLp);
+
+        progress = textFactory.createText(activity, "--:--", 13, Color.rgb(210, 210, 210), textFactory.resolveTypeface(true));
+        progress.setFontFeatureSettings("tnum");
+        progress.setVisibility(GONE);
+        progress.setGravity(Gravity.CENTER);
+        progress.setAlpha(0.72f);
+        rowContainer().addView(progress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        status = textFactory.createText(activity, uiText("lyrics_shell_native_renderer", "Spicy native renderer"), 12, Color.rgb(160, 160, 160), textFactory.resolveTypeface(false));
+        status.setVisibility(GONE);
+        status.setGravity(Gravity.CENTER);
+        status.setMaxLines(3);
+        LinearLayout.LayoutParams statusLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        status.setAlpha(0.62f);
+        statusLp.topMargin = dp(0);
+        rowContainer().addView(status, statusLp);
+
+        // Refine the lyric top/side insets from real window insets (status bar + cutout) once
+        // they dispatch on attach. Returned unconsumed so nothing else is starved of insets.
+        setOnApplyWindowInsetsListener((v, insets) -> {
+            // The bar's place, not the visible insets: those lose the bar while it is hidden, and
+            // the lyrics used to follow them up. Only a cutout deeper than the bar adds to it.
+            int cutout = 0;
+            if (android.os.Build.VERSION.SDK_INT >= 28 && insets.getDisplayCutout() != null) {
+                cutout = insets.getDisplayCutout().getSafeInsetTop();
+            }
+            cutoutTopPx = cutout;
+            int wanted = Math.max(NativeLyricsUtils.statusBarClearance(activity), cutout);
+            if (wanted != lyricsTopInsetPx) {
+                lyricsTopInsetPx = wanted;
+                applyLyricsScrollPadding();
+                applyChromeHeaderPadding();
+            }
+            int side = computeSafeSideInset(insets);
+            if (side != lyricsSideInsetPx) {
+                lyricsSideInsetPx = side;
+                applyLyricsScrollPadding();
+                applyRowSideInsets();
+            }
+            int[] edges = safeSideInsets(insets);
+            if (edges[0] != safeLeftInsetPx || edges[1] != safeRightInsetPx) {
+                safeLeftInsetPx = edges[0];
+                safeRightInsetPx = edges[1];
+                applyContentColumnPadding();
+                applyChromeHeaderPadding();
+                applyLyricsScrollPadding();
+                applyRowSideInsets();
+            }
+            return insets;
+        });
+    }
+
+
+    // Runnable trigger callback intended for instant live UI refreshes when an async CDN network image downloads
+    private final Runnable artworkDownloadListener = () -> {
+        if (running) {
+            handler.post(() -> {
+                if (running) {
+                    // A frame is all that is needed: the readout owns every art surface now, and
+                    // its own retry loop re-reads the network cache on the next update.
+                    frameScheduler.requestFrame();
+                }
+            });
+        }
+    };
+    void start() {
+        dbgEnter("NativeSpicyShellView.start");
+        if (running) return;
+        running = true;
+        // Spotify's own lyrics page (which may hold the window's keep-screen-on request) is
+        // hidden while this shell covers it, so hold the request on our own view instead.
+        setKeepScreenOn(true);
+        hasRenderedDocument = false;
+        cancelSongChangeTransitions();
+        synchronized (TrackInfoReadoutController.ART_NETWORK_LISTENERS) {
+            TrackInfoReadoutController.ART_NETWORK_LISTENERS.add(artworkDownloadListener);
+        }
+        applyStatusBarPreference();
+        com.spotifyplusplus.lyrics.language.LanguageModelPack.setReadyListener(languageModelReadyListener);
+        if (!pipPresentation) watchContentScreenTop(true);
+        ambientController.start();
+        revealChrome();
+        documentGate.start();
+        registerPreferenceListener();
+        sessionSubscription = host.subscribeLyricsSession(sessionListener);
+        shellLifecycle.start();
+        playbackClock.reset("");
+        updateState(1f / 60f);
+        frameScheduler.start();
+        if (LyricsLayoutEditorReopenPolicy.hasPending()) {
+            post(this::checkPendingLayoutEditorReopen);
+        }
+    }
+
+    private void checkPendingLayoutEditorReopen() {
+        if (!LyricsLayoutEditorReopenPolicy.hasPending()) return;
+        if (!running) return;
+        if (layoutEditorHandle != null) return;
+        if (!isAttachedToWindow()) {
+            post(this::checkPendingLayoutEditorReopen);
+            return;
+        }
+        LyricsLayoutEditorReopenPolicy.PendingReopen pending =
+                LyricsLayoutEditorReopenPolicy.consume(SystemClock.elapsedRealtime());
+        if (pending == null) return;
+        enterLayoutEditMode(pending.cardMode);
+        post(() -> {
+            if (layoutEditorHandle != null && pending.selectedName != null && !pending.selectedName.isEmpty()) {
+                layoutEditorHandle.agentSelect(pending.selectedName, false);
+            }
+        });
+    }
+
+    /**
+     * A model named this recording something the providers might know it by, and the screen is
+     * still empty. Ask once more with the wider plan.
+     *
+     * <p>Once per track, and only while the screen has nothing: the alias lookup is scheduled by a
+     * miss, so without this the answer would sit in the cache until the track was opened again —
+     * the user would watch an unchanged "no lyrics found" while the fix was already in hand.
+     */
+    private void retryWithAliases(String title, String artist) {
+        if (!running) return;
+        if (document != null && !document.lines.isEmpty()) return;
+        SpotifyTrack current = host.getCurrentTrackSafely();
+        if (current == null || current.uri == null) return;
+        if (!sameAliasText(current.title, title) || !sameAliasText(current.artist, artist)) return;
+        String id = trackIdFromUri(current.uri);
+        if (id.isEmpty() || id.equals(aliasRetriedTrackId)) return;
+        aliasRetriedTrackId = id;
+        dbg("NativeSpicyShellView.retryWithAliases", "id=" + id);
+        loadLyrics(current, id);
+    }
+
+    private static boolean sameAliasText(String left, String right) {
+        return safe(left).trim().equalsIgnoreCase(safe(right).trim());
+    }
+
+    void stop() {
+        dbgEnter("NativeSpicyShellView.stop");
+        running = false;
+        com.spotifyplusplus.lyrics.ai.AiTrackAliases.removeListener(aliasListener);
+        watchContentScreenTop(false);
+        setKeepScreenOn(false);
+        cancelLoadEntranceAnimation();
+        cancelSongChangeTransitions();
+        // The layout editor is an in-shell full-screen touch layer. It normally removes itself
+        // through Save/Cancel, but a lyrics screen teardown can bypass that path. Remove any
+        // stale instance before this shell is reused so it can never intercept the next screen's
+        // settings/reading touches.
+        View staleLayoutEditor = findViewWithTag(LyricsLayoutEditController.OVERLAY_TAG);
+        if (layoutEditorHandle != null && staleLayoutEditor != null
+                && (staleLayoutEditor.getParent() != null || staleLayoutEditor.isAttachedToWindow())) {
+            LyricsLayoutEditorReopenPolicy.record(
+                    layoutEditorHandle.isCardMode(),
+                    layoutEditorHandle.selectedName(),
+                    SystemClock.elapsedRealtime());
+        }
+        if (staleLayoutEditor != null && staleLayoutEditor.getParent() instanceof ViewGroup) {
+            ((ViewGroup) staleLayoutEditor.getParent()).removeView(staleLayoutEditor);
+        }
+        layoutEditorHandle = null;
+        // Hand the status bar back only if this screen took it; Spotify's window is otherwise
+        // left as it found it.
+        if (statusBarHiddenByUs) {
+            statusBarHiddenByUs = false;
+            showStatusBar();
+        }
+        com.spotifyplusplus.lyrics.language.LanguageModelPack.clearReadyListener(languageModelReadyListener);
+        documentGate.stop();
+        if (lyricRequest != null) lyricRequest.close();
+        lyricRequest = null;
+        if (sessionSubscription != null) sessionSubscription.close();
+        sessionSubscription = null;
+        synchronized (TrackInfoReadoutController.ART_NETWORK_LISTENERS) {
+            TrackInfoReadoutController.ART_NETWORK_LISTENERS.remove(artworkDownloadListener);
+        }
+        unregisterPreferenceListener();
+        toggleSpinnerController.reset();
+        shellLifecycle.stop();
+        frameScheduler.stop();
+        clearRowCascade();
+        clearLoadEntrance();
+        scrollSpring = null;
+        returnToCurrentPending = false;
+        clearScrollSubpixel();
+        ambientController.stop();
+        TrackInfoReadoutController.trimMemory();
+        handler.removeCallbacks(idleFrameProbe);
+        visuallySettledFrames = 0;
+        playbackClock.reset("");
+        handler.removeCallbacks(scrollSettleRunnable);
+        scrollSettleScheduled = false;
+        scrollInProgress = false;
+        handler.removeCallbacksAndMessages(null);
+        chromeRevealAnimating = false;
+        if (chromeHeader != null) chromeHeader.animate().cancel();
+        if (trackInfoController != null) trackInfoController.teardown();
+        clearPendingStyleWrites();
+    }
+
+    private void revealChrome() {
+        if (chromeHeader == null || pipPresentation) return;
+        handler.removeCallbacks(hideChromeRunnable);
+        // Track/art readout overlays can be reattached after the header (preference changes,
+        // rotation, and layout-editor entry all do this). Restore the real chrome's z-order at
+        // the same moment as its visibility so the first DOWN reaches the settings button and
+        // Android can observe its long-press sequence.
+        chromeHeader.bringToFront();
+        // The layout editor stays above the header: its Cancel/Save buttons sit exactly over the
+        // real back button, and its dock outline over the chrome cluster.
+        View layoutEditor = findViewWithTag(LyricsLayoutEditController.OVERLAY_TAG);
+        if (layoutEditor != null) layoutEditor.bringToFront();
+        chromeHeader.setVisibility(View.VISIBLE);
+        if (chromeHeader.getAlpha() < 0.99f && !chromeRevealAnimating) {
+            chromeRevealAnimating = true;
+            chromeHeader.animate().cancel();
+            chromeHeader.animate().alpha(1f).setDuration(100L)
+                    .withEndAction(() -> chromeRevealAnimating = false).start();
+        } else {
+            chromeHeader.setAlpha(1f);
+            chromeRevealAnimating = false;
+        }
+        int timeoutSeconds = fullscreenControlsTimeoutSeconds();
+        if (!LyricsLayoutEditorRuntimePolicy.chromeAutoHideAllowed(
+                layoutEditor != null, timeoutSeconds)) return;
+        handler.postDelayed(hideChromeRunnable, timeoutSeconds * 1000L);
+    }
+
+    private int fullscreenControlsTimeoutSeconds() {
+        return new com.spotifyplusplus.lyrics.LyricsShellSettings(activity, config)
+                .fullscreenControlsTimeoutSeconds();
+    }
+
+    // The reflective player-state walk in host.getCurrentTrackSafely() is too expensive for every
+    // vsync frame; refresh at ~4Hz. Position interpolation reads live player state through
+    // PlaybackClock separately, so the only cost is up to 250ms of track-change latency.
+    private SpotifyTrack currentTrackThrottled() {
+        long now = SystemClock.elapsedRealtime();
+        if (throttledTrack == null || now - throttledTrackAtMs >= 250) {
+            throttledTrack = host.getCurrentTrackSafely();
+            throttledTrackAtMs = now;
+        }
+        return throttledTrack;
+    }
+
+    /** Both session publications and polling adopt the track before mounting its document. */
+    private boolean adoptTrack(SpotifyTrack track) {
+        if (track == null) return false;
+        throttledTrack = track;
+        String uri = safe(track.uri);
+        if (uri.equals(lastUri)) return false;
+        // A frame adopts the cached track repeatedly. Restarting the poll window on each frame
+        // prevents the next track from being read while lyrics animate.
+        throttledTrackAtMs = SystemClock.elapsedRealtime();
+        lastUri = uri;
+        playbackClock.reset(uri);
+        clearRowCascade();
+        cancelLoadEntranceAnimation();
+        lastDisplayedProgressSecond = Long.MIN_VALUE;
+        lastDisplayedTitle = "";
+        lastDisplayedArtist = "";
+        lastDisplayedAlbum = "";
+        followState.resetActive();
+        lastLyricPositionMs = -1;
+        resetScrollForNextDocument = true;
+        document = null;
+        String id = trackIdFromUri(uri);
+        ambientController.updateForTrack(track, () -> running);
+        XpLog.log(TAG + " active track uri=" + uri + " title=\"" + safe(track.title) + "\"");
+        return true;
+    }
+
+    private void updateState(float deltaSeconds) {
+        if (demoModeActive) {
+            // A dedicated, self-contained animation path - not the real per-track pipeline below,
+            // which must never see the demo track's sentinel URI (it would read as a real track
+            // change and try to fetch lyrics for it through the real host).
+            updateDemoFrame(deltaSeconds);
+            return;
+        }
+        SpotifyTrack track = currentTrackThrottled();
+        boolean playingNow = host.isPlayerActuallyPlaying();
+        ambientController.setPlaying(playingNow);
+        updateJumpToCurrentVisibility();
+        updateToggleSpinners();
+        if (track == null) {
+            setTextIfChanged(title, "Waiting for Spotify track…");
+            setTextIfChanged(subtitle, "Player state hook has not emitted yet");
+            setTextIfChanged(progress, "--:--");
+            setTextIfChanged(status, "Native Spicy renderer mounted. Waiting for player state.");
+            skipGapController.hide();
+            updateFrameDemand(false, false);
+            return;
+        }
+
+        // Keep the lyric screen alive across track changes while it's actually on screen — the
+        // mount-time keep window otherwise lapses after a few seconds. Throttled to ~1s; the
+        // window auto-expires once the shell stops (teardown), so explicit exits still close it.
+        long armNow = SystemClock.elapsedRealtime();
+        if (armNow - lastKeepAliveArmMs > 1000) {
+            lastKeepAliveArmMs = armNow;
+            host.markLyricsKeepAlive(activity);
+        }
+
+        String uri = safe(track.uri);
+        if (adoptTrack(track)) {
+            beginLoadingTransition(trackIdFromUri(uri));
+            loadLyrics(track, trackIdFromUri(uri));
+        }
+        long pos = playbackClock.getPosition(track, playingNow);
+
+        String trackTitle = emptyFallback(track.title, "Unknown title");
+        String trackArtist = emptyFallback(track.artist, "Unknown artist");
+        String trackAlbum = emptyFallback(track.album, "Unknown album");
+        if (!trackTitle.equals(lastDisplayedTitle)) {
+            lastDisplayedTitle = trackTitle;
+            setTextIfChanged(title, trackTitle);
+        }
+        if (!trackArtist.equals(lastDisplayedArtist) || !trackAlbum.equals(lastDisplayedAlbum)) {
+            lastDisplayedArtist = trackArtist;
+            lastDisplayedAlbum = trackAlbum;
+            setTextIfChanged(subtitle, trackArtist + " • " + trackAlbum);
+        }
+        if (trackInfoController != null) {
+            // Every layout's song text lives in the readout, the two-column column included.
+            trackInfoController.onTrackChanged(track);
+            trackInfoController.onPlayingChanged(playingNow);
+        }
+        updateLikedButton(track);
+        long displayedSecond = Math.max(0L, pos) / 1000L;
+        if (displayedSecond != lastDisplayedProgressSecond) {
+            lastDisplayedProgressSecond = displayedSecond;
+            setTextIfChanged(progress, formatMs(pos));
+        }
+
+        boolean rendererPending = false;
+        if (document != null) {
+            if (staticDoc) {
+                // Reassert static styling after remounts and late secondary-text updates. Static
+                // rows have synthetic layout timings, never a karaoke-active row.
+                skipGapController.hide();
+                frameRenderer.applyStatic(document, rowMountController.mountedIndices(), mountedRowsHost);
+            } else {
+                long lyricPos = adjustedLyricPositionMs(pos);
+                int nextActive = LyricTimeline.findPrimaryActiveRow(document.appliedLines, lyricPos);
+                boolean drasticSeek = lastLyricPositionMs >= 0 && Math.abs(lyricPos - lastLyricPositionMs) > 1000;
+                lastLyricPositionMs = lyricPos;
+                updateSkipGap(track, uri, lyricPos, playingNow);
+                maybeAutoResumeFollow(nextActive, track, lyricPos);
+                if (nextActive != followState.activeIndex() || drasticSeek) {
+                    setActiveLine(nextActive, lyricPos, track, drasticSeek);
+                }
+                boolean userScrollHeld = followState.isHoldingNow();
+                // Always, not only while held: rows outside it skip per-syllable animation work.
+                long visibleRange = scrollController != null
+                        ? scrollController.visibleLineRange(rowHeightPrefix(), document.appliedLines.size())
+                        : LyricsScrollController.ALL_LINES;
+                int visibleStart = LyricsScrollController.rangeStart(visibleRange);
+                int visibleEnd = LyricsScrollController.rangeEnd(visibleRange);
+                frameRenderer.applySynced(document, rowMountController.mountedIndices(), mountedRowsHost,
+                        renderConfig, lyricPos, nextActive, deltaSeconds, userScrollHeld,
+                        visibleStart, visibleEnd);
+                // Asked with the same viewport the frame pass just used, so a row the pass culled
+                // cannot keep the scheduler rendering a paused player.
+                rendererPending = frameRenderer.hasPendingAnimation(document,
+                        rowMountController.mountedIndices(), mountedRowsHost,
+                        nextActive, visibleStart, visibleEnd);
+            }
+            if (status.getVisibility() == View.VISIBLE) {
+                String processingStatus = "";
+                if (document.processingPending) {
+                    processingStatus = document.romanizationPending && document.translationPending ? " [P:R+Tr]"
+                            : document.romanizationPending ? " [P:R]"
+                            : document.translationPending ? " [P:Tr]"
+                            : " [P:...]";
+                }
+                setTextIfChanged(status, (playingNow ? "Playing" : "Paused")
+                        + processingStatus
+                        + " • " + document.fetchSource
+                        + " • " + document.provider
+                        + " • " + document.type
+                        + " • " + document.appliedLines.size() + " rows");
+            }
+        } else if (!loadingTrackId.isEmpty() && status.getVisibility() == View.VISIBLE) {
+            setTextIfChanged(status, (playingNow ? "Playing" : "Paused") + " • fetching lyrics for " + shortTrackId(uri));
+        }
+        updateFrameDemand(playingNow, rendererPending);
+    }
+
+    /** Demo mode's whole per-frame job: a synthetic clock looping over the demo document's
+     *  duration, driving the same active-row and animation calls the real pipeline uses once it
+     *  already has a position and a document - everything upstream of that (track-change
+     *  detection, lyric fetch, ad handling) never runs, since none of it makes sense for a fake
+     *  track with a sentinel URI. */
+    private void updateDemoFrame(float deltaSeconds) {
+        if (document == null) {
+            updateFrameDemand(false, false);
+            return;
+        }
+        long lyricPos = (SystemClock.elapsedRealtime() - demoStartElapsedMs)
+                % Math.max(1L, document.durationMs);
+        int nextActive = LyricTimeline.findPrimaryActiveRow(document.appliedLines, lyricPos);
+        if (nextActive != followState.activeIndex()) {
+            setActiveLine(nextActive, lyricPos, demoTrack);
+        }
+        boolean userScrollHeld = followState.isHoldingNow();
+        long visibleRange = scrollController != null
+                ? scrollController.visibleLineRange(rowHeightPrefix(), document.appliedLines.size())
+                : LyricsScrollController.ALL_LINES;
+        frameRenderer.applySynced(document, rowMountController.mountedIndices(), mountedRowsHost,
+                renderConfig, lyricPos, nextActive, deltaSeconds, userScrollHeld,
+                LyricsScrollController.rangeStart(visibleRange),
+                LyricsScrollController.rangeEnd(visibleRange));
+        updateFrameDemand(true, false);
+    }
+
+    /**
+     * @param rendererPending rows the frame pass just drew that still have a spring to drain;
+     *                         computed by the caller so it sees the same viewport as the pass
+     */
+    private void updateFrameDemand(boolean playingNow, boolean rendererPending) {
+        boolean processing = document != null && document.processingPending;
+        boolean continuous = (playingNow && document != null && !staticDoc)
+                || !loadingTrackId.isEmpty()
+                || processing
+                || localReprocessController.isProcessing()
+                || !rowCascades.isEmpty()
+                || !loadEntrances.isEmpty()
+                // Both of these are stepped from the vsync callback itself, so dropping out of
+                // continuous mode while either is live freezes the motion part-way.
+                || scrollSpring != null
+                || scrollInProgress
+                || rendererPending;
+        if (continuous) {
+            visuallySettledFrames = 0;
+            handler.removeCallbacks(idleFrameProbe);
+            frameScheduler.setContinuous(true);
+            return;
+        }
+        if (++visuallySettledFrames < SETTLE_FRAMES_BEFORE_IDLE) return;
+        if (frameScheduler.isContinuous()) {
+            frameScheduler.setContinuous(false);
+            handler.removeCallbacks(idleFrameProbe);
+            handler.postDelayed(idleFrameProbe, IDLE_FRAME_PROBE_MS);
+        }
+    }
+
+    private RomanizationOptions romanizationOptions() {
+        LyricsRenderConfig cfg = renderConfig == null ? LyricsRenderConfig.read(activity, config) : renderConfig;
+        return new RomanizationOptions(chineseMode(), koreanMode(), cfg.chineseTones, cyrillicMode(), cfg.cyrillicKeepSigns);
+    }
+
+    private boolean showRomanization() {
+        // The layout editor's demo preview forces every reading on regardless of the user's own
+        // per-language toggles below - its whole point is showing what the layout looks like
+        // across every supported script, which most real configs don't have all enabled at once.
+        if (demoModeActive) return true;
+        return renderConfig != null && renderConfig.transliterationEnabled
+                && transliterationSession != null && transliterationSession.showRomanization();
+    }
+
+    private boolean showTranslation() {
+        if (demoModeActive) return true;
+        return renderConfig != null && renderConfig.translationEnabled && showTranslation;
+    }
+
+    private String japaneseReadingMode() {
+        if (demoModeActive) return "furigana_romaji";
+        return transliterationSession == null ? "" : transliterationSession.japaneseReadingMode();
+    }
+
+    private String chineseMode() {
+        if (demoModeActive) return "pinyin";
+        return transliterationSession == null ? "" : transliterationSession.chineseMode();
+    }
+
+    private String koreanMode() {
+        if (demoModeActive) return com.spotifyplusplus.lyrics.language.KoreanDisplayMode.RR_STANDARD.value;
+        return transliterationSession == null ? "" : transliterationSession.koreanMode();
+    }
+
+    private String cyrillicMode() {
+        if (demoModeActive) return "Russian";
+        return transliterationSession == null ? "" : transliterationSession.cyrillicMode();
+    }
+
+    private void applyRenderConfigChanges(String reason, boolean fromPanelClose) {
+        autoResumeFollow = config.get(Settings.AUTO_RESUME_FOLLOW);
+        slideAnimationEnabled = readSlideEnabled();
+        com.spotifyplusplus.lyrics.FuriganaText.applySettings(
+                config.get(Settings.FURIGANA_BRIGHTNESS), config.get(Settings.FURIGANA_POSITION_PERCENT));
+        if (scrollController != null) {
+            float nextAnchor = resolveFocusAnchorFraction();
+            boolean anchorChanged = nextAnchor != lastAppliedAnchorFraction;
+            lastAppliedAnchorFraction = nextAnchor;
+            scrollController.setAnchorFraction(nextAnchor);
+            applyLyricsScrollPadding();
+            // A plain setAnchorFraction() only changes where the NEXT active-line change lands -
+            // dragging the layout editor's focus handle otherwise moves the visible handle while
+            // the real active line just sits wherever it already was, only catching up once
+            // playback naturally advances to another line. Re-scroll to the current line now so
+            // the handle and the real position never visibly disagree.
+            if (anchorChanged) rescrollActiveRowToAnchor();
+        }
+        LyricsRenderConfig next = LyricsRenderConfig.read(activity, config);
+        LyricsRenderConfig.Diff diff = renderConfig == null ? null : renderConfig.diff(next);
+        if (diff == null || !diff.hasChanges) {
+            renderConfig = next;
+            return;
+        }
+
+        renderConfig = next;
+        // Rubber band and scroll end limit belong to the Apple style; switching the style in the
+        // panel has to take them on or off, and switching off also lifts any limit already set.
+        setElasticScrollEnabled(next.appleStyle);
+        if (diff.needsLocalReprocess || diff.needsTranslationReprocess || diff.needsToggleOnly) {
+            updateToggleVisuals();
+        }
+        if (diff.japaneseModeConfigChanged || diff.chineseModeConfigChanged
+                || diff.koreanModeConfigChanged || diff.cyrillicModeConfigChanged) {
+            transliterationSession.applyConfig(next);
+        }
+        if (diff.japaneseModeConfigChanged || diff.chineseModeConfigChanged
+                || diff.koreanModeConfigChanged || diff.cyrillicModeConfigChanged) {
+            updateToggleVisuals();
+        }
+        if (diff.needsBackgroundToggle) {
+            ambientController.applySettings(next.backgroundStyle, next.forceDarkBackground,
+                    next.extraDarkBackground);
+            SpotifyTrack track = host.getCurrentTrackSafely();
+            if (track != null) ambientController.updateForTrack(track, () -> running);
+        }
+        if (diff.needsTranslationReprocess) {
+            reprocessTranslationForConfig(reason);
+        }
+        if (diff.needsLocalReprocess) {
+            reprocessLocalModeOnly(reason);
+        }
+        if (diff.needsRowRemount || (fromPanelClose && diff.hasChanges && !diff.onlyTimingChanged)) {
+            rebuildWithReflow(() -> {
+                clearRenderedLineViews();
+                renderWindowForActive(followState.activeIndex() >= 0 ? followState.activeIndex() : currentWindowAnchor());
+            });
+        } else if (diff.needsToggleOnly) {
+            updateToggleVisuals();
+        }
+    }
+
+    private void loadLyrics(SpotifyTrack track, String id) {
+        dbg("NativeSpicyShellView.loadLyrics", "id=" + safe(id) + " track=" + (track == null ? "null" : safe(track.uri)));
+        // Registered here rather than at construction: the aliases are only useful while a
+        // request is outstanding, and the surface is torn down and rebuilt per screen.
+        com.spotifyplusplus.lyrics.ai.AiTrackAliases.removeListener(aliasListener);
+        com.spotifyplusplus.lyrics.ai.AiTrackAliases.addListener(aliasListener);
+        if (lyricRequest != null) lyricRequest.close();
+        loadingTrackId = id;
+        ++NativeSpicyLyricsHook.fetchGeneration;
+        lyricRequest = host.fetchLyrics(track, new LyricsResultCallback() {
+            @Override
+            public void onSuccess(LyricsDocument doc) {
+                if (!running || doc == null) return;
+                // One-shot delivery covers the synchronous existing-document case. The observer
+                // remains authoritative for later processing upgrades; the shared gate makes a
+                // following observer delivery supersede this candidate without a double render.
+                prepareAndScheduleDocument(track == null ? "" : track.uri, doc);
+            }
+
+            @Override
+            public void onError(String error) {
+                handler.post(() -> {
+                    if (!running) return;
+                    SpotifyTrack current = host.getCurrentTrackSafely();
+                    String currentId = current == null ? "" : trackIdFromUri(current.uri);
+                    if (!id.equals(currentId)) return;
+                    // A document may already be on screen (cache-first instant render) while
+                    // the rest of the chain was probing for an upgrade. A terminal fallback
+                    // failure must not replace rendered lyrics with an error screen.
+                    if (document != null && !document.lines.isEmpty()) {
+                        setTextIfChanged(status, uiFormat("lyrics_shell_refresh_failed",
+                                "Lyrics refresh failed: %1$s", safe(error)));
+                        return;
+                    }
+                    showError(error);
+                });
+            }
+        });
+    }
+
+    private void prepareAndScheduleDocument(String trackUri, LyricsDocument doc) {
+        String id = trackIdFromUri(trackUri);
+        LyricsSurfaceDocumentGate.Candidate candidate = documentGate.offer(id);
+        ++NativeSpicyLyricsHook.fetchGeneration;
+        RomanizationOptions loadOptions = romanizationOptions();
+        boolean loadRomanization = showRomanization();
+        LyricsDocumentProcessor.applyProcessedCachePreservingAi(activity.getApplicationContext(), doc,
+                loadOptions, GOOGLE_PROCESSING_VERSION);
+        // The session's Sound artifact already carries span readings and the composer applies them.
+        // Only derive here for a document published before the Sound lane produced anything.
+        if (LyricsDocumentProcessor.needsSurfaceLocalRomanization(doc)) {
+            populateLocalSegmentRomanization(doc, loadRomanization, loadOptions);
+        }
+        LyricTimeline.applySyncedRows(doc);
+        handler.post(() -> {
+            SpotifyTrack current = host.getCurrentTrackSafely();
+            String currentId = current == null ? "" : trackIdFromUri(current.uri);
+            if (!running || !documentGate.accepts(candidate, currentId)) {
+                if (running && !id.equals(currentId)) {
+                    XpLog.log(TAG + " stale lyrics ignored id=" + id + " current=" + currentId);
+                }
+                return;
+            }
+            adoptTrack(current);
+            commitAndRenderDocument(candidate, trackUri, doc, currentId);
+        });
+    }
+
+    private void commitAndRenderDocument(LyricsSurfaceDocumentGate.Candidate candidate,
+                                         String trackUri, LyricsDocument doc, String currentId) {
+        String id = trackIdFromUri(trackUri);
+        // A source swap for the track already on screen waits while the user holds follow;
+        // track changes always render immediately and drop any stash.
+        if (!id.equals(pendingSourceSwapUri)) {
+            pendingSourceSwap = null;
+            pendingSourceSwapUri = "";
+        }
+        if (document != null && followState.isHoldingNow() && id.equals(currentId)
+                && id.equals(trackIdFromUri(document.trackId))) {
+            pendingSourceSwap = doc;
+            pendingSourceSwapUri = trackUri;
+            status.setText(uiText("lyrics_shell_new_source_ready",
+                    "New source ready — resume follow to apply"));
+            return;
+        }
+        // A derived-layer completion republishes the whole document. When the canonical base
+        // is unchanged, absorb only the new reading/translation text into the document already
+        // on screen: swapping the object would rebuild the timeline and reset the active row
+        // and scroll position mid-song.
+        LyricsDocument mounted = document;
+        LyricsDocumentProcessor.DerivedMergeResult merge =
+                LyricsDocumentProcessor.mergeDerivedPublication(mounted, doc);
+        if (merge != LyricsDocumentProcessor.DerivedMergeResult.DIFFERENT_BASE) {
+            loadingTrackId = "";
+            if (merge == LyricsDocumentProcessor.DerivedMergeResult.CHANGED) {
+                LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.LAYER_LOCAL_UPDATE);
+                refreshSecondaryRows("");
+            }
+            observeAiRequestFeedback(mounted);
+            // Provenance and failure state can change without changing displayed lyric text.
+            // Refresh controls after every same-base publication so a failed paid request is
+            // never hidden merely because Google/deterministic fallback stayed on screen.
+            updateToggleVisuals();
+            return;
+        }
+        cancelLoadEntranceAnimation();
+        boolean firstMount = document == null;
+        document = doc;
+        pendingLoadEntrance = firstMount;
+        loadingTrackId = "";
+        observeAiRequestFeedback(document);
+        LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.DOCUMENT_REBUILD);
+        renderDocument(false);
+        XpLog.log(TAG + " lyrics loaded source=" + doc.fetchSource + " provider="
+                + doc.provider + " type=" + doc.type + " lines=" + doc.lines.size());
+    }
+
+    private boolean isCurrentProcessingResult(String id, int generation, LyricsDocument snapshot) {
+        if (!running || document != snapshot) return false;
+        if (generation > 0 && generation < NativeSpicyLyricsHook.fetchGeneration) return false;
+        return isBlank(id) || id.equals(trackIdFromUri(lastUri));
+    }
+
+    private void populateLocalSegmentRomanization(LyricsDocument doc) {
+        populateLocalSegmentRomanization(doc, showRomanization(), romanizationOptions());
+    }
+
+    private void populateLocalSegmentRomanization(LyricsDocument doc, boolean enabled,
+                                                   RomanizationOptions options) {
+        if (!enabled || doc == null || doc.lines == null || doc.lines.isEmpty()) return;
+        String fullText = LyricsDocumentProcessor.collectText(doc);
+        for (LyricsLine line : doc.lines) {
+            if (line == null || line.interlude || isBlank(line.text)) continue;
+            LyricsLocalRomanizer.populateLocalSegmentRomanization(options, doc, line, fullText);
+        }
+    }
+
+    private void rerenderKeepingPosition(String message) {
+        if (document == null) return;
+        SpotifyTrack current = host.getCurrentTrackSafely();
+        long pos = current == null ? -1 : playbackClock.getPosition(current, host.isPlayerActuallyPlaying());
+        long lyricPos = pos < 0 ? pos : adjustedLyricPositionMs(pos);
+        int previousActive = followState.activeIndex();
+        rebuildWithReflow(this::renderDocument);
+        // renderDocument() resets the active line; without restoring it the next scroll counted
+        // as a first activation and jumped instead of gliding.
+        if (previousActive >= 0 && followState.activeIndex() < 0) followState.setActiveIndex(previousActive);
+        if (current != null) setActiveLine(LyricTimeline.findPrimaryActiveRow(document.appliedLines, lyricPos), lyricPos, current);
+        if (!isBlank(message)) status.setText(message);
+    }
+
+    private void beginLoadingTransition(String id) {
+        if (songChangeHadSkeleton && id.equals(loadingTrackId)) return;
+        cancelLoadEntranceAnimation();
+        cancelSongChangeTransitions();
+        loadingTrackId = id;
+        songChangeHadSkeleton = true;
+        showLoading(uiText("lyrics_shell_loading_lyrics", "Loading lyrics…"));
+    }
+
+    private void cancelSongChangeTransitions() {
+        if (lyricsScroll != null) {
+            lyricsScroll.animate().cancel();
+            lyricsScroll.setAlpha(1f);
+            lyricsScroll.setTranslationY(0f);
+        }
+        songChangeHadSkeleton = false;
+    }
+
+    private void startSongChangeEnterAnimation() {
+        if (lyricsScroll == null) return;
+        lyricsScroll.animate().cancel();
+        lyricsScroll.setAlpha(0f);
+        lyricsScroll.setTranslationY(0f);
+        lyricsScroll.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(com.spotifyplusplus.ui.Motion.dur(com.spotifyplusplus.ui.Motion.SWAP))
+                .setInterpolator(com.spotifyplusplus.ui.Motion.decel())
+                .withLayer()
+                .start();
+    }
+
+    private void showLoading(String message) {
+        rowMountController.reset();
+        followState.resetActive();
+        emptyStateController.showLoading(lyricsScroll, lyricsColumn, message,
+                resolveFocusAnchorFraction(), isLandscape() ? 0 : lyricsSideInsetPx);
+    }
+
+    private void showError(String error) {
+        songChangeHadSkeleton = false;
+        document = null;
+        loadingTrackId = "";
+        pendingSourceSwap = null;
+        pendingSourceSwapUri = "";
+        rowMountController.reset();
+        followState.resetActive();
+        // An instrumental track has no lyrics to show and never will, so it gets its own note
+        // rather than a lookup error.
+        if (com.spotifyplusplus.lyrics.providers.InstrumentalTracks.isInstrumental(host.getCurrentTrackSafely())) {
+            emptyStateController.showInstrumental(lyricsColumn);
+            status.setText(uiText("lyrics_instrumental", "Instrumental"));
+            return;
+        }
+        emptyStateController.showError(lyricsColumn, error);
+        status.setText(uiFormat("lyrics_shell_error", "Lyrics error: %1$s", safe(error)));
+    }
+    /** Opens the catalog source picker for the currently rendered track. */
+    private void openSourcePicker() {
+        try {
+            if (document == null || document.lines.isEmpty()) return;
+            SpotifyTrack current = host.getCurrentTrackSafely();
+            if (current == null || current.uri == null || current.uri.isEmpty()) return;
+            LyricsSourcePickerDialog.show(activity, host, uiStrings(), status::setText);
+        } catch (Throwable t) {
+            XpLog.log(TAG + " source picker open failed: " + t);
+        }
+    }
+
+    private void renderDocument() {
+        renderDocument(true);
+    }
+
+    private void renderDocument(boolean prepareDocument) {
+        dbg("NativeSpicyShellView.renderDocument", "doc=" + (document == null ? "null" : document.fetchSource + "/" + document.type + "/" + document.lines.size()));
+        updateToggleVisuals();
+        ensureLyricsColumnScaffold();
+        clearRenderedLineViews();
+        followState.resetActive();
+        if (document == null || document.lines.isEmpty()) {
+            showError(uiText("lyrics_error_empty_response", "Empty lyrics response"));
+            return;
+        }
+        staticDoc = LyricsRenderMode.isStatic(document);
+        if (prepareDocument) {
+            populateLocalSegmentRomanization(document);
+            LyricTimeline.applySyncedRows(document);
+        }
+        if (document.appliedLines.isEmpty()) {
+            showError(uiText("lyrics_error_empty_rows", "Empty applied lyrics rows"));
+            return;
+        }
+        String providerLabel = sourceProviderLabel(document.provider);
+        String typeLabel = com.spotifyplusplus.lyrics.catalog.CatalogPickerModel.displayTypeTiming(document.type);
+        sourceFooter.setText(uiFormat("lyrics_shell_source_line", "Source: %1$s · %2$s ›", providerLabel, typeLabel)
+                + "\n" + (!isBlank(document.songWriters)
+                ? uiFormat("lyrics_shell_written_by", "Written by %1$s", document.songWriters)
+                : uiFormat("lyrics_shell_provided_by", "lyrics provided by %1$s", providerLabel)));
+        sourceFooter.setContentDescription(uiFormat("lyrics_shell_source_desc",
+                "Lyrics source: %1$s, %2$s. Activate to change source.", providerLabel, typeLabel));
+        rowMountController.markDirty();
+        // A fresh document doesn't necessarily start at line 0: playback can already be mid-song
+        // (resuming, a late-arriving fetch, a source swap). Anchoring the very first render at the
+        // top regardless meant the load-lift reveal below always animated the topmost rows, then a
+        // moment later the follow-tick's own setActiveLine() re-anchored the window to the real
+        // position with no reveal at all - the rows the user actually sees just popped in. Anchor
+        // to wherever playback already is so the reveal targets the rows that are really shown.
+        int initialAnchor = 0;
+        if (!staticDoc && !demoModeActive) {
+            SpotifyTrack currentForAnchor = host.getCurrentTrackSafely();
+            long anchorPos = currentForAnchor == null ? -1
+                    : playbackClock.getPosition(currentForAnchor, host.isPlayerActuallyPlaying());
+            if (anchorPos >= 0) {
+                int anchorActive = LyricTimeline.findPrimaryActiveRow(
+                        document.appliedLines, adjustedLyricPositionMs(anchorPos));
+                if (anchorActive >= 0) initialAnchor = anchorActive;
+            }
+        }
+        renderWindowForActive(initialAnchor);
+        loadEntranceAnchor = initialAnchor;
+        boolean shouldEnter = pendingLoadEntrance && hasRenderedDocument && songChangeHadSkeleton;
+        boolean appleEntranceStarted = false;
+        if (pendingLoadEntrance) {
+            pendingLoadEntrance = false;
+            if (!shouldEnter && config != null && Boolean.TRUE.equals(config.get(Settings.LOAD_LIFT_ANIMATION))
+                    && appleStyle() && com.spotifyplusplus.ui.Motion.animationsEnabled()) {
+                // Hide now, synchronously, before this mount is ever measured or drawn. The reveal
+                // itself can only start once the rows have a height, i.e. one layout pass later -
+                // by which point they have already been painted at full brightness for a frame,
+                // and the fade then started from a flash.
+                loadEntranceAttempts = 0;
+                hideRowsForPendingEntrance();
+                queueLoadEntrance(false);
+                appleEntranceStarted = true;
+            }
+        }
+        if (resetScrollForNextDocument) {
+            resetScrollForNextDocument = false;
+            // A cache hit can replace the short loading state before ScrollView gets a layout pass
+            // that clamps the previous song's scrollY. Reset after mounting the new document so
+            // its opening row starts from the center-padding position even during lyric pre-roll.
+            // Only when the document really does open at its first row: when playback is already
+            // mid-song, scrolling to the top here just to have the first follow tick snap back
+            // down to the anchor put a visible lurch right under the load reveal.
+            scrollSpring = null;
+            if (initialAnchor <= 0) lyricsScroll.scrollTo(0, 0);
+        }
+
+        songChangeHadSkeleton = false;
+        hasRenderedDocument = true;
+
+        if (!appleEntranceStarted) styleRowsNow();
+        if (shouldEnter && !appleEntranceStarted && com.spotifyplusplus.ui.Motion.animationsEnabled()) {
+            startSongChangeEnterAnimation();
+        } else if (lyricsScroll != null && !appleEntranceStarted) {
+            lyricsScroll.animate().cancel();
+            lyricsScroll.setAlpha(1f);
+            lyricsScroll.setTranslationY(0f);
+        }
+    }
+
+    /** Rows rise from just behind their own resting position and fade in, staggered slightly by
+     *  distance from the row playback is actually on. Each row's start offset is a fraction of its
+     *  own measured height rather than one flat pixel value shared by every row - a fixed offset
+     *  reads as the whole column pinned to some arbitrary edge, while a per-row one reads as each
+     *  line arriving from just behind where it already is.
+     *
+     *  <p>The reveal is registered here and driven by {@link #stepLoadEntrance} on the shared vsync
+     *  tick. It deliberately does not animate View.alpha: the renderer rewrites every row's alpha
+     *  each frame from its own opacity springs, so a ViewPropertyAnimator on the same property gets
+     *  stomped mid-flight (the load flicker), and ending the fade at a flat 1 would then snap back
+     *  down to the row's real dimmed opacity. Publishing a 0..1 factor the renderer multiplies in
+     *  makes the reveal a fade toward each row's natural brightness instead. */
+    private Runnable pendingEntranceStart;
+
+    private void queueLoadEntrance(boolean nextFrame) {
+        if (pendingEntranceStart != null) lyricsFrame.removeCallbacks(pendingEntranceStart);
+        LyricsDocument expected = document;
+        pendingEntranceStart = () -> {
+            pendingEntranceStart = null;
+            if (running && document == expected) startLoadEntranceAnimation();
+        };
+        if (nextFrame) lyricsFrame.postOnAnimation(pendingEntranceStart);
+        else lyricsFrame.post(pendingEntranceStart);
+    }
+
+    private void startLoadEntranceAnimation() {
+        if (document == null) return;
+        // A cache hit can mount rows before the first measure pass. Retry on the next frame
+        // instead of silently skipping the reveal because every row is still height zero.
+        boolean hasMeasuredRow = false;
+        for (int i : rowMountController.mountedIndices()) {
+            AppliedLine line = i >= 0 && i < document.appliedLines.size()
+                    ? document.appliedLines.get(i) : null;
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row != null && row.getHeight() > 0) {
+                hasMeasuredRow = true;
+                break;
+            }
+        }
+        if (!hasMeasuredRow) {
+            // Bounded: the rows are being held invisible until this succeeds, so a document that
+            // never measures has to fall back to simply showing them rather than waiting forever.
+            if (++loadEntranceAttempts > LOAD_ENTRANCE_MAX_ATTEMPTS) {
+                revealRowsAfterFailedEntrance();
+                return;
+            }
+            hideRowsForPendingEntrance();
+            queueLoadEntrance(true);
+            return;
+        }
+        clearRowCascade();
+        clearLoadEntrance();
+        // Stagger outward from the row playback is on rather than top-down: that row is where the
+        // eye already is, so it arriving first reads as the screen settling around it. A top-down
+        // order instead makes the focused line the last thing to appear.
+        int focus = followState.activeIndex() >= 0 ? followState.activeIndex() : loadEntranceAnchor;
+        // Park the column on that row now, while everything is still transparent. The first follow
+        // tick would otherwise do it a frame or two into the fade, which reads as the lyrics
+        // sliding into position as they appear instead of simply appearing where they belong.
+        placeScrollAtRowInstantly(focus);
+        float timeScale = 1f / cascadeSpeedMultiplier();
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            if (line == null) continue;
+            View row = rowMountController.attachedRowView(line);
+            if (row == null || row.getHeight() <= 0) continue;
+            // Proportional to the row within a tight band: every row travels a similar, clearly
+            // visible distance regardless of whether it wraps to two lines.
+            float travel = Math.max(dp(18), Math.min(dp(30), row.getHeight() * 0.4f));
+            float distance = focus < 0 ? i : cascadeDistance(line, i, focus);
+            // Outward from the focused row with a shrinking gap, like the line slide's stagger.
+            float delay = Math.min(LOAD_REVEAL_MAX_DELAY_SEC, LOAD_REVEAL_STAGGER_SEC
+                    * (1f - (float) Math.pow(0.88f, distance)) / (1f - 0.88f)) * timeScale;
+            loadEntrances.put(line, new LoadEntrance(travel, delay, timeScale));
+            LyricsLineViewState.setEntranceProgress(line, 0f, dp(LOAD_REVEAL_BLUR_DP));
+            applyLoadEntranceFrame(row, 0f, travel);
+            row.setHasTransientState(true);
+        }
+        if (!loadEntrances.isEmpty()) {
+            frameScheduler.setContinuous(true);
+            frameScheduler.requestFrame();
+        }
+    }
+
+    /** Drops every mounted row to fully transparent ahead of a reveal that hasn't been able to
+     *  start yet, so nothing is ever painted at full brightness first. */
+    private void hideRowsForPendingEntrance() {
+        if (document == null || document.appliedLines == null) return;
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            if (line == null) continue;
+            View row = rowMountController.attachedRowView(line);
+            if (row == null) continue;
+            LyricsLineViewState.setEntranceProgress(line, 0f);
+            // Direct write as well: the renderer only picks the factor up on its next pass, and
+            // this can run between two of them.
+            row.setAlpha(0f);
+        }
+    }
+
+    private void revealRowsAfterFailedEntrance() {
+        if (document == null || document.appliedLines == null) return;
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            if (line == null) continue;
+            LyricsLineViewState.setEntranceProgress(line, 1f);
+            lineVisualController.invalidate(line);
+        }
+        frameScheduler.requestFrame();
+    }
+
+    /** Puts the anchor row on its focus point with no animation, for use before anything is
+     *  visible. No-op unless that row is mounted and measured. */
+    private void placeScrollAtRowInstantly(int index) {
+        if (document == null || scrollController == null || lyricsScroll == null) return;
+        if (index <= 0 || index >= document.appliedLines.size()) return;
+        View row = rowMountController.attachedRowView(document.appliedLines.get(index));
+        if (row == null || row.getHeight() <= 0 || lyricsScroll.getHeight() <= 0) return;
+        int target = Math.max(0, scrollController.centeredScrollTarget(row, dp(56), appleStyle()));
+        if (Math.abs(target - lyricsScroll.getScrollY()) <= 2) return;
+        scrollSpring = null;
+        applyingLyricScroll = true;
+        lyricsScroll.scrollTo(0, target);
+        applyingLyricScroll = false;
+    }
+
+    /** Writes one reveal frame. Owns only a property the frame renderer never touches: the row's
+     *  direct children's translation (the Apple slide owns the row's own).
+     *  {@code progress} may overshoot 1 slightly: that is the spring settling. */
+    private void applyLoadEntranceFrame(View row, float progress, float travelPx) {
+        if (row == null) return;
+        float childOffset = travelPx * (1f - progress);
+        ViewGroup rowGroup = row instanceof ViewGroup ? (ViewGroup) row : null;
+        int rowChildCount = rowGroup == null ? 0 : rowGroup.getChildCount();
+        for (int childIndex = 0; childIndex < rowChildCount; childIndex++) {
+            rowGroup.getChildAt(childIndex).setTranslationY(childOffset);
+        }
+    }
+
+    private void stepLoadEntrance(float deltaSeconds) {
+        if (loadEntrances.isEmpty()) return;
+        Iterator<Map.Entry<AppliedLine, LoadEntrance>> it = loadEntrances.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<AppliedLine, LoadEntrance> entry = it.next();
+            AppliedLine line = entry.getKey();
+            LoadEntrance entrance = entry.getValue();
+            View row = rowMountController.attachedRowView(line);
+            if (row == null) {
+                // Scrolled out of the mounted window mid-reveal. Finish it on paper so the row is
+                // never remounted still invisible or still offset.
+                finishLoadEntrance(line, LyricsLineViewState.rowView(line), entrance);
+                it.remove();
+                continue;
+            }
+            float step = deltaSeconds;
+            if (entrance.delayRemaining > 0f) {
+                entrance.delayRemaining -= deltaSeconds;
+                if (entrance.delayRemaining > 0f) continue;
+                // Carry the leftover into the first real step, so a stagger shorter than one frame
+                // still orders the rows instead of rounding up to the next frame boundary.
+                step = Math.min(deltaSeconds, -entrance.delayRemaining);
+                entrance.delayRemaining = 0f;
+            }
+            entrance.elapsed += step;
+            float t = entrance.elapsed / entrance.timeScale;
+            if (t >= LOAD_REVEAL_DURATION_SEC) {
+                finishLoadEntrance(line, row, entrance);
+                it.remove();
+                continue;
+            }
+            float fadeT = Math.min(1f, t / LOAD_REVEAL_FADE_SEC);
+            float fade = 1f - (1f - fadeT) * (1f - fadeT) * (1f - fadeT);
+            LyricsLineViewState.setEntranceProgress(line, fade, (1f - fade) * dp(LOAD_REVEAL_BLUR_DP));
+            applyLoadEntranceFrame(row, loadRevealSpring(t), entrance.travelPx);
+        }
+    }
+
+    /** Step response of the reveal spring at {@code t} seconds: 0 at rest below, 1 in place. */
+    private static float loadRevealSpring(float t) {
+        double omega = 2d * Math.PI * LOAD_REVEAL_FREQUENCY_HZ;
+        double zeta = LOAD_REVEAL_DAMPING;
+        double omegaD = omega * Math.sqrt(1d - zeta * zeta);
+        double envelope = Math.exp(-zeta * omega * t);
+        return (float) (1d - envelope * (Math.cos(omegaD * t)
+                + zeta * omega / omegaD * Math.sin(omegaD * t)));
+    }
+
+    private void finishLoadEntrance(AppliedLine line, View row, LoadEntrance entrance) {
+        LyricsLineViewState.setEntranceProgress(line, 1f);
+        applyLoadEntranceFrame(row, 1f, entrance == null ? 0f : entrance.travelPx);
+        if (row != null) row.setHasTransientState(false);
+    }
+
+    private void clearLoadEntrance() {
+        if (loadEntrances.isEmpty()) return;
+        for (Map.Entry<AppliedLine, LoadEntrance> entry : loadEntrances.entrySet()) {
+            finishLoadEntrance(entry.getKey(), LyricsLineViewState.rowView(entry.getKey()),
+                    entry.getValue());
+        }
+        loadEntrances.clear();
+    }
+
+    private void ensureLyricsColumnScaffold() {
+        if (topStaticSpacer.getParent() == lyricsColumn) return;
+        lyricsColumn.removeAllViews();
+        lyricsColumn.addView(topStaticSpacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        lyricsColumn.addView(topVirtualSpacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        lyricsColumn.addView(mountedRowsHost, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        lyricsColumn.addView(bottomVirtualSpacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        lyricsColumn.addView(sourceFooter, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    private void renderWindowForActive(int active) {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+        ensureLyricsColumnScaffold();
+        int anchor = currentWindowAnchor();
+        if (active >= 0 && !followState.isHoldingNow()) anchor = active;
+        boolean rendered = rowMountController.renderWindow(
+                document.appliedLines,
+                anchor,
+                followState.activeIndex(),
+                this::ensureRowView,
+                this::onNewRowMounted,
+                this::onRowUnmounted,
+                this::styleLine,
+                this::rowHeightForIndex);
+        if (staticDoc) {
+            // Render-window reuse normally skips visual work. Static rows must still reset from
+            // any stale timed state before they are shown again.
+            frameRenderer.applyStatic(document, rowMountController.mountedIndices(), mountedRowsHost);
+        } else if (rendered) {
+            flushStyleBatch();
+        }
+    }
+
+    private View ensureRowView(AppliedLine line) {
+        return rowMountController.rowViewOrBuild(line, this::buildLyricRow);
+    }
+
+    private void onNewRowMounted(AppliedLine line) {
+        lineVisualController.invalidate(line);
+        remeasureLine(line);
+        View row = rowMountController.attachedRowView(line);
+        if (row == null) return;
+
+        LoadEntrance load = loadEntrances.get(line);
+        if (load != null) {
+            // Part of an active reveal: start hidden so it doesn't flash.
+            applyLoadEntranceFrame(row, 0f, load.travelPx);
+            return;
+        }
+
+        // A scroll can remount rows mid-cascade: join in place from the cascade's current
+        // offset instead of snapping to zero. Anything without a live cascade must land flat -
+        // a row that was unmounted while displaced would otherwise reappear still offset.
+        RowCascade cascade = rowCascades.get(line);
+        row.setTranslationY(cascade == null ? 0f : cascade.spring.position());
+    }
+
+    private int currentWindowAnchor() {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return 0;
+        if (followState.isHoldingNow()) return currentViewportAnchor();
+        return followState.activeIndex() >= 0 ? followState.activeIndex() : currentViewportAnchor();
+    }
+
+    private int currentViewportAnchor() {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return 0;
+        return scrollController == null
+                ? 0
+                : scrollController.viewportAnchor(rowHeightPrefix(), document.appliedLines.size());
+    }
+
+    private void updateVirtualSpacerHeights() {
+        rowMountController.updateSpacerHeights(
+                document == null ? null : document.appliedLines,
+                this::rowHeightForIndex);
+    }
+
+    private int[] rowHeightPrefix() {
+        return rowMountController.rowHeightPrefix(
+                document == null ? null : document.appliedLines,
+                this::rowHeightForIndex);
+    }
+
+    private void invalidateRowHeightPrefix() {
+        rowMountController.invalidateRowHeightPrefix();
+    }
+
+    private int rowHeightForIndex(int index) {
+        int estimate = (int) (dp(LYRIC_ESTIMATED_ROW_HEIGHT_DP) * renderConfig.lineSpacingMultiplier * renderConfig.lyricsTextSizeMultiplier);
+        return rowMountController.rowHeightForIndex(
+                document == null ? null : document.appliedLines,
+                index,
+                estimate,
+                dp(18),
+                showRomanization(),
+                showTranslation());
+    }
+
+    private void remeasureMountedRows() {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+        boolean changed = rowMountController.remeasureMountedRows(document.appliedLines, this::remeasureLine);
+        if (changed) updateVirtualSpacerHeights();
+    }
+
+    private boolean remeasureLine(AppliedLine line) {
+        return rowMountController.remeasureLine(line);
+    }
+
+    private void scheduleScrollWindowRender() {
+        if (scrollWindowRenderScheduled) return;
+        scrollWindowRenderScheduled = true;
+        Runnable work = () -> {
+            scrollWindowRenderScheduled = false;
+            if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+            int anchor = currentViewportAnchor();
+            if (shouldRemountWindowForViewport(anchor)) renderWindowForActive(anchor);
+        };
+        if (Build.VERSION.SDK_INT >= 16) lyricsScroll.postOnAnimation(work);
+        else lyricsScroll.post(work);
+    }
+
+    private boolean shouldRemountWindowForViewport(int anchor) {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return false;
+        return rowMountController.shouldRemountWindowForViewport(
+                document.appliedLines, anchor, NativeRuntime.LYRIC_WINDOW_EDGE_BUFFER);
+    }
+
+    private void scheduleScrollSettleRemeasure() {
+        if (!running) return;
+        lastScrollEventMs = SystemClock.elapsedRealtime();
+        if (scrollSettleScheduled) return;
+        scrollSettleScheduled = true;
+        handler.postDelayed(scrollSettleRunnable, SCROLL_SETTLE_REMEASURE_DELAY_MS);
+    }
+
+    private LinearLayout buildLyricRow(AppliedLine line) {
+        LyricsSurfaceRowPlanner.RowPlan rowPlan = LyricsSurfaceRowPlanner.plan(
+                line,
+                document,
+                LyricsSurfaceRowPlanner.SurfacePolicy.fullscreen(
+                        renderConfig, showRomanization(), showTranslation(), japaneseReadingMode()));
+        LinearLayout row = rowViewFactory.build(rowPlan.line, rowPlan.options,
+                this::segmentRomanizedText, () -> {
+            invalidateRowHeightPrefix();
+            updateVirtualSpacerHeights();
+        });
+        applyRowSideInset(row);
+        return row;
+    }
+
+    private String segmentRomanizedText(AppliedLine line, SyllableSegment segment,
+                                         String fullText) {
+        return LyricsLocalRomanizer.romanizeDisplaySegment(
+                romanizationOptions(), document, line, segment, fullText);
+    }
+
+    private boolean isJapaneseLine(AppliedLine line) {
+        return com.spotifyplusplus.lyrics.LyricsDisplayMode.isJapaneseLine(line);
+    }
+
+    // -- translation / reading reflow ------------------------------------------------------
+
+    private static final long REFLOW_SETTLE_MS = 450L;
+    private static final float REFLOW_STAGGER_SEC = 0.03f;
+    private static final float REFLOW_MAX_DELAY_SEC = 0.18f;
+    private static final int SECONDARY_REVEAL_RISE_DP = 8;
+    private static final int SECONDARY_REVEAL_BLUR_DP = 6;
+    private static final long SECONDARY_REVEAL_MS = 560L;
+    private static final long SECONDARY_HIDE_MS = 160L;
+    private static final android.animation.TimeInterpolator SECONDARY_REVEAL_EASE =
+            new android.view.animation.PathInterpolator(0.2f, 0.8f, 0.2f, 1f);
+
+    /**
+     * Runs a rebuild that adds, removes or changes translation/reading rows without the column
+     * teleporting. Every mounted row slides from where it was drawn to where it now sits, on the
+     * same spring as a line advance (a FLIP: measure, rebuild, offset each row back to its old
+     * place, let it spring home), and translation/reading text that was not on screen before
+     * fades, rises and sharpens into place instead of popping in.
+     */
+    private void rebuildWithReflow(Runnable rebuild) {
+        if (document == null || lyricsScroll == null || !lyricsScroll.isLaidOut()
+                || !loadEntrances.isEmpty()) {
+            rebuild.run();
+            styleRowsNow();
+            return;
+        }
+        // Keyed by row index, not row object: a full re-render rebuilds every AppliedLine, and an
+        // identity-keyed map then matched nothing - no row got a spring and all of them jumped.
+        // Layout positions in scroll-content coordinates: independent of the scroll (a fling in
+        // progress keeps carrying the rows) and of any cascade translation already running on them
+        // (that motion carries on; only the layout change is added on top of it).
+        Map<Integer, Float> origins = new java.util.HashMap<>();
+        Map<Integer, java.util.Set<String>> shown = new java.util.HashMap<>();
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row == null || row.getHeight() <= 0) continue;
+            origins.put(i, contentTop(row));
+            java.util.Set<String> signatures = new java.util.HashSet<>();
+            for (View view : LyricsLineViewState.secondaryViews(line)) signatures.add(viewSignature(view));
+            shown.put(i, signatures);
+        }
+        // A reflow still settling from a previous toggle must not also react to this rebuild's
+        // layout change: it and this rebuild's own anchoring would both correct the scroll, and the
+        // column jumped by twice the change.
+        reflowTrackUntil = 0L;
+        reflowTops.clear();
+        reflowAnchorLine = null;
+        int rowCount = document.appliedLines.size();
+        int focus = followState.activeIndex();
+        // The anchor is the line at the screen's focus position - the one being sung while the view
+        // follows the song, otherwise (reading ahead, dragging) whichever line sits at the focus
+        // point. Its layout position before the rebuild lets the scroll follow it exactly, so the
+        // space for translations opens and closes around the focus, not from the top down.
+        int anchorIndex = focus;
+        View focusRowBefore = anchorIndex >= 0 && anchorIndex < rowCount
+                ? rowMountController.attachedRowView(document.appliedLines.get(anchorIndex)) : null;
+        if (focusRowBefore == null || followState.isHoldingNow() || !isRowOnScreen(focusRowBefore)) {
+            int atFocus = nearestAppliedLineIndexAt(lyricsScroll.getHeight() * resolveFocusAnchorFraction());
+            if (atFocus >= 0) {
+                anchorIndex = atFocus;
+                focusRowBefore = rowMountController.attachedRowView(document.appliedLines.get(anchorIndex));
+            }
+        }
+        final int anchor = anchorIndex;
+        float focusTopBefore = focusRowBefore == null || focusRowBefore.getHeight() <= 0
+                ? Float.NaN : contentTop(focusRowBefore);
+        LyricsDocument before = document;
+        // Until the one-shot below has anchored, the regular scroll anchor must stay out: with no
+        // cascade running it held the sung line through the same layout change, and the reflow's
+        // own anchoring then moved the column a second time - the line jumped by the full change.
+        reflowPending = true;
+        rebuild.run();
+        styleRowsNow();
+        // Running cascades (a line advance, an earlier reflow) are kept: the reflow below adds its
+        // own displacement to them instead of cutting them off mid-motion.
+        if (document != before || origins.isEmpty() || document.appliedLines.size() != rowCount) {
+            reflowPending = false;
+            clearRowCascade();
+            return;
+        }
+        lyricsScroll.getViewTreeObserver().addOnPreDrawListener(
+                new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override
+                    public boolean onPreDraw() {
+                        android.view.ViewTreeObserver observer = lyricsScroll.getViewTreeObserver();
+                        if (observer.isAlive()) observer.removeOnPreDrawListener(this);
+                        reflowPending = false;
+                        if (document == before) {
+                            int anchored = anchorScrollToFocus(anchor, focusTopBefore);
+                            applyReflow(origins, shown, focus, anchored);
+                            startReflowTracking(anchor);
+                        }
+                        return true;
+                    }
+                });
+    }
+
+    /**
+     * Gives freshly rebuilt rows their dim, blur and scale right away. A rebuild replaces the row
+     * views, and the new ones carry no style until the renderer's next vsync pass; when the
+     * rebuild lands between frames the traversal in between drew them once at full brightness
+     * and sharp - the single flash as a translation's space opened up.
+     */
+    private void styleRowsNow() {
+        try {
+            if (document == null || renderConfig == null || demoModeActive
+                    || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+            if (staticDoc) {
+                frameRenderer.applyStatic(document, rowMountController.mountedIndices(), mountedRowsHost);
+                return;
+            }
+            SpotifyTrack track = host.getCurrentTrackSafely();
+            if (track == null) return;
+            long lyricPos = adjustedLyricPositionMs(
+                    playbackClock.getPosition(track, host.isPlayerActuallyPlaying()));
+            frameRenderer.applySynced(document, rowMountController.mountedIndices(), mountedRowsHost,
+                    renderConfig, lyricPos, followState.activeIndex(), 0.001f,
+                    followState.isHoldingNow());
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * Keeps the line being sung where it is on screen across a translation/reading rebuild:
+     * rows above it gaining or losing text move its layout position, and the scroll follows by the
+     * same amount before the first frame is drawn. The FLIP pass that runs next measures screen
+     * positions, so the focused row gets (almost) no offset and keeps its own ongoing motion, and
+     * only the rows around it part or close. An in-flight follow glide is shifted along with it.
+     */
+    /** @return the scroll change it applied (0 when none), for the reflow to compensate. */
+    private int anchorScrollToFocus(int focus, float focusTopBefore) {
+        if (Float.isNaN(focusTopBefore) || lyricsScroll == null || document == null
+                || focus < 0 || focus >= document.appliedLines.size()) return 0;
+        View row = rowMountController.attachedRowView(document.appliedLines.get(focus));
+        if (row == null || row.getHeight() <= 0) return 0;
+        int shift = Math.round(contentTop(row) - focusTopBefore);
+        if (shift == 0) return 0;
+        // The end-of-content limit still reflects the old layout; near the end of a song it
+        // clamped this scroll, and the whole column slid by the part that was cut off.
+        updateScrollEndLimit();
+        int beforeScroll = lyricsScroll.getScrollY();
+        applyingLyricScroll = true;
+        lyricsScroll.scrollTo(0, Math.max(0, beforeScroll + shift));
+        applyingLyricScroll = false;
+        int applied = lyricsScroll.getScrollY() - beforeScroll;
+        if (scrollSpring != null) scrollSpring.shift(applied);
+        return applied;
+    }
+
+    private boolean isRowOnScreen(View row) {
+        if (row == null || lyricsScroll == null || row.getHeight() <= 0) return false;
+        float top = contentTop(row) + row.getTranslationY() - lyricsScroll.getScrollY();
+        return top + row.getHeight() > 0 && top < lyricsScroll.getHeight();
+    }
+
+    private void applyReflow(Map<Integer, Float> origins,
+                             Map<Integer, java.util.Set<String>> shown, int focus, int anchoredScroll) {
+        float speedMul = cascadeSpeedMultiplier();
+        float frequency = ROW_CASCADE_FREQUENCY_HZ * speedMul * elasticFrequencyMultiplier();
+        float damping = elasticDamping(ROW_CASCADE_DAMPING);
+        float stagger = REFLOW_STAGGER_SEC / speedMul;
+        float maxDelay = REFLOW_MAX_DELAY_SEC / speedMul;
+        int viewport = lyricsScroll.getHeight();
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row == null) continue;
+            float rows = focus < 0 ? 0f : cascadeDistance(line, i, focus);
+            float delay = Math.min(maxDelay, rows * stagger);
+            Float from = origins.get(i);
+            // Always, not only with the Apple slide on: making room for a translation or reading
+            // is layout moving under the reader, and springing it reads as the lines parting
+            // rather than the column jumping.
+            RowCascade existing = rowCascades.get(line);
+            if (from != null && row.getHeight() > 0) {
+                // Undo this row's layout move on screen for now (and the anchor scroll, which moved
+                // every row), then let it spring home.
+                float top = contentTop(row);
+                float offset = (from - top) + anchoredScroll;
+                if (Math.abs(offset) < viewport) {
+                    if (existing != null) {
+                        if (Math.abs(offset) >= 0.5f) existing.bump(offset);
+                        existing.followLayout = true;
+                        existing.layoutTop = top;
+                        row.setTranslationY(existing.spring.position());
+                    } else if (Math.abs(offset) >= 0.5f) {
+                        RowCascade cascade = new RowCascade(offset, LyricCascadeProfile.forRow(
+                                rows, frequency, damping, stagger, maxDelay));
+                        cascade.followLayout = true;
+                        cascade.layoutTop = top;
+                        rowCascades.put(line, cascade);
+                        row.setTranslationY(offset);
+                    }
+                }
+            } else if (existing != null) {
+                // A remounted row starts with no translation; put it back where its motion is.
+                row.setTranslationY(existing.spring.position());
+            }
+            java.util.Set<String> before = shown.get(i);
+            for (View view : LyricsLineViewState.secondaryViews(line)) {
+                if (before == null || !before.contains(viewSignature(view))) {
+                    revealSecondaryView(view, delay);
+                }
+            }
+        }
+        if (reflowLayoutListener == null) {
+            reflowLayoutListener = () -> {
+                followReflowLayout();
+                return true;
+            };
+            lyricsScroll.getViewTreeObserver().addOnPreDrawListener(reflowLayoutListener);
+        }
+        frameScheduler.requestFrame();
+    }
+
+    private android.view.ViewTreeObserver.OnPreDrawListener reflowLayoutListener;
+
+    /**
+     * A rebuilt row rarely lands in one layout pass: spacer heights, wrapping and secondary text
+     * settle over the next few frames. Each of those moves would show as a jump under a spring
+     * that only knew the first pass's position, which is the stutter a translation toggle had.
+     * Runs before every draw and folds any further layout move of a reflowing row into its spring,
+     * so the row keeps gliding from where it is actually drawn.
+     */
+    // After a reflow the layout keeps settling for a few frames: rebuilt rows re-measure, readings
+    // and translations finish laying out, and the spacers standing in for unmounted rows are
+    // re-estimated. Each of those passes moved everything under the reader - the column wobbled
+    // and could drift far from the line being sung. For a short while after the reflow every
+    // pass is absorbed: the anchor line is held in place through the scroll, and any other row
+    // that moved relative to it takes that movement into its spring (getting one if it had none).
+    private static final long REFLOW_TRACK_MS = 1200L;
+    private long reflowTrackUntil;
+    private AppliedLine reflowAnchorLine;
+    private float reflowAnchorTop = Float.NaN;
+    private final Map<AppliedLine, Float> reflowTops = new java.util.IdentityHashMap<>();
+
+    private void startReflowTracking(int anchorIndex) {
+        if (document == null || lyricsScroll == null) return;
+        reflowTops.clear();
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row != null) reflowTops.put(line, contentTop(row));
+        }
+        reflowAnchorLine = anchorIndex >= 0 && anchorIndex < document.appliedLines.size()
+                ? document.appliedLines.get(anchorIndex) : null;
+        View anchorRow = reflowAnchorLine == null ? null : rowMountController.attachedRowView(reflowAnchorLine);
+        reflowAnchorTop = anchorRow == null ? Float.NaN : contentTop(anchorRow);
+        reflowTrackUntil = SystemClock.uptimeMillis() + REFLOW_TRACK_MS;
+        reflowActiveIndex = followState.activeIndex();
+    }
+
+    /**
+     * Tracking only covers the rebuild's own layout settling. A line advance while it runs moves
+     * the mounted window and its spacers - the normal scroll anchoring handles that; following
+     * it here as "layout settling" threw the column a whole screen away from the sung line.
+     */
+    private int reflowActiveIndex = -1;
+    private boolean reflowPending;
+
+    private boolean reflowTracking() {
+        if (reflowTrackUntil == 0L) return false;
+        if (SystemClock.uptimeMillis() >= reflowTrackUntil || document == null
+                || followState.activeIndex() != reflowActiveIndex) {
+            reflowTrackUntil = 0L;
+            return false;
+        }
+        return true;
+    }
+
+    private void followReflowLayout() {
+        if (!reflowTracking()) {
+            if (!reflowTops.isEmpty()) reflowTops.clear();
+            reflowAnchorLine = null;
+            return;
+        }
+        // 1. The anchor line stays where it is on screen: follow its layout move with the scroll.
+        int applied = 0;
+        View anchorRow = reflowAnchorLine == null ? null : rowMountController.attachedRowView(reflowAnchorLine);
+        if (anchorRow != null && !Float.isNaN(reflowAnchorTop)) {
+            float top = contentTop(anchorRow);
+            int shift = Math.round(top - reflowAnchorTop);
+            if (shift != 0 && !followState.isHoldingNow()) {
+                updateScrollEndLimit();
+                int beforeScroll = lyricsScroll.getScrollY();
+                applyingLyricScroll = true;
+                lyricsScroll.scrollTo(0, Math.max(0, beforeScroll + shift));
+                applyingLyricScroll = false;
+                applied = lyricsScroll.getScrollY() - beforeScroll;
+                if (scrollSpring != null) scrollSpring.shift(applied);
+            }
+            reflowAnchorTop = top;
+        }
+        // 2. Every other row: whatever it moved beyond that goes into its spring.
+        float speedMul = cascadeSpeedMultiplier();
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row == null) continue;
+            float top = contentTop(row);
+            Float last = reflowTops.put(line, top);
+            if (last == null || line == reflowAnchorLine) continue;
+            float moved = (top - last) - applied;
+            if (Math.abs(moved) <= 0.5f) continue;
+            RowCascade cascade = rowCascades.get(line);
+            if (cascade == null) {
+                cascade = new RowCascade(-moved, LyricCascadeProfile.forRow(0f,
+                        ROW_CASCADE_FREQUENCY_HZ * speedMul * elasticFrequencyMultiplier(),
+                        elasticDamping(ROW_CASCADE_DAMPING), 0f, 0f));
+                cascade.followLayout = true;
+                rowCascades.put(line, cascade);
+            } else {
+                cascade.bump(-moved);
+                cascade.followLayout = true;
+            }
+            row.setTranslationY(cascade.spring.position());
+        }
+        frameScheduler.requestFrame();
+    }
+
+    /** A row's layout position in scroll-content coordinates: moves with layout, not scrolling. */
+    /** Row the viewport is pinned to across layout changes, and where it sat last frame. */
+    private AppliedLine scrollAnchorLine;
+    private float scrollAnchorTop = Float.NaN;
+
+    /**
+     * Scroll anchoring, as browsers do it: when a layout pass moves the row the column is focused
+     * on - rows above it re-measuring as readings and translations arrive, a wrap re-plan, the
+     * virtual spacers above the mount window being replaced by real rows - the scroll position
+     * moves by the same amount before that frame is drawn, so the focused row stays exactly where
+     * it was on screen. Without this each of those passes showed as the lyrics jumping, then the
+     * follow logic scrolling back, several times while a song loaded. Deliberate scrolls change
+     * scrollY, not the row's layout position, so they are never counteracted.
+     */
+    /** Tells the scroll view where the content ends: the last lyric line resting on the focus
+     *  position, not the source credit and bottom padding below it scrolling on past. Apple Music
+     *  only - {@link com.spotifyplusplus.lyrics.ElasticScrollView} ignores the limit otherwise. */
+    private void updateScrollEndLimit() {
+        if (!appleStyle()) return;
+        com.spotifyplusplus.lyrics.ElasticScrollView scroll = elasticScroll();
+        if (scroll == null) return;
+        int limit = Integer.MAX_VALUE;
+        if (document != null && document.appliedLines != null && !document.appliedLines.isEmpty()
+                && scrollController != null) {
+            View last = rowMountController.attachedRowView(
+                    document.appliedLines.get(document.appliedLines.size() - 1));
+            if (last != null && last.getHeight() > 0) {
+                int focusLimit = Math.max(0, scrollController.centeredScrollTarget(
+                        last, dp(56), true));
+                // Reveal the footer text without scrolling through its large bottom padding.
+                int footerTextBottom = sourceFooter.getTop() + sourceFooter.getHeight()
+                        - sourceFooter.getPaddingBottom();
+                limit = scrollEndLimit(focusLimit, footerTextBottom, lyricsScroll.getHeight(),
+                        lyricsScroll.getPaddingTop(), dp(24));
+            }
+        }
+        scroll.setScrollEndLimit(limit);
+    }
+
+    static int scrollEndLimit(int focusLimit, int footerTextBottom, int viewportHeight,
+                              int paddingTop, int footerMargin) {
+        int visible = viewportHeight - paddingTop;
+        return Math.max(focusLimit, footerTextBottom + footerMargin - visible);
+    }
+
+
+    private void markTranslationToggled() {
+        secondaryRowUpdater.markTranslationToggled();
+    }
+
+    private void holdScrollAnchor() {
+        updateScrollEndLimit();
+        // Runs after layout, before the draw: rows just (re)built get their scale pivot before
+        // they are ever drawn - otherwise their first frame shrinks toward the centre and the
+        // next snaps back to the edge (the sideways jitter when translations/readings toggle).
+        if (document != null && document.appliedLines != null) {
+            for (int i : rowMountController.mountedIndices()) {
+                if (i >= 0 && i < document.appliedLines.size()) {
+                    LyricsLineViewState.ensureScalePivots(document.appliedLines.get(i));
+                }
+            }
+        }
+        if (!appleStyle()) {
+            // Browser-style scroll anchoring is Apple Music's. Other styles scroll only from
+            // setActiveLine()'s own scrollTo, exactly as they did before this pre-draw step.
+            scrollAnchorLine = null;
+            scrollAnchorTop = Float.NaN;
+            return;
+        }
+        AppliedLine line = null;
+        View row = null;
+        if (running && document != null && document.appliedLines != null
+                && !followState.isHoldingNow() && rowCascades.isEmpty() && !reflowTracking()
+                && !reflowPending) {
+            int index = followState.activeIndex() >= 0 ? followState.activeIndex() : loadEntranceAnchor;
+            if (index >= 0 && index < document.appliedLines.size()) {
+                line = document.appliedLines.get(index);
+                row = rowMountController.attachedRowView(line);
+            }
+        }
+        if (row == null || row.getHeight() <= 0) {
+            scrollAnchorLine = null;
+            scrollAnchorTop = Float.NaN;
+            return;
+        }
+        float top = contentTop(row);
+        if (line == scrollAnchorLine && !Float.isNaN(scrollAnchorTop)) {
+            int shift = Math.round(top - scrollAnchorTop);
+            if (shift != 0) {
+                int before = lyricsScroll.getScrollY();
+                applyingLyricScroll = true;
+                lyricsScroll.scrollTo(0, Math.max(0, before + shift));
+                applyingLyricScroll = false;
+                if (scrollSpring != null) scrollSpring.shift(lyricsScroll.getScrollY() - before);
+            }
+        }
+        scrollAnchorLine = line;
+        scrollAnchorTop = top;
+    }
+
+    private float contentTop(View row) {
+        View host = (View) row.getParent();
+        return row.getTop() + (host == null ? 0 : host.getTop());
+    }
+
+    /** What a translation/reading view is showing, to tell a new one from one that was there. */
+    private static String viewSignature(View view) {
+        if (view instanceof TextView) return String.valueOf(((TextView) view).getText());
+        StringBuilder out = new StringBuilder(view.getClass().getSimpleName());
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                out.append('|').append(viewSignature(group.getChildAt(i)));
+            }
+        }
+        return out.toString();
+    }
+
+    private void revealSecondaryView(View view, float delaySeconds) {
+        view.animate().cancel();
+        view.setAlpha(0f);
+        view.setTranslationY(-dp(SECONDARY_REVEAL_RISE_DP));
+        boolean blur = Build.VERSION.SDK_INT >= 31;
+        float blurPx = dp(SECONDARY_REVEAL_BLUR_DP);
+        if (blur) setBlur(view, blurPx);
+        view.animate().alpha(1f).translationY(0f)
+                .setStartDelay(Math.round(delaySeconds * 1000f))
+                .setDuration(SECONDARY_REVEAL_MS)
+                .setInterpolator(SECONDARY_REVEAL_EASE)
+                .setUpdateListener(blur
+                        ? animation -> setBlur(view, blurPx * (1f - animation.getAnimatedFraction()))
+                        : null)
+                .withEndAction(() -> {
+                    if (blur) setBlur(view, 0f);
+                })
+                .start();
+    }
+
+    private static void setBlur(View view, float radiusPx) {
+        if (Build.VERSION.SDK_INT < 31) return;
+        view.setRenderEffect(radiusPx < 0.5f ? null : android.graphics.RenderEffect.createBlurEffect(
+                radiusPx, radiusPx, android.graphics.Shader.TileMode.DECAL));
+    }
+
+    /** Fades the given rows out before a rebuild removes them, so hiding translations reads as
+     *  them leaving rather than vanishing. */
+    private Runnable pendingSecondaryRebuild;
+    private List<View> pendingLeavingViews = java.util.Collections.emptyList();
+
+    private void hideThenRebuild(List<View> leaving, Runnable rebuild) {
+        // A toggle while the previous one is still fading out replaces it: one rebuild for the
+        // latest state, and anything that was fading out comes back (it may be staying after all;
+        // if not, the rebuild removes it).
+        if (pendingSecondaryRebuild != null) {
+            handler.removeCallbacks(pendingSecondaryRebuild);
+            pendingSecondaryRebuild = null;
+            for (View view : pendingLeavingViews) {
+                view.animate().cancel();
+                view.animate().alpha(1f).translationY(0f).setStartDelay(0L)
+                        .setDuration(SECONDARY_HIDE_MS).setInterpolator(SECONDARY_REVEAL_EASE)
+                        .setUpdateListener(null).start();
+            }
+            pendingLeavingViews = java.util.Collections.emptyList();
+        }
+        if (leaving.isEmpty()) {
+            rebuildWithReflow(rebuild);
+            return;
+        }
+        if (fadeOutAsGhosts(leaving)) {
+            rebuildWithReflow(rebuild);
+            return;
+        }
+        LyricsDocument before = document;
+        for (View view : leaving) {
+            view.animate().cancel();
+            view.animate().alpha(0f).translationY(-dp(SECONDARY_REVEAL_RISE_DP) / 2f)
+                    .setStartDelay(0L).setDuration(SECONDARY_HIDE_MS)
+                    .setInterpolator(SECONDARY_REVEAL_EASE).setUpdateListener(null).start();
+        }
+        pendingLeavingViews = leaving;
+        pendingSecondaryRebuild = () -> {
+            pendingSecondaryRebuild = null;
+            pendingLeavingViews = java.util.Collections.emptyList();
+            if (!running) return;
+            if (document == before) rebuildWithReflow(rebuild);
+            else rebuild.run();
+        };
+        handler.postDelayed(pendingSecondaryRebuild, SECONDARY_HIDE_MS);
+    }
+
+    /** Keeps the old secondary text visible while the rebuild closes its space. */
+    private boolean fadeOutAsGhosts(List<View> leaving) {
+        if (lyricsFrame == null || !com.spotifyplusplus.ui.Motion.animationsEnabled()) return false;
+        FrameLayout frame = lyricsFrame;
+        int[] frameLoc = new int[2];
+        frame.getLocationInWindow(frameLoc);
+        List<android.graphics.drawable.BitmapDrawable> ghosts = new java.util.ArrayList<>();
+        List<Integer> alphas = new java.util.ArrayList<>();
+        int[] loc = new int[2];
+        for (View view : leaving) {
+            int width = view.getWidth();
+            int height = view.getHeight();
+            if (width <= 0 || height <= 0 || !view.isShown()) continue;
+            float alpha = 1f;
+            for (View v = view; v != null && v != frame; v = v.getParent() instanceof View
+                    ? (View) v.getParent() : null) {
+                alpha *= v.getAlpha();
+            }
+            if (alpha <= 0.01f) continue;
+            Bitmap bitmap = null;
+            try {
+                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                view.draw(new android.graphics.Canvas(bitmap));
+            } catch (Throwable failure) {
+                if (bitmap != null) bitmap.recycle();
+                continue;
+            }
+            view.getLocationInWindow(loc);
+            android.graphics.drawable.BitmapDrawable ghost =
+                    new android.graphics.drawable.BitmapDrawable(getResources(), bitmap);
+            int left = loc[0] - frameLoc[0];
+            int top = loc[1] - frameLoc[1];
+            ghost.setBounds(left, top, left + width, top + height);
+            int base = Math.round(255 * Math.min(1f, alpha));
+            ghost.setAlpha(base);
+            frame.getOverlay().add(ghost);
+            ghosts.add(ghost);
+            alphas.add(base);
+        }
+        if (ghosts.isEmpty()) return false;
+        android.animation.ValueAnimator fade = android.animation.ValueAnimator.ofFloat(1f, 0f);
+        fade.setDuration(SECONDARY_HIDE_MS * 2);
+        fade.setInterpolator(SECONDARY_REVEAL_EASE);
+        fade.addUpdateListener(animation -> {
+            float fraction = (float) animation.getAnimatedValue();
+            for (int i = 0; i < ghosts.size(); i++) {
+                ghosts.get(i).setAlpha(Math.round(alphas.get(i) * fraction));
+            }
+            frame.invalidate();
+        });
+        fade.addListener(new android.animation.AnimatorListenerAdapter() {
+            private boolean done;
+
+            private void remove() {
+                if (done) return;
+                done = true;
+                for (android.graphics.drawable.BitmapDrawable ghost : ghosts) {
+                    frame.getOverlay().remove(ghost);
+                    ghost.getBitmap().recycle();
+                }
+            }
+
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                remove();
+            }
+
+            @Override public void onAnimationCancel(android.animation.Animator animation) {
+                remove();
+            }
+        });
+        fade.start();
+        return true;
+    }
+
+    private List<View> mountedTranslationViews() {
+        List<View> views = new java.util.ArrayList<>();
+        if (document == null) return views;
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            View view = LyricsLineViewState.translationView(document.appliedLines.get(i));
+            if (view != null && view.isAttachedToWindow()) views.add(view);
+        }
+        return views;
+    }
+
+    private void refreshSecondaryRows(String message) {
+        LyricsDocument snapshot = document;
+        if (snapshot == null || snapshot.appliedLines == null || snapshot.appliedLines.isEmpty()) {
+            if (!isBlank(message)) setTextIfChanged(status, message);
+            return;
+        }
+        rebuildWithReflow(this::rebuildSecondaryRowsInPlace);
+        if (!isBlank(message)) setTextIfChanged(status, message);
+    }
+
+    /** Adds, removes or updates translation/reading rows on the rows already mounted. */
+    private void rebuildSecondaryRowsInPlace() {
+        LyricsDocument snapshot = document;
+        if (snapshot == null || snapshot.appliedLines == null || snapshot.appliedLines.isEmpty()) return;
+        boolean structureChanged = secondaryRowUpdater.refresh(snapshot, showRomanization(),
+                showTranslation(), japaneseReadingMode());
+        if (structureChanged) {
+            invalidateRowHeightPrefix();
+            rowMountController.markDirty();
+            renderWindowForActive(currentWindowAnchor());
+        }
+    }
+
+    private void clearRenderedLineViews() {
+        if (document != null && document.appliedLines != null) {
+            for (AppliedLine line : document.appliedLines) {
+                secondaryRowUpdater.clear(line);
+            }
+        }
+        rowMountController.reset();
+    }
+
+    private void flushStyleBatch() {
+        styleBatcher.flush();
+    }
+
+    private void clearPendingStyleWrites() {
+        styleBatcher.clearPendingWrites();
+    }
+
+    private void seekNearestLineAt(float yInScroll) {
+        if (staticDoc) return; // unsynced lyrics have no real per-line timing → tapping must not seek
+        int bestIndex = nearestAppliedLineIndexAt(yInScroll);
+        if (bestIndex >= 0) seekToLine(document.appliedLines.get(bestIndex), bestIndex);
+    }
+
+    /** Shared by tap-to-seek and long-press-to-share: which mounted lyric row sits closest to a
+     *  scroll-view touch Y. Unlike {@link #seekNearestLineAt}, sharing works on unsynced (static)
+     *  documents too, so this carries no {@code staticDoc} guard of its own. */
+    private int nearestAppliedLineIndexAt(float yInScroll) {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return -1;
+        int contentY = scrollController == null ? Math.round(yInScroll) : scrollController.contentYForTouch(yInScroll);
+        int bestIndex = -1;
+        int bestDistance = Integer.MAX_VALUE;
+        // Compare in scroll-content (lyricsColumn) coordinates, mirroring the auto-scroll fix
+        // in setActiveLine: row.getTop() is relative to mountedRowsHost, which sits below the
+        // static + virtual spacers. Only mounted rows have valid coordinates — unmounted rows
+        // keep a cached rowView with stale layout from an earlier window placement.
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            if (line == null || line.dotLine) continue;
+            View row = rowMountController.attachedRowView(line);
+            if (row == null) continue;
+            int center = scrollController == null ? 0 : scrollController.rowCenterInContent(row);
+            int distance = Math.abs(contentY - center);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestIndex = i;
+            }
+        }
+        return bestIndex;
+    }
+
+    /** Long-press-to-share: quotes the nearest lyric row, or falls back to a plain track card
+     *  when there's no usable line under the touch (no document, or an empty/dot row). */
+    /** The mounted lyric row actually under a scroll-view touch Y (with a little slack), or -1. */
+    private int appliedLineIndexUnder(float yInScroll) {
+        if (document == null || document.appliedLines == null || scrollController == null) return -1;
+        int contentY = scrollController.contentYForTouch(yInScroll);
+        int slack = dp(8);
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row == null || row.getHeight() <= 0) continue;
+            int center = scrollController.rowCenterInContent(row);
+            int half = row.getHeight() / 2 + slack;
+            if (contentY >= center - half && contentY <= center + half) return i;
+        }
+        return -1;
+    }
+
+    /** The lyric row under a finger that may be about to long-press it (share), and where. */
+    private View pressedLyricRow;
+    private float pressedLyricDownY;
+    private final Runnable shrinkPressedLyric = () -> {
+        View row = pressedLyricRow;
+        if (row == null || !row.isAttachedToWindow()) return;
+        // Held down, the line sinks a little, as in Apple Music, until the sheet opens. (No
+        // cancel(): a new scale animation replaces only the scale, not the row's other motion.)
+        row.animate().scaleX(0.94f).scaleY(0.94f)
+                .setDuration(Math.max(160, android.view.ViewConfiguration.getLongPressTimeout() - 60))
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+    };
+
+    /**
+     * Apple-Music-style press feedback for long-press-to-share: a line held (not scrolled) shrinks
+     * slightly, and springs back when released, scrolled, or when the share sheet opens.
+     */
+    private void trackPressedLyric(android.view.MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case android.view.MotionEvent.ACTION_DOWN: {
+                releasePressedLyric();
+                if (config == null || !Boolean.TRUE.equals(config.get(Settings.LONG_PRESS_SHARE))) return;
+                int index = appliedLineIndexUnder(event.getY());
+                if (index < 0 || document == null) return;
+                AppliedLine line = document.appliedLines.get(index);
+                if (line == null || line.dotLine || line.text == null || line.text.trim().isEmpty()) return;
+                View row = rowMountController.attachedRowView(line);
+                if (row == null || row.getWidth() <= 0) return;
+                row.setPivotX(row.getWidth() / 2f);
+                row.setPivotY(row.getHeight() / 2f);
+                pressedLyricRow = row;
+                pressedLyricDownY = event.getY();
+                // A beat later, so a flick that starts on a line does not pulse it.
+                row.postDelayed(shrinkPressedLyric, 90);
+                break;
+            }
+            case android.view.MotionEvent.ACTION_MOVE:
+                if (pressedLyricRow != null && Math.abs(event.getY() - pressedLyricDownY) >= dp(10)) {
+                    releasePressedLyric();
+                }
+                break;
+            case android.view.MotionEvent.ACTION_UP:
+            case android.view.MotionEvent.ACTION_CANCEL:
+                releasePressedLyric();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void releasePressedLyric() {
+        View row = pressedLyricRow;
+        pressedLyricRow = null;
+        if (row == null) return;
+        row.removeCallbacks(shrinkPressedLyric);
+        row.animate().scaleX(1f).scaleY(1f).setDuration(460)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(2.2f)).start();
+    }
+
+    /**
+     * The share sheet over the lyrics. Long-pressing while the lyrics were blurred and moving was
+     * heavy: every blurred row kept re-rendering its blur under the sheet as it opened. The
+     * lyrics now hold still from the press until the sheet closes, and once the sheet's backdrop
+     * is opaque neither they nor the animated background are drawn at all.
+     */
+    private void onShareSheet(boolean showing, boolean covering) {
+        lyricsFrozen = showing;
+        if (covering != lyricsCovered) {
+            lyricsCovered = covering;
+            if (covering) ambientController.pauseAnimation();
+            else ambientController.resumeAnimation();
+            invalidate();
+        }
+    }
+
+    @Override
+    protected boolean drawChild(android.graphics.Canvas canvas, View child, long drawingTime) {
+        if (lyricsCovered && shareCardController != null && child != shareCardController.overlayView()) {
+            return false;
+        }
+        return super.drawChild(canvas, child, drawingTime);
+    }
+
+    private void shareLyricLineAt(float yInScroll) {
+        releasePressedLyric();
+        if (config == null || !Boolean.TRUE.equals(config.get(Settings.LONG_PRESS_SHARE))) return;
+        SpotifyTrack track = currentTrackThrottled();
+        if (track == null) return;
+        // Only a press on a lyric line opens the sheet. The nearest-row lookup used to pick a line
+        // however far away the touch was, so holding the empty space below the last line (or the
+        // credits) opened it too.
+        if (document != null && document.appliedLines != null && !document.appliedLines.isEmpty()
+                && appliedLineIndexUnder(yInScroll) < 0) {
+            return;
+        }
+        // Only a real lyric line opens the sheet: a null or empty document never does.
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+        // Don't share during ads - only share actual songs
+        String shareTrackUri = track.uri == null ? "" : track.uri;
+        if (shareTrackUri.startsWith("spotify:ad:")) return;
+        if (shareCardController == null) {
+            shareCardController = new LyricsShareCardController(activity);
+            shareCardController.setBackgroundSnapshot(
+                    (w, h) -> ambientController.snapshotBackground(w, h));
+            shareCardController.setSheetListener(this::onShareSheet);
+        }
+        Bitmap art = SpotifyArtworkCache.snapshotLarge(track.imageId, track.uri, dp(420));
+        if (art == null && track.imageId != null && !track.imageId.isEmpty()) {
+            art = TrackInfoReadoutController.ART_NETWORK_CACHE.get(track.imageId);
+            if (art == null) TrackInfoReadoutController.fetchArtworkFromNetwork(track.imageId);
+        }
+        int index = appliedLineIndexUnder(yInScroll);
+        AppliedLine line = (document != null && index >= 0 && index < document.appliedLines.size())
+                ? document.appliedLines.get(index) : null;
+        if (line != null && line.text != null && !line.text.trim().isEmpty()) {
+            shareCardController.showForLine(this, document, track, art, index,
+                    rowMountController.attachedRowView(line));
+        }
+    }
+
+    private void seekToLine(AppliedLine line, int index) {
+        if (line == null || line.startMs < 0) return;
+        skipAckGapStartMs = -1; // a manual tap-seek revokes the skip acknowledgement
+        long target = renderConfig == null ? Math.max(0, line.startMs) : renderConfig.playbackPositionForLyricMs(line.startMs);
+        followState.clearHold();
+        boolean ok = host.seekSpotifyTo(target);
+        if (ok) {
+            playbackClock.forcePosition(target, host.isPlayerActuallyPlaying());
+            long lyricTarget = adjustedLyricPositionMs(target);
+            setActiveLine(index, lyricTarget, host.getCurrentTrackSafely(), true);
+            frameRenderer.applySynced(document, rowMountController.mountedIndices(), mountedRowsHost,
+                    renderConfig, lyricTarget, index, 1f / 60f, false, 0, Integer.MAX_VALUE);
+            XpLog.log(TAG + " seek line index=" + index + " ms=" + target + " lyricMs=" + lyricTarget);
+        } else {
+            followState.holdUntil(SystemClock.elapsedRealtime() + 2500);
+            XpLog.log(TAG + " seek line failed index=" + index + " ms=" + target);
+        }
+    }
+
+    private void setActiveLine(int index, long positionMs, SpotifyTrack track) {
+        setActiveLine(index, positionMs, track, false);
+    }
+
+    private void setActiveLine(int index, long positionMs, SpotifyTrack track, boolean instantScroll) {
+        int old = followState.activeIndex();
+        boolean placeFirstActiveInstantly = LyricsScrollController.shouldScrollInstantly(
+                instantScroll, old, appleStyle());
+        if (document != null && index >= 0) {
+            boolean activeVisible = rowMountController.containsIndex(index);
+            if (!activeVisible || followState.isHoldingNow()) {
+                renderWindowForActive(index);
+                if (!activeVisible) old = -1;
+            }
+        }
+        followState.setActiveIndex(index);
+        updateRomanizationGlyph();
+        styleLine(old, false);
+        styleLine(index, true);
+        flushStyleBatch();
+        if (document == null || index < 0 || index >= document.appliedLines.size()) return;
+
+        AppliedLine line = document.appliedLines.get(index);
+        String currentReading = line.readingRenderPlan == null ? "" : line.readingRenderPlan.joinedDisplayText;
+        CurrentLyricState.updateLine(track, document.provider, document.language, line.dotLine ? "" : line.text, line.dotLine ? "" : currentReading, line.dotLine ? "" : line.translatedText, positionMs, index, host.isPlayerActuallyPlaying(), "active");
+
+        if (followState.isHoldingNow()) return;
+        View row = rowMountController.attachedRowView(line);
+        if (row == null) return;
+        scrollActiveRowWhenLaidOut(index, line, row, 0, placeFirstActiveInstantly);
+    }
+
+    /** Re-runs the scroll-to-active-row step for whichever line is active right now, without
+     *  waiting for the active index to actually change - see applyRenderConfigChanges(). */
+    private void rescrollActiveRowToAnchor() {
+        if (document == null || followState.isHoldingNow()) return;
+        int index = followState.activeIndex();
+        if (index < 0 || index >= document.appliedLines.size()) return;
+        AppliedLine line = document.appliedLines.get(index);
+        if (line == null) return;
+        View row = rowMountController.attachedRowView(line);
+        if (row == null) return;
+        scrollActiveRowWhenLaidOut(index, line, row, 0, false);
+    }
+
+    private void scrollActiveRowWhenLaidOut(int index, AppliedLine line, View row, int attempt, boolean instantScroll) {
+        if (!running || followState.isHoldingNow()) return;
+        if (document == null || line == null || row == null || lyricsScroll == null) return;
+        if (index != followState.activeIndex() || row.getParent() != mountedRowsHost) return;
+
+        if ((row.getHeight() <= 0 || lyricsScroll.getHeight() <= 0 || row.isLayoutRequested())
+                && attempt < 3) {
+            final boolean[] retried = {false};
+            View.OnLayoutChangeListener listener = new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                           int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    if (retried[0]) return;
+                    retried[0] = true;
+                    row.removeOnLayoutChangeListener(this);
+                    lyricsScroll.post(() -> scrollActiveRowWhenLaidOut(index, line, row, attempt + 1, instantScroll));
+                }
+            };
+            row.addOnLayoutChangeListener(listener);
+            lyricsScroll.postDelayed(() -> {
+                if (retried[0]) return;
+                retried[0] = true;
+                row.removeOnLayoutChangeListener(listener);
+                scrollActiveRowWhenLaidOut(index, line, row, attempt + 1, instantScroll);
+            }, 80);
+            return;
+        }
+
+        // post(), deliberately NOT postOnAnimation(). This block reads the row's real position out
+        // of the view tree (centeredScrollTarget -> offsetDescendantRectToMyCoords) to decide where
+        // to scroll. A plain post runs after the current frame's traversal, so any layout requested
+        // earlier in the frame - a window remount, a re-styled active line, a secondary text
+        // arriving - has already been performed and those coordinates are current.
+        // postOnAnimation runs BEFORE the traversal instead, so it would read pre-layout
+        // coordinates, jump the scroll to a target computed from them, and then have the layout
+        // move the rows out from under both that scroll and the cascade's compensating
+        // translations. The column lands a few pixels off for exactly one frame and is corrected on
+        // the next, which is seen as the lyrics flickering every time a line advances.
+        lyricsScroll.post(() -> {
+            if (!running || followState.isHoldingNow()) return;
+            if (index != followState.activeIndex() || row.getParent() != mountedRowsHost) return;
+            if (remeasureLine(line)) {
+                updateVirtualSpacerHeights();
+                if (attempt < 3) {
+                    lyricsScroll.post(() -> scrollActiveRowWhenLaidOut(index, line, row, attempt + 1, instantScroll));
+                    return;
+                }
+            }
+            int target = scrollController == null ? 0
+                    : scrollController.centeredScrollTarget(row, dp(56), appleStyle());
+            scrollToActiveTarget(Math.max(0, target), instantScroll);
+        });
+    }
+
+    /** Apple-owned slide: on only while the Animation style is Apple Music and its row is on. */
+    private boolean readSlideEnabled() {
+        if (config == null) return false;
+        return "Apple Music".equals(config.get(Settings.ANIMATION_STYLE))
+                && Boolean.TRUE.equals(config.get(Settings.LINE_SLIDE_ANIMATION));
+    }
+
+    /**
+     * Animation style is "Apple Music" - the single switch every Apple-only motion path in this
+     * shell is gated on. {@link LyricsRenderConfig#appleStyle} is read straight from
+     * {@link com.spotifyplusplus.lyrics.LyricsShellSettings#appleAnimation()}, so the shell reuses the
+     * already-resolved config rather than resolving the style a second way; before the config
+     * exists (construction order) it asks the settings wrapper directly.
+     */
+    private boolean appleStyle() {
+        if (renderConfig != null) return renderConfig.appleStyle;
+        return new com.spotifyplusplus.lyrics.LyricsShellSettings(activity, config).appleAnimation();
+    }
+
+    /** The fullscreen scroll view as an {@link com.spotifyplusplus.lyrics.ElasticScrollView}, or null
+     *  if it is not one. Its rubber band and end limit are Apple Music's, so both are set through
+     *  here rather than assuming the concrete type. */
+    private com.spotifyplusplus.lyrics.ElasticScrollView elasticScroll() {
+        return lyricsScroll instanceof com.spotifyplusplus.lyrics.ElasticScrollView
+                ? (com.spotifyplusplus.lyrics.ElasticScrollView) lyricsScroll : null;
+    }
+
+    private void setElasticScrollEnabled(boolean enabled) {
+        com.spotifyplusplus.lyrics.ElasticScrollView scroll = elasticScroll();
+        if (scroll != null) scroll.setElasticEnabled(enabled);
+    }
+
+    /** Resolves Settings#LYRICS_FOCUS_POSITION to an anchor fraction for scrollController. */
+    private float resolveFocusAnchorFraction() {
+        if (pipPresentation && !Float.isNaN(pipAnchorFraction)) return pipAnchorFraction;
+        return baseFocusAnchorFraction();
+    }
+
+    private float baseFocusAnchorFraction() {
+        String pos = config == null ? "Auto" : config.get(Settings.LYRICS_FOCUS_POSITION);
+        int percent = config == null ? Settings.LYRICS_FOCUS_POSITION_CUSTOM_PERCENT.defaultValue
+                : config.get(Settings.LYRICS_FOCUS_POSITION_CUSTOM_PERCENT);
+        return focusAnchorFraction(pos, percent, isLandscape(), slideAnimationEnabled);
+    }
+
+    /** "Auto" keeps the pre-existing behaviour: raised only while the Apple-style line-slide
+     *  animation is on, and centred in landscape, where a raised anchor overlaps the chrome in the
+     *  short height. Top/Center/Bottom/Custom are the user's own per-orientation choice and are
+     *  honoured in every orientation; the layout editor draws its focus line from this. */
+    static float focusAnchorFraction(String pos, int customPercent, boolean landscape,
+                                     boolean slideAnimation) {
+        if ("Top".equals(pos)) return LyricsScrollController.RAISED_ANCHOR_FRACTION;
+        if ("Bottom".equals(pos)) return LyricsScrollController.LOWERED_ANCHOR_FRACTION;
+        if ("Center".equals(pos)) return LyricsScrollController.CENTER_ANCHOR_FRACTION;
+        if ("Custom".equals(pos)) return Math.max(0f, Math.min(1f, customPercent / 100f));
+        if (landscape || !slideAnimation) return LyricsScrollController.CENTER_ANCHOR_FRACTION;
+        return LyricsScrollController.RAISED_ANCHOR_FRACTION;
+    }
+
+    private void scrollToActiveTarget(int target, boolean instant) {
+        if (lyricsScroll == null) return;
+        int oldScroll = lyricsScroll.getScrollY();
+        int delta = target - oldScroll;
+        if (instant || Math.abs(delta) <= 2) {
+            boolean moved = Math.abs(delta) > 2;
+            returnToCurrentPending = false;
+            scrollSpring = null;
+            clearScrollSubpixel();
+            applyingLyricScroll = true;
+            lyricsScroll.scrollTo(0, target);
+            applyingLyricScroll = false;
+            if (moved) clearRowCascade();
+            return;
+        }
+        if (!appleStyle()) {
+            // Not the Apple style: nothing below this line applies. The spring scroll, the row
+            // cascade it complements and the Apple cascade speed/strength editor keys are all
+            // Apple-owned, so this stays on the ScrollView's own smoothScrollTo() as it always was.
+            clearRowCascade();
+            lyricsScroll.smoothScrollTo(0, target);
+            return;
+        }
+        if (slideAnimationEnabled && Math.abs(delta) <= glideCapPx()) {
+            // The ordinary line-to-line advance with the Apple slide on: jump the scroll position
+            // instantly and let the per-row cascade alone carry the motion. Running a second
+            // animation on the scroll position at the same time here fights the cascade instead of
+            // complementing it - two independently-timed animations driving the same rows reads
+            // as choppy/disjointed rather than smooth, and at this distance the cascade alone was
+            // already the "spring" motion, not something that also needed a scroll under it.
+            // Hand the cascade the delta the ScrollView ACTUALLY moved, not the requested one:
+            returnToCurrentPending = false;
+            scrollSpring = null;
+            clearScrollSubpixel();
+            // Prime the row offsets before moving the ScrollView. Applying the compensation after
+            // scrollTo() leaves one traversal frame where the column has jumped and the rows have
+            // not caught up yet, which is the visible Apple-slide twitch at each lyric boundary.
+            startRowCascade(target - oldScroll);
+            applyingLyricScroll = true;
+            lyricsScroll.scrollTo(0, target);
+            applyingLyricScroll = false;
+            return;
+        }
+        // Everything else - the Apple slide turned off, or a jump too far for the cascade to
+        // plausibly cover (resuming after reading ahead, a seek) - is carried by one spring that
+        // owns the real scroll position.
+        //
+        // This is also why ScrollView's own smoothScrollTo() is no longer used for the
+        // slide-disabled path. It collapses to an instant scrollBy() whenever it is called within
+        // ANIMATED_SCROLL_GAP (250ms) of the previous one, so on any song whose lines land closer
+        // together than that - and on the burst of advances right after a seek - it silently
+        // stopped animating and hard-cut between lines. It also restarts its own interpolation from
+        // scratch on every call, where retargeting an in-flight spring keeps the existing velocity
+        // and absorbs a second jump arriving mid-glide instead of snapping.
+        // Reflow springs (a translation/reading appearing) are layout motion independent of the
+        // scroll; they carry on under the glide rather than snapping.
+        clearRowCascadeExceptReflow();
+        if (scrollSpring != null) {
+            scrollSpring.setGoal(target);
+            return;
+        }
+        // A return to the playing line after the user has scrolled away is the one jump that is a
+        // deliberate, user-asked-for move rather than the screen quietly keeping up with the song,
+        // so it gets its own, livelier profile, launched with real speed.
+        boolean returning = returnToCurrentPending;
+        returnToCurrentPending = false;
+        // Bound how far the glide actually travels. Resuming follow after reading ahead, or a
+        // seek across the song, can be thousands of pixels away; springing the whole way makes
+        // the column blur past at a speed that reads as a glitch rather than a scroll. Jumping
+        // the excess first and springing a fixed, viewport-relative remainder gives every jump
+        // the same legible arrival no matter how far it started.
+        int start = oldScroll;
+        float maxTravel = springTravelCapPx();
+        if (Math.abs(target - start) > maxTravel) {
+            start = target + Math.round(Math.signum(start - target) * maxTravel);
+            applyingLyricScroll = true;
+            lyricsScroll.scrollTo(0, Math.max(0, start));
+            applyingLyricScroll = false;
+            start = lyricsScroll.getScrollY();
+        }
+        clearScrollSubpixel();
+        float frequency = returning
+                ? RETURN_SPRING_FREQUENCY_HZ * cascadeSpeedMultiplier() * elasticFrequencyMultiplier()
+                : scrollSpringFrequency(target - start);
+        float damping = returning
+                ? elasticDamping(RETURN_SPRING_DAMPING)
+                : scrollSpringDamping();
+        scrollSpring = new com.spotifyplusplus.lyrics.Spring(start, frequency, damping);
+        scrollSpring.setGoal(target);
+        if (returning) {
+            // Leaving with real speed rather than from a standstill is what makes the return read
+            // as the column being thrown back to the song instead of easing there: the motion is
+            // quickest at the start, where the distance is, and arrives with almost none left.
+            scrollSpring.setVelocity(Math.signum(target - start) * Math.min(
+                    Math.abs(target - start) * RETURN_LAUNCH_VELOCITY_PER_PX,
+                    RETURN_MAX_LAUNCH_VELOCITY_PX_PER_SEC));
+        }
+    }
+
+    /** Stiffer for a short hop, softer for a long one. A single frequency either made adjacent
+     *  lines feel like the column was lagging behind the song, or sent a cross-song jump flying. */
+    private float scrollSpringFrequency(float distancePx) {
+        int viewport = lyricsScroll == null ? 0 : lyricsScroll.getHeight();
+        float span = viewport > 0 ? viewport : ROW_CASCADE_MAX_OFFSET_PX;
+        float reach = Math.min(1f, Math.abs(distancePx) / span);
+        float hz = SCROLL_SPRING_NEAR_FREQUENCY_HZ
+                + (SCROLL_SPRING_FREQUENCY_HZ - SCROLL_SPRING_NEAR_FREQUENCY_HZ) * reach;
+        return hz * cascadeSpeedMultiplier() * elasticFrequencyMultiplier();
+    }
+
+    /** With the Apple slide on, the scroll spring is the same family of motion as the row cascade
+     *  and may overshoot a little. With it off the user has opted out of that character, so the
+     *  glide is critically damped and simply arrives. */
+    private float scrollSpringDamping() {
+        return slideAnimationEnabled ? elasticDamping(SCROLL_SPRING_DAMPING) : 1f;
+    }
+
+    /** Cascade and spring speed from the Apple speed editor. Apple Music only: the other animation
+     *  styles run every spring at the plain constants, so the setting cannot reach them. */
+    private float cascadeSpeedMultiplier() {
+        if (!appleStyle()) return 1f;
+        float speedPct = config != null ? (float) config.get(Settings.APPLE_CASCADE_SPEED) : 100f;
+        return Math.max(0.5f, Math.min(2f, speedPct / 100f));
+    }
+
+    /** Maps the editor's strength control to elasticity (damping), not travel speed. Apple Music
+     *  only, like {@link #cascadeSpeedMultiplier}. */
+    private float elasticDamping(float baseDamping) {
+        if (!appleStyle()) return baseDamping;
+        float strengthPct = config != null ? (float) config.get(Settings.APPLE_SPRING_STRENGTH) : 100f;
+        // Strength > 100% reduces damping for more bounce; < 100% increases it toward 1.0 (dead).
+        float elasticity = (strengthPct - 100f) / 100f;
+        float adjusted = baseDamping - elasticity * 0.25f;
+        return Math.max(0.45f, Math.min(0.95f, adjusted));
+    }
+
+    /** Compensates for the "slower" feel of low-damping bouncy springs by slightly raising
+     *  the base frequency as strength increases. Apple Music only. */
+    private float elasticFrequencyMultiplier() {
+        if (!appleStyle()) return 1f;
+        float strengthPct = config != null ? (float) config.get(Settings.APPLE_SPRING_STRENGTH) : 100f;
+        if (strengthPct <= 100f) return 1f;
+        float extra = (strengthPct - 100f) / 100f;
+        // Raised from 0.15 to 0.28 to keep the "snappiness" even when damping is very low.
+        return 1f + extra * 0.28f;
+    }
+
+    /** How much of a far jump the scroll spring actually animates, in px. */
+    private float springTravelCapPx() {
+        int viewport = lyricsScroll == null ? 0 : lyricsScroll.getHeight();
+        if (viewport <= 0) return ROW_CASCADE_MAX_OFFSET_PX;
+        return viewport * 1.15f;
+    }
+
+    private void stepScrollSpring(float deltaSeconds) {
+        if (scrollSpring == null || lyricsScroll == null) return;
+        if (followState.isHoldingNow()) {
+            // A finger landed on the list mid-glide without moving it yet, so the scroll listener
+            // never fired. Drop the spring rather than scrolling out from under the touch.
+            scrollSpring = null;
+            clearScrollSubpixel();
+            return;
+        }
+        float value = scrollSpring.step(Math.max(0.001f, Math.min(0.05f, deltaSeconds)));
+        applyScrollPosition(value);
+        if (scrollSpring.isAtRest(1f, 4f)) {
+            scrollSpring = null;
+            applyScrollPosition(Math.round(value));
+        }
+    }
+
+    /**
+     * Writes a fractional scroll position: whole pixels to the ScrollView, the leftover fraction to
+     * the content's own translation.
+     *
+     * <p>{@code scrollTo} takes an int, so a spring crawling the last few pixels home was being
+     * quantised to whole-pixel steps - it would sit still for two or three frames, jump a pixel,
+     * sit still again. That stair-stepping is most of what reads as the glide not being smooth,
+     * and it is worst exactly where the eye is most likely to be watching: the slow settle at the
+     * end. Carrying the remainder on the column's translation gives the motion real sub-pixel
+     * resolution without fighting the ScrollView for ownership of the scroll position.
+     */
+    private void applyScrollPosition(float value) {
+        if (lyricsScroll == null) return;
+        int whole = (int) Math.floor(value);
+        applyingLyricScroll = true;
+        lyricsScroll.scrollTo(0, Math.max(0, whole));
+        applyingLyricScroll = false;
+        if (lyricsColumn == null) return;
+        // Only meaningful while the ScrollView actually honoured the requested position; at the
+        // ends of the song it clamps, and carrying a remainder there would drift the content off
+        // its own edge.
+        float fraction = lyricsScroll.getScrollY() == whole ? value - whole : 0f;
+        if (Math.abs(lyricsColumn.getTranslationY() + fraction) > 0.01f) {
+            lyricsColumn.setTranslationY(-fraction);
+        }
+    }
+
+    /** Puts the column back on whole pixels; anything that takes the scroll position over from the
+     *  spring must call this or the leftover fraction stays applied forever. */
+    private void clearScrollSubpixel() {
+        if (lyricsColumn != null && lyricsColumn.getTranslationY() != 0f) {
+            lyricsColumn.setTranslationY(0f);
+        }
+    }
+
+    private float glideCapPx() {
+        boolean apple = renderConfig != null && renderConfig.appleStyle;
+        if (!apple) return ROW_CASCADE_MAX_OFFSET_PX;
+        if (pipPresentation && pipScreenHeightPx > 0) {
+            // The PiP lyrics area is a small part of the window; measured against it, ordinary
+            // line changes read as long jumps and skipped the slide animation.
+            return pipScreenHeightPx * 0.45f;
+        }
+        if (lyricsScroll != null && lyricsScroll.getHeight() > 0) {
+            return lyricsScroll.getHeight() * (isLandscape() ? 0.6f : 0.45f);
+        }
+        return ROW_CASCADE_MAX_OFFSET_PX;
+    }
+
+    private boolean animatorScaleOff() {
+        try {
+            return android.provider.Settings.Global.getFloat(activity.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private void startRowCascade(float scrollDelta) {
+        // Battery saver disables ValueAnimator but this cascade runs on the lyric frame loop.
+        if (animatorScaleOff()) {
+            clearRowCascade();
+            return;
+        }
+        if (document == null || document.appliedLines == null || Math.abs(scrollDelta) < 0.5f) return;
+        if (Math.abs(scrollDelta) > glideCapPx()) return;
+        int activeIndex = followState.activeIndex();
+        float speedMul = cascadeSpeedMultiplier();
+        float stagger = ROW_CASCADE_STAGGER_SEC / speedMul;
+        float maxDelay = ROW_CASCADE_MAX_DELAY_SEC / speedMul;
+        float frequency = ROW_CASCADE_FREQUENCY_HZ * speedMul * elasticFrequencyMultiplier();
+        float damping = elasticDamping(ROW_CASCADE_DAMPING);
+        // Rows the move leaves behind wait their turn; the focus and everything ahead of it leave
+        // together. Scrolling forward that is the rows below the focus, scrolling back the rows
+        // above it.
+        float direction = Math.signum(scrollDelta);
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = rowMountController.attachedRowView(line);
+            if (row == null) continue;
+            float trailing = direction * signedCascadeDistance(line, i, activeIndex);
+            // Every row starts displaced by the FULL scroll delta: the ScrollView has already
+            // carried the content the other way by exactly this much, so this is what leaves the
+            // column visually untouched at t=0. Any per-row amplitude is a hard jump of the
+            // difference on the very frame the scroll lands.
+            float initialOffset = scrollDelta;
+            // A lyric can advance again before the previous cascade has settled. Folding the new
+            // displacement into the row's running spring keeps its velocity and phase, where a new
+            // spring would restart it from a standstill and hitch.
+            RowCascade existing = rowCascades.get(line);
+            if (existing != null) {
+                existing.bump(initialOffset);
+                // Re-assert the position on this frame too. The bumped row is skipped by
+                // stepRowCascade() while it is still inside its stagger delay, so without this the
+                // View keeps last frame's translation and the scroll jump shows through on it.
+                row.setTranslationY(existing.spring.position());
+                continue;
+            }
+            rowCascades.put(line, new RowCascade(initialOffset, LyricCascadeProfile.forRow(
+                    trailing, frequency, damping, stagger, maxDelay)));
+            row.setTranslationY(initialOffset);
+        }
+    }
+
+    /**
+     * Background/dual-vocal rows are inserted directly after their lead row in appliedLines.
+     * Using raw list indices therefore gives the lower row a different delay, so the upper and
+     * lower voices visibly arrive apart. Measure rows by their source lyric line instead: a lead
+     * and its paired background row share one cascade phase, while adjacent source lines remain
+     * one step apart.
+     */
+    private float cascadeDistance(AppliedLine line, int rowIndex, int activeIndex) {
+        return Math.abs(signedCascadeDistance(line, rowIndex, activeIndex));
+    }
+
+    /** Source lines from the focused one to this row; positive below it, negative above. */
+    private float signedCascadeDistance(AppliedLine line, int rowIndex, int activeIndex) {
+        if (activeIndex < 0 || document == null || document.appliedLines == null
+                || activeIndex >= document.appliedLines.size()) {
+            return 0f;
+        }
+        AppliedLine active = document.appliedLines.get(activeIndex);
+        if (line != null && active != null && line.sourceLine != null
+                && line.sourceLine == active.sourceLine) {
+            return 0f;
+        }
+        if (line != null && active != null && line.sourceLine != null
+                && active.sourceLine != null && document.lines != null) {
+            int lineIndex = document.lines.indexOf(line.sourceLine);
+            int activeLineIndex = document.lines.indexOf(active.sourceLine);
+            if (lineIndex >= 0 && activeLineIndex >= 0) {
+                return lineIndex - activeLineIndex;
+            }
+        }
+        return rowIndex - activeIndex;
+    }
+
+    private void stepRowCascade(float deltaSeconds) {
+        if (rowCascades.isEmpty()) return;
+        long now = SystemClock.uptimeMillis();
+        Iterator<Map.Entry<AppliedLine, RowCascade>> it = rowCascades.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<AppliedLine, RowCascade> entry = it.next();
+            View row = rowMountController.attachedRowView(entry.getKey());
+            RowCascade cascade = entry.getValue();
+            if (row == null) {
+                // Unmounted mid-cascade. Zero the detached View as well, or it comes back into the
+                // window still carrying whatever offset it was at when it left.
+                View detached = LyricsLineViewState.rowView(entry.getKey());
+                if (detached != null) detached.setTranslationY(0f);
+                it.remove();
+                continue;
+            }
+            if (now - cascade.startedAtMs > ROW_CASCADE_MAX_LIFETIME_MS) {
+                // Safety valve for a spring that somehow never settles. Collapse what's left of
+                // the offset over a few frames instead of zeroing it outright: a hard reset from a
+                // still-visible displacement is exactly the pop this cutoff exists to prevent.
+                float remaining = cascade.spring.position() * 0.72f;
+                cascade.spring.snap(0f);
+                cascade.spring.nudgePosition(remaining);
+                row.setTranslationY(remaining);
+                if (Math.abs(remaining) <= 0.5f) {
+                    row.setTranslationY(0f);
+                    it.remove();
+                }
+                continue;
+            }
+            float step = deltaSeconds;
+            if (cascade.delayRemaining > 0f) {
+                cascade.delayRemaining -= deltaSeconds;
+                if (cascade.delayRemaining > 0f) continue;
+                // Spend only the part of this frame that falls past the delay. Without this the
+                // stagger is rounded up to a whole frame, so on a device rendering at 30fps - where
+                // one frame is longer than the entire stagger between neighbouring rows - every row
+                // in the wave started on the same frame anyway and the cascade collapsed into the
+                // rigid block slide it exists to avoid.
+                step = Math.min(deltaSeconds, -cascade.delayRemaining);
+                cascade.delayRemaining = 0f;
+            }
+            float value = cascade.spring.step(Math.max(0.001f, Math.min(0.05f, step)));
+            row.setTranslationY(value);
+            // A reflowing row is kept a little past rest: its layout can still settle, and that
+            // late move has to be caught by followReflowLayout() rather than show as a jump.
+            if (cascade.spring.isAtRest(0.5f, 2f)
+                    && (!cascade.followLayout || now - cascade.startedAtMs > REFLOW_SETTLE_MS)) {
+                row.setTranslationY(0f);
+                it.remove();
+            }
+        }
+    }
+
+    private void clearRowCascadeExceptReflow() {
+        if (rowCascades.isEmpty()) return;
+        java.util.Iterator<Map.Entry<AppliedLine, RowCascade>> it = rowCascades.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<AppliedLine, RowCascade> entry = it.next();
+            if (entry.getValue().followLayout) continue;
+            View row = LyricsLineViewState.rowView(entry.getKey());
+            if (row != null) row.setTranslationY(0f);
+            it.remove();
+        }
+    }
+
+    private void clearRowCascade() {
+        if (rowCascades.isEmpty()) return;
+        for (AppliedLine line : rowCascades.keySet()) {
+            // rowView(), not attachedRowView(): a row that left the window mid-cascade still needs
+            // its translation cleared, or it reappears offset when it scrolls back in.
+            View row = LyricsLineViewState.rowView(line);
+            if (row != null) row.setTranslationY(0f);
+        }
+        rowCascades.clear();
+    }
+
+    /** Stops a stale document's load reveal before its row views are reused for a new document. */
+    private void cancelLoadEntranceAnimation() {
+        if (pendingEntranceStart != null) lyricsFrame.removeCallbacks(pendingEntranceStart);
+        pendingEntranceStart = null;
+        clearLoadEntrance();
+        if (document == null || document.appliedLines == null) return;
+        for (int i : rowMountController.mountedIndices()) {
+            if (i < 0 || i >= document.appliedLines.size()) continue;
+            AppliedLine line = document.appliedLines.get(i);
+            View row = line == null ? null : rowMountController.attachedRowView(line);
+            if (row == null) continue;
+            resetRowTransientTransform(line, row);
+        }
+    }
+
+    /** Puts one row back to its untransformed resting state. Reached both when a reveal or cascade
+     *  is abandoned and when a row leaves the mounted window mid-motion - a row that is unmounted
+     *  while still displaced keeps that displacement on its View, and silently reappears offset (or
+     *  invisible) the next time it scrolls back in. */
+    private void resetRowTransientTransform(AppliedLine line, View row) {
+        LyricsLineViewState.setEntranceProgress(line, 1f);
+        if (row == null) return;
+        row.animate().cancel();
+        row.setTranslationY(0f);
+        // Alpha is deliberately left alone: the frame renderer owns it outright and rewrites it the
+        // first time the row is rendered again. Forcing it to 1 here would show one fully-bright
+        // frame before the renderer dims the row back to its real opacity.
+        row.setScaleX(1f);
+        row.setScaleY(1f);
+        row.setHasTransientState(false);
+        ViewGroup rowGroup = row instanceof ViewGroup ? (ViewGroup) row : null;
+        int rowChildCount = rowGroup != null ? rowGroup.getChildCount() : 0;
+        for (int childIndex = 0; childIndex < rowChildCount; childIndex++) {
+            View child = rowGroup.getChildAt(childIndex);
+            child.animate().cancel();
+            child.setTranslationY(0f);
+            child.setAlpha(1f);
+            if (Build.VERSION.SDK_INT >= 31) child.setRenderEffect(null);
+        }
+    }
+
+    /** A row leaving the mounted window drops out of every per-frame loop that would otherwise
+     *  finish its motion, so its transform has to be settled here rather than left behind. */
+    private void onRowUnmounted(AppliedLine line) {
+        if (line == null) return;
+        rowCascades.remove(line);
+        loadEntrances.remove(line);
+        resetRowTransientTransform(line, LyricsLineViewState.rowView(line));
+        lineVisualController.invalidate(line);
+    }
+
+    private void maybeAutoResumeFollow(int activeIndex, SpotifyTrack track, long lyricPos) {
+        if (!autoResumeFollow) return;
+        int delaySeconds = config == null ? Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS.defaultValue
+                : config.get(Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS);
+        if (!followState.canAutoResumeNow(delaySeconds * 1000L)) return;
+        if (document == null || document.appliedLines == null || activeIndex < 0 || activeIndex >= document.appliedLines.size()) return;
+        // No visibility guard here: when the user has scrolled away the active row is
+        // off-screen (or unmounted) by definition. setActiveLine below re-renders the
+        // window and scrolls back, exactly like tapping the chip. Guarding on the row
+        // being visible meant the cooldown could complete without ever resuming.
+        followState.clearHold();
+        if (flushPendingSourceSwap()) return;
+        returnToCurrentPending = true;
+        setActiveLine(activeIndex, lyricPos, track);
+        updateJumpToCurrentVisibility();
+    }
+
+    private void styleLine(int index, boolean active) {
+        lineVisualController.style(document == null ? null : document.appliedLines, index);
+        // The base style puts the row back to unsung: its real state (a past line's fill) has to
+        // be drawn again, or a settled row stays drained.
+        if (document != null && document.appliedLines != null && index >= 0
+                && index < document.appliedLines.size()) {
+            LyricsLineViewState.requestFrame(document.appliedLines.get(index));
+        }
+    }
+    private void resumeFollowCurrentLine() {
+        if (document == null || document.appliedLines == null || document.appliedLines.isEmpty()) return;
+        SpotifyTrack track = host.getCurrentTrackSafely();
+        long pos = track == null ? -1 : playbackClock.getPosition(track, host.isPlayerActuallyPlaying());
+        long lyricPos = pos >= 0 ? adjustedLyricPositionMs(pos) : pos;
+        int index = lyricPos >= 0 ? LyricTimeline.findPrimaryActiveRow(document.appliedLines, lyricPos) : followState.activeIndex();
+        if (index < 0 || index >= document.appliedLines.size()) return;
+        followState.clearHold();
+        if (flushPendingSourceSwap()) return;
+        returnToCurrentPending = true;
+        // Deliberately not resetActive(): that sets the active index to the "nothing has ever been
+        // active" sentinel, which shouldScrollInstantly() reads as a fresh document and answers by
+        // snapping. Tapping the follow chip then teleported the column instead of travelling back
+        // to it. Keeping the real previous index lets the jump run through the scroll spring, whose
+        // travel is capped so even a jump from the far end of the song arrives legibly.
+        renderWindowForActive(index);
+        setActiveLine(index, Math.max(0, lyricPos), track);
+        frameRenderer.applySynced(document, rowMountController.mountedIndices(), mountedRowsHost,
+                renderConfig, Math.max(0, lyricPos), index, 1f / 60f, false);
+        updateJumpToCurrentVisibility();
+    }
+
+    /** Applies a source swap stashed while follow was held; true when one was pending. */
+    private boolean flushPendingSourceSwap() {
+        LyricsDocument stashed = pendingSourceSwap;
+        String stashedUri = pendingSourceSwapUri;
+        pendingSourceSwap = null;
+        pendingSourceSwapUri = "";
+        if (stashed == null || stashedUri.isEmpty()) return false;
+        try {
+            prepareAndScheduleDocument(stashedUri, stashed);
+            return true;
+        } catch (Throwable t) {
+            XpLog.log(TAG + " pending source swap apply failed: " + t);
+            return false;
+        }
+    }
+
+    private long adjustedLyricPositionMs(long playbackPositionMs) {
+        return renderConfig == null ? Math.max(0L, playbackPositionMs) : renderConfig.adjustedPositionMs(playbackPositionMs);
+    }
+
+    // Re-read renderer settings immediately after the in-Spotify panel closes (the periodic poll
+    // would also catch them, but this resumes the paused background without delay).
+    private void onSettingsClosed() {
+        try {
+            applyRenderConfigChanges("settings closed", true);
+            ambientController.applySettings(renderConfig.backgroundStyle, renderConfig.forceDarkBackground,
+                    renderConfig.extraDarkBackground);
+        } catch (Throwable t) {
+            XpLog.log(TAG + " onSettingsClosed failed: " + t);
+        }
+    }
+
+    /**
+     * Settings panel's "Reset lyrics sync" action: drops the in-memory clock and lyric position so
+     * the next frame re-measures against the real playback position instead of predicting off
+     * whatever drifted. The stored SYNC_OFFSET_MS is reset by the panel itself, which owns that
+     * write; this clears the render state the panel cannot reach.
+     */
+    private void onTranslationTapped() {
+        if (renderConfig != null && !renderConfig.translationEnabled) return;
+        if (translationFailedNow()) {
+            retryTranslation();
+            return;
+        }
+        boolean wasVisible = showTranslation();
+        boolean hasDisplayedMeaning = hasLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+        boolean requestedOutput = shouldGenerateAi(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+        boolean requestStarted = !requestedOutput
+                || requestAiLayerWithFeedback(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+        boolean keepVisible = transliterationSession.keepVisibleForRequestedOutput(
+                requestedOutput, wasVisible, hasDisplayedMeaning);
+        if (TranslationVisibilityPolicy.onTap(requestedOutput, requestStarted, keepVisible)
+                != TranslationVisibilityPolicy.TapAction.TOGGLE) return;
+        showTranslation = !showTranslation;
+        markTranslationToggled();
+        preferences.edit().putBoolean(Settings.NATIVE_SPICY_TRANSLATION.key, showTranslation).apply();
+        updateToggleVisuals();
+        hideThenRebuild(showTranslation ? java.util.Collections.emptyList()
+                : mountedTranslationViews(), this::rebuildSecondaryRowsInPlace);
+    }
+
+    private void resyncLyricsTiming() {
+        try {
+            playbackClock.reset(lastUri);
+            lastLyricPositionMs = -1;
+            updateState(1f / 60f);
+        } catch (Throwable t) {
+            XpLog.log(TAG + " resyncLyricsTiming failed: " + t);
+        }
+    }
+
+    private void schedulePreferenceRefresh() {
+        if (!running || preferenceRefreshPosted) return;
+        frameScheduler.requestFrame();
+        preferenceRefreshPosted = true;
+        handler.post(preferenceRefreshRunnable);
+    }
+
+    private void registerPreferenceListener() {
+        if (preferencesRegistered) return;
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener);
+        preferencesRegistered = true;
+    }
+
+    private void unregisterPreferenceListener() {
+        if (!preferencesRegistered) return;
+        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener);
+        preferencesRegistered = false;
+        preferenceRefreshPosted = false;
+        handler.removeCallbacks(preferenceRefreshRunnable);
+    }
+
+    // Spin the chip rings while their work is outstanding: initial fetch, or background
+    // romanization/translation enhancement. Reads only in-memory state, so it's cheap per frame.
+    private void updateToggleSpinners() {
+        boolean loading = !loadingTrackId.isEmpty();
+        boolean romanPending = showRomanization()
+                && romanToggle.getVisibility() == View.VISIBLE
+                && (loading || localReprocessController.isProcessing()
+                        || (document != null && document.romanizationPending));
+        boolean translationPending = showTranslation()
+                && translationToggle.getVisibility() == View.VISIBLE
+                && (loading || (document != null && document.translationPending));
+        boolean romanAiPending = soundAiFeedback.isPending(
+                document != null && document.readingAiPending)
+                && romanToggle.getVisibility() == View.VISIBLE;
+        boolean translationAiPending = meaningAiFeedback.isPending(
+                document != null && document.translationAiPending)
+                && translationToggle.getVisibility() == View.VISIBLE;
+        // A settled failure tints the affected sparkle red until a retry (running) or success
+        // replaces it. Gated on chip visibility like the other states; details stay available via
+        // the review panel, not a persistent notice.
+        boolean romanAiFailed = !romanAiPending
+                && !aiFailureToken(com.spotifyplusplus.lyrics.session.LayerKind.SOUND).isEmpty()
+                && romanToggle.getVisibility() == View.VISIBLE;
+        boolean translationAiFailed = !translationAiPending
+                && !aiFailureToken(com.spotifyplusplus.lyrics.session.LayerKind.MEANING).isEmpty()
+                && translationToggle.getVisibility() == View.VISIBLE;
+        toggleSpinnerController.setFailed(false, translationFailedNow());
+        toggleSpinnerController.update(renderConfig.toggleSpinnerEnabled, romanPending,
+                translationPending,
+                hasAiLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.SOUND)
+                        && showRomanization(),
+                hasAiLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.MEANING)
+                        && showTranslation(),
+                romanAiPending, translationAiPending, romanAiFailed, translationAiFailed);
+    }
+
+    /**
+     * The translation did not come and nothing stands in for it (an AI failure has its own red
+     * mark and review path). The chip shows a red "!", and a tap retries instead of toggling.
+     */
+    private boolean translationFailedNow() {
+        return document != null && document.translationFailed && !document.translationPending
+                && showTranslation() && translationToggle.getVisibility() == View.VISIBLE
+                && aiFailureToken(com.spotifyplusplus.lyrics.session.LayerKind.MEANING).isEmpty()
+                && !hasLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+    }
+
+    private void retryTranslation() {
+        // Shown as running at once; the session republishes when the retry settles.
+        document.translationFailed = false;
+        document.translationPending = true;
+        host.refreshLyricsLayer(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+        updateToggleSpinners();
+        android.widget.Toast.makeText(activity,
+                uiText("lyrics_translation_retrying", "Retrying translation…"),
+                android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    /** Desktop's primary-click policy, applied before the normal visibility toggle. */
+    private boolean shouldGenerateAi(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (document == null || isLayerBusy(layer)) return false;
+        AiSettings settings = aiSettings;
+        if (!settings.generateThenToggle() || !settings.canRequest()) return false;
+        return !hasAiLayerOutput(layer);
+    }
+
+    /** Desktop parity: secondary click opens review when AI output exists, otherwise the composer. */
+    private void openAiLayerPanel(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        String failureToken = aiFailureToken(layer);
+        boolean hasAi = hasAiLayerOutput(layer);
+        com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Snapshot monitor =
+                aiRequestMonitor(layer);
+        // A settled failure is not a run in progress, whatever the document's pending flag still
+        // says. Letting "busy" win routed a terminal truncation to the running-status dialog, which
+        // has no retry and no failed-attempt payload — the two things that failure needs.
+        boolean running = isLayerBusy(layer) && !monitor.current.isFailure();
+        com.spotifyplusplus.lyrics.ai.AiLayerPanelPolicy.Destination destination =
+                com.spotifyplusplus.lyrics.ai.AiLayerPanelPolicy.destination(
+                        running, failureToken, hasAi);
+        if (destination == com.spotifyplusplus.lyrics.ai.AiLayerPanelPolicy.Destination.RUNNING_STATUS) {
+            showLayerRunningStatus(layer, monitor);
+            return;
+        }
+        if (document == null) return;
+        if (destination == com.spotifyplusplus.lyrics.ai.AiLayerPanelPolicy.Destination.FAILURE) {
+            com.spotifyplusplus.ui.PanelDialog failed = new com.spotifyplusplus.ui.PanelDialog(activity,
+                    aiLayerLabel(layer));
+            failed.paragraph(aiFailureInlineText(layer, failureToken));
+            appendAttemptMonitor(failed, monitor.current,
+                    uiText("lyrics_ai_failed_attempt_payload", "Failed attempt payload"));
+            appendAttemptMonitor(failed, monitor.previousFailure,
+                    uiText("lyrics_ai_previous_failed_attempt", "Previous failed attempt"));
+            if (hasAi) failed.paragraph(reviewText(layer));
+            failed.primary("delivery_unknown".equals(failureToken)
+                            ? uiText("lyrics_ai_retry_anyway", "Retry anyway")
+                            : uiText("lyrics_ai_retry", "Retry"),
+                    () -> requestAiRetry(layer, failureToken));
+            failed.secondary(hasAi ? restoreBaselineLabel(layer)
+                            : uiText("lyrics_ai_cancel", "Cancel"),
+                    hasAi ? () -> host.restoreLyricsLayer(layer) : null);
+            failed.show();
+            return;
+        }
+        if (destination == com.spotifyplusplus.lyrics.ai.AiLayerPanelPolicy.Destination.REVIEW) {
+            com.spotifyplusplus.ui.PanelDialog review = new com.spotifyplusplus.ui.PanelDialog(activity,
+                    aiLayerLabel(layer))
+                    .closeIcon(uiText("lyrics_ai_close", "Close"));
+            String lead = reviewLeadText(layer);
+            if (!lead.isEmpty()) review.paragraph(lead);
+            appendModelReasoning(review, layer, settledAttempt(monitor));
+            String output = reviewOutputText(layer);
+            if (!output.isEmpty()) review.paragraph(output);
+            appendAttemptMonitor(review, monitor.previousFailure,
+                    uiText("lyrics_ai_previous_failed_attempt", "Previous failed attempt"));
+            review.primary(uiText("lyrics_ai_refine_again", "Refine again…"),
+                    () -> openAiComposer(layer));
+            review.secondary(restoreBaselineLabel(layer),
+                    () -> host.restoreLyricsLayer(layer));
+            review.show();
+            return;
+        }
+        openAiComposer(layer);
+    }
+
+    private boolean isLayerBusy(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (!loadingTrackId.isEmpty()) return true;
+        if (layer == com.spotifyplusplus.lyrics.session.LayerKind.SOUND) {
+            return localReprocessController.isProcessing()
+                    || document != null && document.romanizationPending;
+        }
+        return document != null && document.translationPending;
+    }
+
+    private void showLayerRunningStatus(com.spotifyplusplus.lyrics.session.LayerKind layer,
+                                        com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Snapshot initial) {
+        boolean aiRunning = document != null && (layer
+                == com.spotifyplusplus.lyrics.session.LayerKind.SOUND
+                ? document.readingAiPending : document.translationAiPending);
+        String message;
+        if (aiRunning) {
+            message = layer == com.spotifyplusplus.lyrics.session.LayerKind.SOUND
+                    ? uiText("lyrics_ai_pronunciation_running",
+                    "AI pronunciation request is running for this song.")
+                    : uiText("lyrics_ai_translation_running",
+                    "AI translation request is running for this song.");
+        } else if (!loadingTrackId.isEmpty()) {
+            message = uiText("lyrics_ai_song_loading",
+                    "Lyrics for the current song are loading. AI controls will be available when ready.");
+        } else {
+            message = layer == com.spotifyplusplus.lyrics.session.LayerKind.SOUND
+                    ? uiText("lyrics_ai_pronunciation_processing",
+                    "Pronunciation is still processing for this song.")
+                    : uiText("lyrics_ai_translation_processing",
+                    "Translation is still processing for this song.");
+        }
+        final com.spotifyplusplus.ui.PanelDialog status = new com.spotifyplusplus.ui.PanelDialog(activity,
+                uiText("lyrics_ai_current_status", "Current status"));
+        status.paragraph(message);
+        final android.widget.TextView payload = aiRunning ? status.readOnlyBlock(
+                monitorText(initial == null ? null : initial.current)) : null;
+        appendAttemptMonitor(status, initial == null ? null : initial.previousFailure,
+                uiText("lyrics_ai_previous_failed_attempt", "Previous failed attempt"));
+        final Runnable[] refresh = new Runnable[1];
+        // The payload is written once per attempt and then sits still for the length of the call.
+        // Re-setting identical text four times a second scrolled the block back to the top and
+        // dropped any selection, which made the one thing this dialog exists to show unreadable.
+        final String[] rendered = { payload == null ? null : payload.getText().toString() };
+        refresh[0] = () -> {
+            if (payload == null) return;
+            com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Snapshot latest =
+                    aiRequestMonitor(layer);
+            String next = monitorText(latest.current);
+            if (!next.equals(rendered[0])) {
+                rendered[0] = next;
+                payload.setText(next);
+            }
+            if (status.isShowing() && isLayerBusy(layer)) {
+                handler.postDelayed(refresh[0], 250L);
+            }
+        };
+        status.onDismiss(() -> handler.removeCallbacks(refresh[0]));
+        status.secondary(uiText("lyrics_ai_close", "Close"), null);
+        status.show();
+        handler.post(refresh[0]);
+    }
+
+    private com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Snapshot aiRequestMonitor(
+            com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        String digest = document == null ? ""
+                : LyricsDocumentProcessor.canonicalBaseOf(document).digest;
+        return com.spotifyplusplus.lyrics.ai.AiRequestLiveState.snapshot(layer, digest);
+    }
+
+    private String monitorText(com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Attempt attempt) {
+        if (attempt == null || !attempt.hasPayload()) {
+            return uiText("lyrics_ai_preparing_payload", "Preparing request payload…");
+        }
+        return attempt.payload;
+    }
+
+    private void appendAttemptMonitor(com.spotifyplusplus.ui.PanelDialog dialog,
+                                      com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Attempt attempt,
+                                      String heading) {
+        if (dialog == null || attempt == null || !attempt.isFailure()) return;
+        StringBuilder summary = new StringBuilder(heading);
+        if (!attempt.failureToken.isEmpty()) summary.append(" · ").append(attempt.failureToken);
+        if (attempt.httpStatus > 0) summary.append(" · HTTP ").append(attempt.httpStatus);
+        if (!attempt.failureDetail.isEmpty()) summary.append(" · ").append(attempt.failureDetail);
+        dialog.paragraph(summary.toString());
+        if (attempt.hasPayload()) dialog.readOnlyBlock(attempt.payload);
+        appendReasoningTrace(dialog, attempt);
+    }
+
+    /**
+     * The run whose reasoning the review panel should show.
+     *
+     * <p>The settled copy first: by the time a review panel can open, the run that produced the
+     * output on screen has finished, and a later run may already have reset {@code current} to a
+     * preparing attempt with nothing in it yet.
+     */
+    private com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Attempt settledAttempt(
+            com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Snapshot monitor) {
+        if (monitor == null) return null;
+        return monitor.lastSettled.hasReasoning() ? monitor.lastSettled : monitor.current;
+    }
+
+    /**
+     * The model's thinking for one attempt, folded away.
+     *
+     * <p>Collapsed rather than shown, and absent entirely when the wire carried no trace. A trace
+     * is longer than everything else in this dialog put together and is read only when an answer
+     * looks wrong, so opening the panel on it would bury the output the panel exists to review.
+     */
+    private void appendReasoningTrace(com.spotifyplusplus.ui.PanelDialog dialog,
+                                      com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Attempt attempt) {
+        if (dialog == null || attempt == null || !attempt.hasReasoning()) return;
+        dialog.collapsible(uiText("lyrics_ai_reasoning_trace", "Reasoning trace"),
+                attempt.reasoning);
+    }
+
+    /** Makes the model row itself the disclosure control for a successful run's reasoning. */
+    private void appendModelReasoning(com.spotifyplusplus.ui.PanelDialog dialog,
+                                      com.spotifyplusplus.lyrics.session.LayerKind layer,
+                                      com.spotifyplusplus.lyrics.ai.AiRequestLiveState.Attempt attempt) {
+        if (dialog == null) return;
+        String model = aiModel(layer);
+        if (model.isEmpty()) return;
+        String label = uiFormat("lyrics_ai_model_used", "Model: %1$s", model);
+        if (attempt != null && attempt.hasReasoning()) {
+            dialog.collapsible(label, attempt.reasoning);
+        } else {
+            dialog.paragraph(label);
+        }
+    }
+
+    private void openAiComposer(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        com.spotifyplusplus.lyrics.ai.AiSettings settings =
+                new com.spotifyplusplus.lyrics.ai.AiSettings(activity);
+        if (!settings.canRequest()) return;
+        com.spotifyplusplus.ui.PanelDialog composer = new com.spotifyplusplus.ui.PanelDialog(activity,
+                aiLayerLabel(layer)).closeIcon(uiText("lyrics_ai_close", "Close"));
+        composer.paragraph(layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                ? uiText("lyrics_ai_translation_prompt_help",
+                "Choose a preset or edit a custom prompt describing what the model should preserve, fix, or emphasize.")
+                : uiText("lyrics_ai_pronunciation_prompt_help",
+                "Choose a preset or edit a custom prompt for pronunciation, dialect, spelling, or mixed-language guidance."));
+
+        String activePrompt = settings.instructions(layer);
+        String matchingPreset = com.spotifyplusplus.lyrics.ai.AiPresets.matchingName(layer, activePrompt);
+        String customPrompt = settings.customInstructions(layer);
+        if (customPrompt.isEmpty() && matchingPreset == null && !activePrompt.isEmpty()) {
+            customPrompt = activePrompt;
+        }
+        String[] presets = com.spotifyplusplus.lyrics.ai.AiPresets.names(layer);
+        final String customLabel = uiText("lyrics_ai_custom_prompt", "Custom");
+        final String[] selected = new String[]{matchingPreset != null
+                ? matchingPreset : (!customPrompt.isEmpty() ? customLabel : presets[0])};
+        final String[] savedCustom = new String[]{customPrompt};
+        final android.widget.EditText[] field = new android.widget.EditText[1];
+        final android.widget.TextView[] selectedView = new android.widget.TextView[1];
+        final android.view.View[] editAction = new android.view.View[1];
+        final android.view.View[] saveAction = new android.view.View[1];
+
+        selectedView[0] = composer.selector(
+                uiText("lyrics_ai_prompt_preset", "Prompt preset"), aiPresetLabel(selected[0]),
+                uiText("lyrics_ai_choose_prompt_preset", "Choose prompt preset"),
+                () -> showAiPresetPicker(composer.selectorAnchor(selectedView[0]),
+                        layer, selected[0], customLabel, picked -> {
+                    selected[0] = picked;
+                    selectedView[0].setText(aiPresetLabel(picked));
+                    boolean custom = customLabel.equals(picked);
+                    if (custom) field[0].setText(savedCustom[0]);
+                    field[0].setVisibility(custom ? VISIBLE : GONE);
+                    editAction[0].setVisibility(custom ? GONE : VISIBLE);
+                    saveAction[0].setVisibility(custom ? VISIBLE : GONE);
+                }));
+        field[0] = composer.multilineField(savedCustom[0]);
+        editAction[0] = composer.selectorAction(selectedView[0],
+                com.spotifyplusplus.ui.ActionIconDrawable.Kind.EDIT,
+                uiText("lyrics_ai_edit_prompt", "Edit prompt"), () -> {
+                    String base = customLabel.equals(selected[0])
+                            ? savedCustom[0]
+                            : com.spotifyplusplus.lyrics.ai.AiPresets.instructions(layer, selected[0]);
+                    selected[0] = customLabel;
+                    selectedView[0].setText(customLabel);
+                    field[0].setText(base);
+                    field[0].setVisibility(VISIBLE);
+                    editAction[0].setVisibility(GONE);
+                    saveAction[0].setVisibility(VISIBLE);
+                    field[0].requestFocus();
+                });
+        saveAction[0] = composer.selectorAction(selectedView[0],
+                com.spotifyplusplus.ui.ActionIconDrawable.Kind.SAVE,
+                uiText("lyrics_ai_save_custom_prompt", "Save custom prompt"), () -> {
+                    savedCustom[0] = field[0].getText().toString();
+                    settings.setCustomInstructions(layer, savedCustom[0]);
+                    settings.setInstructions(layer, savedCustom[0]);
+                    android.widget.Toast.makeText(activity,
+                            uiText("lyrics_ai_custom_prompt_saved", "Custom prompt saved"),
+                            android.widget.Toast.LENGTH_SHORT).show();
+                });
+        boolean customSelected = customLabel.equals(selected[0]);
+        field[0].setVisibility(customSelected ? VISIBLE : GONE);
+        editAction[0].setVisibility(customSelected ? GONE : VISIBLE);
+        saveAction[0].setVisibility(customSelected ? VISIBLE : GONE);
+
+        // Three Meaning flows share one stored key, so the composer edits the stored value
+        // directly instead of a boolean that can only express two of them. Reading goes through
+        // the store's schema coercion, so legacy installs keep their migrated choice.
+        final boolean meaningLayer = layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING;
+        final com.spotifyplusplus.SettingsStore flowStore =
+                meaningLayer ? new com.spotifyplusplus.SettingsStore(activity) : null;
+        final java.util.List<String> flowValues = meaningLayer
+                ? Settings.AI_TRANSLATION_PIPELINE.allowedValues
+                : java.util.Collections.<String>emptyList();
+        final String[] flowValue = {meaningLayer
+                ? flowStore.get(Settings.AI_TRANSLATION_PIPELINE) : ""};
+        final android.widget.TextView[] flowView = new android.widget.TextView[1];
+        if (meaningLayer) {
+            flowView[0] = composer.selector(
+                    uiText("settings_label_ai_translation_pipeline", "AI translation flow"),
+                    aiPipelineLabel(flowValue[0]),
+                    uiText("settings_label_ai_translation_pipeline", "AI translation flow"),
+                    () -> showAiPipelinePicker(composer.selectorAnchor(flowView[0]),
+                            flowValues, flowValue[0], picked -> {
+                                flowValue[0] = picked;
+                                flowView[0].setText(aiPipelineLabel(picked));
+                            }));
+        }
+
+        composer.primary(uiText("lyrics_ai_run", "Run AI"), () -> {
+            String prompt;
+            if (customLabel.equals(selected[0])) {
+                prompt = field[0].getText().toString();
+                settings.setCustomInstructions(layer, prompt);
+            } else {
+                prompt = com.spotifyplusplus.lyrics.ai.AiPresets.instructions(layer, selected[0]);
+            }
+            settings.setInstructions(layer, prompt);
+            if (meaningLayer) {
+                flowStore.put(Settings.AI_TRANSLATION_PIPELINE, flowValue[0]);
+            }
+            requestAiLayerWithFeedback(layer);
+        });
+        composer.show();
+    }
+
+    /**
+     * Current UI strings, read live through the process-wide language owner.
+     *
+     * <p>Deliberately not a field: a cached copy froze the language at shell construction, so a
+     * language change made in the settings panel never reached this surface until a remount.
+     */
+    private SettingsUiStrings uiStrings() {
+        return com.spotifyplusplus.ui.UiLanguage.strings(activity, config.get(Settings.UI_LANGUAGE));
+    }
+
+    private String aiPipelineLabel(String value) {
+        return uiStrings().option((Settings.StringSetting) Settings.AI_TRANSLATION_PIPELINE, value);
+    }
+
+    private void showAiPipelinePicker(android.view.View anchor,
+                                      java.util.List<String> values, String selected,
+                                      java.util.function.Consumer<String> onPick) {
+        java.util.List<String> labels = new java.util.ArrayList<>();
+        for (String value : values) labels.add(aiPipelineLabel(value));
+        com.spotifyplusplus.ui.PanelPickerPopup.show(activity, anchor, labels,
+                aiPipelineLabel(selected), pickedLabel -> {
+                    for (String value : values) {
+                        if (aiPipelineLabel(value).equals(pickedLabel)) {
+                            onPick.accept(value);
+                            return;
+                        }
+                    }
+                });
+    }
+
+    private void showAiPresetPicker(android.view.View anchor,
+                                    com.spotifyplusplus.lyrics.session.LayerKind layer,
+                                    String selected, String customLabel,
+                                    java.util.function.Consumer<String> onPick) {
+        // The preset catalog keeps its English names as identity - AiPresets.instructions()
+        // matches on them exactly - so only the label is translated here, and the picking
+        // callback always hands back the original name.
+        final String[] names = com.spotifyplusplus.lyrics.ai.AiPresets.names(layer);
+        java.util.List<String> choices = new java.util.ArrayList<>();
+        for (String name : names) choices.add(aiPresetLabel(name));
+        choices.add(customLabel);
+        String current = customLabel.equals(selected) ? customLabel : aiPresetLabel(selected);
+        com.spotifyplusplus.ui.PanelPickerPopup.show(activity, anchor, choices, current, picked -> {
+            if (customLabel.equals(picked)) {
+                onPick.accept(customLabel);
+                return;
+            }
+            for (String name : names) {
+                if (aiPresetLabel(name).equals(picked)) {
+                    onPick.accept(name);
+                    return;
+                }
+            }
+            onPick.accept(picked);
+        });
+    }
+
+    /** Localized label for one AI prompt preset; unknown names fall back to the name itself. */
+    private String aiPresetLabel(String name) {
+        if (name == null || name.isEmpty()) return "";
+        String slug = name.trim().toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "_").replaceAll("^_+|_+$", "");
+        if (slug.isEmpty()) return name;
+        return uiText("settings_option_ai_preset_" + slug, name);
+    }
+
+    private String aiFailureToken(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (document == null) return "";
+        return safe(layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                ? document.translationAiFailureToken : document.readingAiFailureToken);
+    }
+
+    private String aiLayerLabel(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        return layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                ? uiText("lyrics_ai_translation", "AI translation")
+                : uiText("lyrics_ai_pronunciation", "AI pronunciation");
+    }
+
+    /** An AI authority flag without any displayed row is stale state, not accepted output. */
+    private boolean hasAiLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        boolean marked = layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                ? document != null && document.translationFromAi
+                : document != null && document.readingFromAi;
+        return marked && hasLayerOutput(layer);
+    }
+
+    private boolean hasLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        return layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                ? LyricsDocumentProcessor.hasDisplayedMeaning(document)
+                : LyricsDocumentProcessor.hasDisplayedSound(document);
+    }
+
+    private String aiFailureInlineText(com.spotifyplusplus.lyrics.session.LayerKind layer,
+                                       String token) {
+        String label = aiLayerLabel(layer);
+        if ("delivery_unknown".equals(token)) {
+            return uiFormat("lyrics_ai_delivery_unknown_inline",
+                    "%1$s status unknown. The request may have been billed. Tap to review.", label);
+        }
+        return uiFormat("lyrics_ai_failure_inline", "%1$s failed: %2$s. Tap to retry.",
+                label, aiFailureReason(token));
+    }
+
+    private String aiFailureReason(String token) {
+        switch (safe(token)) {
+            case "no_credential": return uiText("lyrics_ai_failure_no_credential", "No API key");
+            case "baseline_unavailable": return uiText("lyrics_ai_failure_baseline", "Baseline unavailable");
+            case "model_unavailable": return uiText("lyrics_ai_failure_model", "Model unavailable");
+            case "auth_rejected": return uiText("lyrics_ai_failure_auth", "API key rejected");
+            case "quota_exhausted": return uiText("lyrics_ai_failure_quota", "Quota exhausted");
+            case "rate_limited": return uiText("lyrics_ai_failure_rate_limit", "Rate limited");
+            case "protocol_invalid": return uiText("lyrics_ai_failure_protocol", "Invalid provider response");
+            case "request_rejected": return uiText("lyrics_ai_failure_request", "Request rejected");
+            case "provider_refused": return uiText("lyrics_ai_failure_refused", "Provider refused the request");
+            case "storage_full": return uiText("lyrics_ai_failure_storage_full", "Paid AI storage is full");
+            case "storage_unavailable": return uiText("lyrics_ai_failure_storage_unavailable", "Paid AI storage is unavailable");
+            case "truncated": return uiText("lyrics_ai_failure_truncated", "Response truncated");
+            case "oversized": return uiText("lyrics_ai_failure_oversized", "Lyrics or response too large");
+            case "runtime_unavailable": return uiText("lyrics_ai_failure_runtime", "AI runtime unavailable");
+            default: return uiText("lyrics_ai_failure_generic", "Provider unavailable");
+        }
+    }
+
+    private void requestAiRetry(com.spotifyplusplus.lyrics.session.LayerKind layer, String token) {
+        if (!"delivery_unknown".equals(token)) {
+            requestAiLayerWithFeedback(layer);
+            return;
+        }
+        com.spotifyplusplus.ui.PanelDialog warning = new com.spotifyplusplus.ui.PanelDialog(activity,
+                uiText("lyrics_ai_retry_warning_title", "Retry may duplicate a billed request"));
+        warning.paragraph(uiText("lyrics_ai_retry_warning",
+                "The previous request did not confirm delivery. It may already have been billed. Retry only if you accept that risk."));
+        warning.primary(uiText("lyrics_ai_retry_anyway", "Retry anyway"),
+                () -> requestAiLayerWithFeedback(layer));
+        warning.secondary(uiText("lyrics_ai_cancel", "Cancel"), null);
+        warning.show();
+    }
+
+    private boolean requestAiLayerWithFeedback(
+            com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        TranslationVisibilityPolicy.RevealAction reveal =
+                TranslationVisibilityPolicy.revealFor(layer, showRomanization(), showTranslation());
+        if (reveal == TranslationVisibilityPolicy.RevealAction.REVEAL_ROMANIZATION) {
+            transliterationSession.setShowRomanization(true);
+            preferences.edit()
+                    .putBoolean(Settings.NATIVE_SPICY_ROMANIZATION.key, true)
+                    .apply();
+            refreshSecondaryRows("");
+        } else if (reveal == TranslationVisibilityPolicy.RevealAction.REVEAL_TRANSLATION) {
+            showTranslation = true;
+            preferences.edit()
+                    .putBoolean(Settings.NATIVE_SPICY_TRANSLATION.key, true)
+                    .apply();
+            refreshSecondaryRows("");
+        }
+        com.spotifyplusplus.lyrics.ai.AiRequestStartResult result =
+                host.requestAiLyricsLayer(layer);
+        String label = aiLayerLabel(layer);
+        if (!result.started()) {
+            android.widget.Toast.makeText(activity,
+                    aiRequestRefusalMessage(result, label),
+                    android.widget.Toast.LENGTH_LONG).show();
+            updateToggleVisuals();
+            return false;
+        }
+        aiFeedback(layer).started();
+        updateToggleVisuals();
+        android.widget.Toast.makeText(activity,
+                layer == com.spotifyplusplus.lyrics.session.LayerKind.SOUND
+                        ? uiText("lyrics_ai_pronunciation_running",
+                        "AI pronunciation request is running for this song.")
+                        : uiText("lyrics_ai_translation_running",
+                        "AI translation request is running for this song."),
+                android.widget.Toast.LENGTH_SHORT).show();
+        return true;
+    }
+
+    private String aiRequestRefusalMessage(
+            com.spotifyplusplus.lyrics.ai.AiRequestStartResult result, String label) {
+        switch (result) {
+            case NOT_CONFIGURED:
+                return uiFormat("lyrics_ai_request_not_configured",
+                        "%1$s request cannot start. Complete AI setup first.", label);
+            case ALREADY_IN_FLIGHT:
+                return uiFormat("lyrics_ai_request_already_running",
+                        "%1$s request is already running for this song.", label);
+            case NOTHING_TO_DO:
+                return uiFormat("lyrics_ai_request_nothing_to_do",
+                        "%1$s request found no new work for this song.", label);
+            default:
+                return uiFormat("lyrics_ai_request_lyrics_unavailable",
+                        "%1$s request cannot start because lyrics are not ready.", label);
+        }
+    }
+
+    private com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState aiFeedback(
+            com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        return layer == com.spotifyplusplus.lyrics.session.LayerKind.SOUND
+                ? soundAiFeedback : meaningAiFeedback;
+    }
+
+    private void observeAiRequestFeedback(LyricsDocument value) {
+        if (value == null) return;
+        observeAiRequestFeedback(
+                com.spotifyplusplus.lyrics.session.LayerKind.SOUND,
+                value.readingAiPending,
+                value.readingFromAi && LyricsDocumentProcessor.hasDisplayedSound(value),
+                safe(value.readingAiFailureToken));
+        observeAiRequestFeedback(
+                com.spotifyplusplus.lyrics.session.LayerKind.MEANING,
+                value.translationAiPending,
+                value.translationFromAi && LyricsDocumentProcessor.hasDisplayedMeaning(value),
+                safe(value.translationAiFailureToken));
+    }
+
+    private void observeAiRequestFeedback(
+            com.spotifyplusplus.lyrics.session.LayerKind layer,
+            boolean pending,
+            boolean hasAiOutput,
+            String failureToken) {
+        com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState.Outcome outcome =
+                aiFeedback(layer).observe(pending, hasAiOutput, failureToken);
+        if (outcome == com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState.Outcome.FAILED) {
+            android.widget.Toast.makeText(activity,
+                    aiFailureInlineText(layer, failureToken),
+                    android.widget.Toast.LENGTH_LONG).show();
+        } else if (outcome
+                == com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState.Outcome.NO_OUTPUT) {
+            android.widget.Toast.makeText(activity,
+                    uiFormat("lyrics_ai_request_no_output",
+                            "%1$s finished without usable output. Tap for status or retry.",
+                            aiLayerLabel(layer)),
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private String uiText(String name, String fallback) {
+        return uiStrings().get(name, fallback);
+    }
+
+    private String uiFormat(String name, String fallback, Object... args) {
+        return uiStrings().format(name, fallback, args);
+    }
+
+    private String restoreBaselineLabel(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                && document != null && document.translationAiRefinedFromGoogle) {
+            return uiText("lyrics_ai_restore_google", "Restore Google Translate");
+        }
+        return uiText("lyrics_ai_restore_baseline", "Restore baseline");
+    }
+
+    private String reviewText(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        StringBuilder text = new StringBuilder();
+        appendReviewSection(text, reviewLeadText(layer));
+        String model = aiModel(layer);
+        if (!model.isEmpty()) {
+            appendReviewSection(text,
+                    uiFormat("lyrics_ai_model_used", "Model: %1$s", model));
+        }
+        appendReviewSection(text, reviewOutputText(layer));
+        return text.toString();
+    }
+
+    private String reviewLeadText(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (document == null || layer != com.spotifyplusplus.lyrics.session.LayerKind.MEANING) return "";
+        return document.translationAiRefinedFromGoogle
+                ? uiText("lyrics_ai_refined_google", "AI refined the Google Translate version.")
+                : uiText("lyrics_ai_from_source", "AI translated from the original lyrics.");
+    }
+
+    private String aiModel(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (document == null) return "";
+        String model = layer == com.spotifyplusplus.lyrics.session.LayerKind.SOUND
+                ? document.readingAiModel : document.translationAiModel;
+        return model == null ? "" : model.trim();
+    }
+
+    private String reviewOutputText(com.spotifyplusplus.lyrics.session.LayerKind layer) {
+        if (document == null || document.lines == null) return "";
+        StringBuilder text = new StringBuilder();
+        for (com.spotifyplusplus.lyrics.LyricsLine line : document.lines) {
+            if (line == null || line.text == null || line.text.trim().isEmpty()) continue;
+            String output = layer == com.spotifyplusplus.lyrics.session.LayerKind.MEANING
+                    ? line.translatedText
+                    : line.readingRenderPlan != null
+                    ? line.readingRenderPlan.joinedDisplayText : line.romanizedText;
+            if (output == null || output.trim().isEmpty()) continue;
+            text.append(line.text).append("\n→ ").append(output).append("\n\n");
+        }
+        return text.toString().trim();
+    }
+
+    private void appendReviewSection(StringBuilder text, String section) {
+        if (text == null || section == null || section.isEmpty()) return;
+        if (text.length() > 0) text.append("\n\n");
+        text.append(section);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        toggleSpinnerController.reset();
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        try {
+            if (ev != null && ev.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && trackInfoController != null
+                    && !trackInfoController.containsArtTouch(ev.getRawX(), ev.getRawY())) {
+                trackInfoController.onOutsideDown();
+            }
+        } catch (Throwable ignored) {
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void updateJumpToCurrentVisibility() {
+        boolean show = document != null && followState.activeIndex() >= 0 && followState.isHoldingNow();
+        jumpToCurrentController.update(show && !pipPresentation);
+
+        // The countdown starts once the list is at rest: not while it is still gliding or
+        // springing back from an end, and not while paused (it starts over on resume rather
+        // than jumping ahead by the time spent paused).
+        boolean settling = scrollInProgress || (lyricsScroll instanceof com.spotifyplusplus.lyrics.ElasticScrollView
+                && ((com.spotifyplusplus.lyrics.ElasticScrollView) lyricsScroll).isStretched());
+        if (show && (settling || !host.isPlayerActuallyPlaying())) followState.markManualScroll();
+        if (show && autoResumeFollow && host.isPlayerActuallyPlaying()) {
+            int delaySeconds = config == null ? Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS.defaultValue
+                    : config.get(Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS);
+            jumpToCurrentController.setProgress(followState.autoResumeProgress(delaySeconds * 1000L));
+        } else if (show) {
+            jumpToCurrentController.fadeProgress();
+        }
+    }
+
+    /**
+     * Drives the intro/outro skip affordance (synced docs only; callers hide it elsewhere).
+     * Off hides everything; On demand shows the chip while an unacknowledged gap is active;
+     * Auto seeks past the gap with no button. The sticky ack (track URI + gap start) survives
+     * the seek landing — including Spotify Connect delays — and clears on track change, a
+     * manual seek-back, or leaving the gap.
+     */
+    private void updateSkipGap(SpotifyTrack track, String uri, long lyricPos, boolean playingNow) {
+        String mode = config == null ? "Off" : config.get(Settings.AUTO_SKIP_INTRO_OUTRO);
+        if ("Off".equals(mode)) {
+            skipAckGapStartMs = -1;
+            skipGapController.hide();
+            lastSkipSeenPosMs = lyricPos;
+            return;
+        }
+        if (!uri.equals(skipAckUri)) {
+            skipAckUri = uri;
+            skipAckGapStartMs = -1;
+        }
+        if (lastSkipSeenPosMs >= 0 && lyricPos < lastSkipSeenPosMs - 2000) {
+            skipAckGapStartMs = -1; // user scrubbed back into (or past) the gap
+        }
+        lastSkipSeenPosMs = lyricPos;
+        SkipGapPolicy.SkipTarget target = document == null || document.appliedLines == null ? null
+                : SkipGapPolicy.skipTarget(document.appliedLines, lyricPos);
+        boolean acked = target != null && skipAckGapStartMs >= 0
+                && target.gapStartMs == skipAckGapStartMs;
+        if ("Auto".equals(mode)) {
+            skipGapController.hide();
+            if (target != null && !acked && playingNow && host.canSeek()) performSkipSeek(target, uri);
+            return;
+        }
+        // host.canSeek() reflects the *current* PlaybackState, which can flip moment to moment
+        // (e.g. an ad starting), so this is re-checked every tick rather than cached - a chip
+        // offering a seek that would just be silently ignored is worse than no chip at all.
+        if (target != null && !acked && host.canSeek() && !pipPresentation) {
+            skipGapController.show(SkipGapPolicy.defaultLabel(target.kind));
+        } else {
+            skipGapController.hide();
+        }
+    }
+
+    /** On-demand chip tap: seek past the currently active gap, if it is still there. */
+    private void skipCurrentGap() {
+        if (document == null || document.appliedLines == null || lastSkipSeenPosMs < 0) return;
+        String uri = lastUri;
+        SkipGapPolicy.SkipTarget target =
+                SkipGapPolicy.skipTarget(document.appliedLines, lastSkipSeenPosMs);
+        if (target == null || target.gapStartMs == skipAckGapStartMs) return;
+        performSkipSeek(target, uri);
+    }
+
+    private void performSkipSeek(SkipGapPolicy.SkipTarget target, String uri) {
+        // TRAILING gaps mean "next track" — skip immediately instead of seeking to near the end.
+        if (target.kind == SkipGapPolicy.GapKind.TRAILING) {
+            host.skipToNextTrack();
+            skipGapController.hide();
+            return;
+        }
+        long playbackMs = renderConfig == null
+                ? Math.max(0, target.targetMs)
+                : renderConfig.playbackPositionForLyricMs(target.targetMs);
+        boolean ok = host.seekSpotifyTo(playbackMs);
+        if (ok) {
+            playbackClock.forcePosition(playbackMs, host.isPlayerActuallyPlaying());
+            skipAckUri = uri;
+            skipAckGapStartMs = target.gapStartMs;
+            lastSkipSeenPosMs = target.targetMs;
+            XpLog.log(TAG + " skip gap startMs=" + target.gapStartMs + " targetMs=" + target.targetMs);
+        }
+        skipGapController.hide();
+    }
+
+    private void cycleTransliterationMode(SharedPreferences prefs) {
+        if (!SoundModeCyclePolicy.mayCycle(renderConfig == null
+                || renderConfig.transliterationEnabled)) return;
+        if (SoundModeCyclePolicy.clearsStaleAiReading(document)) {
+            LyricsDocumentProcessor.resetSoundLayer(activity.getApplicationContext(), document);
+            updateToggleVisuals();
+        }
+        LyricsTransliterationSession.CycleResult result =
+                transliterationSession.cycle(activeLineHasJapanese(), activeLineHasChinese(),
+                        activeLineHasKorean(), activeLineHasCyrillic());
+        prefs.edit()
+                .putBoolean(Settings.NATIVE_SPICY_ROMANIZATION.key, result.showRomanization)
+                .putString(Settings.LAST_JAPANESE_CYCLE_MODE.key, transliterationSession.japaneseReadingMode())
+                .putString(Settings.LAST_CHINESE_CYCLE_MODE.key, LyricsShellSettings.normalizeChineseMode(transliterationSession.chineseMode()))
+                .putString(Settings.LAST_KOREAN_CYCLE_MODE.key, transliterationSession.koreanMode())
+                .putString(Settings.LAST_CYRILLIC_CYCLE_MODE.key, transliterationSession.cyrillicMode())
+                .apply();
+        reprocessLocalModeOnly(result.reason);
+    }
+
+    private void reprocessLocalModeOnly(String reason) {
+        LyricsDocument snapshot = document;
+        boolean started = localReprocessController.request(
+                snapshot,
+                showRomanization(),
+                romanizationOptions(),
+                reason,
+                this::isCurrentProcessingResult,
+                new LyricsLocalReprocessController.Callback() {
+                    @Override
+                    public void complete(String completedReason, int changed) {
+                        // Always re-render: the chip also toggles reading visibility on and off,
+                        // which changes no text at all. A repaint gated on changed text would
+                        // leave that case showing the previous state.
+                        rerenderKeepingPosition(completedReason + " ready");
+                        // Only a genuine mode change is worth the session's time. This surface owns
+                        // its own per-span reading projection and re-derives locally for immediate
+                        // feedback; telling the session moves now-playing and the HyperGlow bridge
+                        // to the same mode instead of leaving them on the previous one until the
+                        // next track. A visibility toggle is fullscreen-only, so it stays local.
+                        if (changed > 0) {
+                            host.refreshLyricsLayer(com.spotifyplusplus.lyrics.session.LayerKind.SOUND);
+                        }
+                        XpLog.log(TAG + " local mode reprocess complete changed=" + changed + " reason=" + completedReason);
+                    }
+
+                    @Override
+                    public void repeat(String repeatReason) {
+                        reprocessLocalModeOnly(repeatReason);
+                    }
+                });
+        if (!started) {
+            updateToggleVisuals();
+            renderDocument();
+        }
+    }
+
+    /**
+     * A downloaded language pack changes the tokenizer and dictionary underneath an already
+     * mounted document. A plain redraw used to reuse its old, often empty, Sound projection, so
+     * installing the pack looked successful in Settings while furigana/reading never appeared
+     * until the next track or a manual toggle. Invalidate only the local Sound projection and run
+     * the normal serialized local pipeline again; translations and canonical lyrics stay intact.
+     */
+    private void reprocessForInstalledLanguageModels() {
+        if (!running || document == null || document.lines == null || document.lines.isEmpty()) return;
+        if (!showRomanization()) {
+            // The pack supplies data, not an implicit visibility preference.
+            updateToggleVisuals();
+            return;
+        }
+        LyricsDocumentProcessor.resetSoundLayer(activity.getApplicationContext(), document);
+        reprocessLocalModeOnly("language models installed");
+    }
+
+    private void reprocessTranslationForConfig(String reason) {
+        LyricsDocument snapshot = document;
+        if (snapshot == null || snapshot.lines == null || snapshot.lines.isEmpty()) return;
+
+        // Drop the stale translations on this surface immediately so the change is visible, then
+        // hand the actual work to the session. The renderer never starts a provider run: that is
+        // what makes one settings change cost one run across fullscreen, now-playing, and the
+        // HyperGlow bridge instead of one per surface.
+        LyricsDocumentProcessor.resetMeaningLayer(activity.getApplicationContext(), snapshot);
+        rerenderKeepingPosition(reason + " ready");
+        if (snapshot.translationPending) {
+            host.refreshLyricsLayer(com.spotifyplusplus.lyrics.session.LayerKind.MEANING);
+        }
+    }
+
+    private boolean activeLineHasJapanese() {
+        AppliedLine line = activeLine();
+        return line == null ? documentHasJapanese()
+                : "ja".equals(com.spotifyplusplus.lyrics.language.ReadingLanguagePolicy.layoutLanguage(line));
+    }
+
+    private boolean activeLineHasChinese() {
+        AppliedLine line = activeLine();
+        return line == null ? documentHasChinese()
+                : "zh".equals(com.spotifyplusplus.lyrics.language.ReadingLanguagePolicy.layoutLanguage(line));
+    }
+
+    private boolean activeLineHasKorean() {
+        AppliedLine line = activeLine();
+        if (line != null && hasRomanizableScript(line.text)) return SpicyTextDetection.itemKoreanTest(line.text);
+        return documentHasKorean();
+    }
+
+    private boolean activeLineHasCyrillic() {
+        AppliedLine line = activeLine();
+        if (line != null && hasRomanizableScript(line.text)) return SpicyTextDetection.itemCyrillicTest(line.text);
+        return documentHasCyrillic();
+    }
+
+    private boolean hasRomanizableScript(String text) {
+        return SpicyTextDetection.hasKana(text)
+                || SpicyTextDetection.itemChineseTest(text)
+                || SpicyTextDetection.itemKoreanTest(text)
+                || SpicyTextDetection.itemCyrillicTest(text);
+    }
+
+    private AppliedLine activeLine() {
+        if (document == null || document.appliedLines == null) return null;
+        int index = followState.activeIndex();
+        if (index < 0 || index >= document.appliedLines.size()) return null;
+        AppliedLine line = document.appliedLines.get(index);
+        return line == null || line.dotLine || line.bgLine ? null : line;
+    }
+
+    private boolean documentHasJapanese() { return documentHasReadingLanguage("ja"); }
+
+    private boolean documentHasChinese() { return documentHasReadingLanguage("zh"); }
+
+    private boolean documentHasReadingLanguage(String language) {
+        if (document == null) return false;
+        for (AppliedLine line : document.appliedLines) {
+            if (language.equals(com.spotifyplusplus.lyrics.language.ReadingLanguagePolicy.layoutLanguage(line))) return true;
+        }
+        return false;
+    }
+
+    private boolean documentHasKorean() {
+        return document != null && SpicyTextDetection.detectPresentScripts(LyricsDocumentProcessor.collectText(document), document.language, "")
+                .contains(SpicyTextDetection.Script.KOREAN);
+    }
+
+    private boolean documentHasCyrillic() {
+        return document != null && SpicyTextDetection.detectPresentScripts(LyricsDocumentProcessor.collectText(document), document.language, "")
+                .contains(SpicyTextDetection.Script.CYRILLIC);
+    }
+
+    private boolean documentHasRomanizableScript() {
+        if (document == null) return false;
+        List<SpicyTextDetection.Script> scripts = SpicyTextDetection.detectPresentScripts(
+                LyricsDocumentProcessor.collectText(document), document.language, "");
+        for (SpicyTextDetection.Script script : scripts) {
+            switch (script) {
+                case JAPANESE:
+                    if (!"off".equals(renderConfig.japaneseModeConfig)) return true;
+                    break;
+                case CHINESE:
+                    if (!"off".equals(renderConfig.chineseModeConfig)) return true;
+                    break;
+                case KOREAN:
+                    if (!"Off".equals(renderConfig.koreanModeConfig)) return true;
+                    break;
+                case CYRILLIC:
+                    if (!"Off".equals(renderConfig.cyrillicModeConfig)) return true;
+                    break;
+                default:
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean documentHasTranslationCandidate() {
+        if (document == null || document.lines == null) return false;
+        for (LyricsLine line : document.lines) {
+            if (line == null || isBlank(line.text) || line.interlude) continue;
+            if (!isBlank(line.translatedText)) return true;
+            if (SpicyProcessing.shouldTranslateLine(line.text, document.language, "en",
+                    line.detection)) return true;
+        }
+        return false;
+    }
+
+    // Preserve script detection in the reading chip: あ / 拼·粤 / 한 / Я / Ω.
+    private void updateRomanizationGlyph() {
+        romanGlyph.setGlowing(showRomanization()
+                && hasLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.SOUND));
+        if (!showRomanization()) {
+            romanGlyph.setGlyph("A");
+            return;
+        }
+        String source = "";
+        if (document != null && followState.activeIndex() >= 0
+                && followState.activeIndex() < document.appliedLines.size()) {
+            AppliedLine line = document.appliedLines.get(followState.activeIndex());
+            if (line != null && !line.dotLine && !isBlank(line.text)) source = line.text;
+        }
+        if (isBlank(source) && document != null) {
+            source = LyricsDocumentProcessor.collectText(document);
+        }
+        romanGlyph.setGlyph(romanizationGlyphFor(source));
+    }
+
+    private String romanizationGlyphFor(String text) {
+        String language = document == null ? "" : document.language;
+        List<SpicyTextDetection.Script> scripts =
+                SpicyTextDetection.detectPresentScripts(text, language, "");
+        if (!scripts.isEmpty()) {
+            switch (scripts.get(0)) {
+                case JAPANESE: return "あ";
+                case CHINESE:
+                    return SpotifyPlusConfig.CHINESE_MODE_JYUTPING.equals(
+                            LyricsShellSettings.normalizeChineseMode(chineseMode())) ? "粤" : "拼";
+                case KOREAN: return "한";
+                case CYRILLIC: return "Я";
+                case GREEK: return "Ω";
+            }
+        }
+        return "A";
+    }
+
+    private void onLikeTapped() {
+        SpotifyTrack track = currentTrackThrottled();
+        if (track == null || !SpotifyCollectionAction.isSong(track)
+                || !SpotifyCollectionAction.enabled(likedMode)) {
+            android.widget.Toast.makeText(activity,
+                    uiText("lyrics_like_unavailable", "Liked Songs action unavailable"),
+                    android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (host.toggleSpotifySaved(likedMode, track)) {
+            pendingLikedUri = safe(track.uri);
+            applyLikedIconState(!track.saved);
+        } else {
+            android.widget.Toast.makeText(activity,
+                    uiText("lyrics_like_unavailable", "Liked Songs action unavailable"),
+                    android.widget.Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void updateLikedButton(SpotifyTrack track) {
+        if (likeButton == null) return;
+        // likedMode is not re-read here: this runs on every vsync frame, and each read is a pair of
+        // SharedPreferences lookups plus the per-orientation key it builds to try first. The value
+        // is already kept current at construction and by refreshPreferences(), which the
+        // SharedPreferences change listener drives.
+        refreshLikedButton(track);
+    }
+
+    private void refreshChromeClusterSpacing() {
+        if (chromeViews == null) return;
+        boolean top = verticalChrome();
+        boolean landscape = isLandscape();
+        int size = chromeButtonDp();
+        int gap = top ? railGapPx() : LyricsShellChromeController.defaultGapPx(landscape);
+        // applyTopMode reorders children with remove/add. Repeating that on every vsync changes
+        // the View touch target between DOWN and UP, which cancels ordinary clicks and long
+        // presses intermittently. Rebuild only when the actual chrome layout inputs changed.
+        if (chromeLayoutApplied && chromeLayoutTop == top
+                && chromeLayoutLandscape == landscape && chromeLayoutSize == size
+                && chromeLayoutGap == gap) return;
+        LyricsShellChromeController.applyTopMode(chromeViews, top, size, gap);
+        applyChromeHeaderPadding();
+        applyBackVisibility();
+        chromeLayoutApplied = true;
+        chromeLayoutTop = top;
+        chromeLayoutLandscape = landscape;
+        chromeLayoutSize = size;
+        chromeLayoutGap = gap;
+        attachClusterLayoutListener();
+        applyLandscapeChromeClearance();
+    }
+
+    private void attachClusterLayoutListener() {
+        if (clusterLayoutListenerAdded || chromeViews == null || chromeViews.configCluster == null) return;
+        chromeViews.configCluster.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            applyLandscapeChromeClearance();
+            int reserve = chromeReservePx();
+            if (reserve != chromeReserveApplied && trackInfoController != null) {
+                chromeReserveApplied = reserve;
+                // Posted: this runs inside a layout pass.
+                post(trackInfoController::onChromeReserveChanged);
+            }
+        });
+        clusterLayoutListenerAdded = true;
+    }
+
+
+    private void refreshLikedButton(SpotifyTrack track) {
+        if (likeButton == null) return;
+        com.spotifyplusplus.ui.ActionIconDrawable.Kind kind =
+                com.spotifyplusplus.ui.ActionIconDrawable.likedSongsKind(likedMode);
+        // An ad (or any non-song, e.g. a podcast episode) can never be saved - showing the button
+        // there just invites a tap that does nothing but pop the "unavailable" toast.
+        if (kind == null || (track != null && !SpotifyCollectionAction.isSong(track))) {
+            if (likeButton.getVisibility() != View.GONE) {
+                likeButton.setVisibility(View.GONE);
+                chromeLayoutApplied = false;
+            }
+            refreshChromeClusterSpacing();
+            lastLikedSaved = null;
+            lastLikedKind = null;
+            pendingLikedUri = "";
+            return;
+        }
+        if (likeButton.getVisibility() != View.VISIBLE) {
+            likeButton.setVisibility(View.VISIBLE);
+            chromeLayoutApplied = false;
+        }
+        refreshChromeClusterSpacing();
+        boolean saved = track != null && track.saved;
+        if (track != null && !pendingLikedUri.isEmpty()) {
+            if (!pendingLikedUri.equals(safe(track.uri))) {
+                pendingLikedUri = "";
+            } else if (lastLikedSaved != null && lastLikedSaved == track.saved) {
+                pendingLikedUri = "";
+            } else {
+                return;
+            }
+        }
+        applyLikedIconState(saved);
+    }
+
+    private void applyLikedIconState(boolean saved) {
+        if (likeButton == null) return;
+        com.spotifyplusplus.ui.ActionIconDrawable.Kind kind =
+                com.spotifyplusplus.ui.ActionIconDrawable.likedSongsKind(likedMode);
+        if (kind == null) {
+            likeButton.setVisibility(View.GONE);
+            lastLikedSaved = null;
+            lastLikedKind = null;
+            return;
+        }
+        if (lastLikedSaved != null && lastLikedSaved == saved && kind == lastLikedKind
+                && likeButton.getVisibility() == View.VISIBLE) return;
+        lastLikedSaved = saved;
+        lastLikedKind = kind;
+        float density = activity.getResources().getDisplayMetrics().density;
+        boolean star = kind == com.spotifyplusplus.ui.ActionIconDrawable.Kind.STAR;
+        int savedColor = star ? Color.rgb(255, 214, 10) : Color.rgb(255, 55, 95);
+        likeButton.setImageDrawable(new com.spotifyplusplus.ui.ActionIconDrawable(
+                kind, saved ? savedColor : Color.rgb(232, 232, 238), density, saved));
+        likeButton.setContentDescription(saved
+                ? uiText("lyrics_like_remove", "Remove from Liked Songs")
+                : uiText("lyrics_like_add", "Add to Liked Songs"));
+    }
+
+    private void setToggleVisibility(View toggle, int targetVisibility) {
+        toggle.animate().cancel();
+        toggle.setAlpha(1f);
+        toggle.setVisibility(targetVisibility);
+    }
+
+    private void updateToggleVisuals() {
+        boolean jp = documentHasJapanese();
+        boolean cn = documentHasChinese();
+        boolean romanizable = documentHasRomanizableScript();
+        boolean aiSoundAvailable = aiSettings.soundLayerEnabled() && aiSettings.isConfigured();
+        setToggleVisibility(romanToggle, renderConfig.transliterationEnabled
+                && (romanizable || aiSoundAvailable) ? View.VISIBLE : View.GONE);
+        updateRomanizationGlyph();
+        romanToggle.setContentDescription(jp ? "Toggle Japanese reading" : cn ? "Toggle Chinese transliteration" : "Toggle transliteration");
+        textFactory.styleIconChip(romanToggle, showRomanization()
+                && hasLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.SOUND));
+        setToggleVisibility(translationToggle, renderConfig.translationEnabled && documentHasTranslationCandidate() ? View.VISIBLE : View.GONE);
+        textFactory.styleIconChip(translationToggle, showTranslation()
+                && hasLayerOutput(com.spotifyplusplus.lyrics.session.LayerKind.MEANING));
+        // A new track may settle while the frame scheduler sleeps. Sync authority badges here so
+        // the previous track's AI mark never survives on an empty current layer.
+        updateToggleSpinners();
+    }
+}

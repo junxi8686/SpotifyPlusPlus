@@ -1,0 +1,18 @@
+# Build output and tooling caches
+build/
+.gradle/
+*.iml
+.idea/
+captures/
+
+# Machine-specific SDK location
+local.properties
+
+# Keystores and signing material - never commit these
+*.jks
+*.keystore
+keystore.properties
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,95 @@
+package com.spotifyplusplus.hooks;
+
+import static com.spotifyplusplus.hooks.NativeLyricsUtils.dp;
+
+import android.content.Context;
+import android.graphics.Color;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
+import android.view.MotionEvent;
+import android.view.View;
+import android.widget.ImageButton;
+import android.widget.ImageView;
+
+
+import com.spotifyplusplus.xposed.XpLog;
+import com.spotifyplusplus.xposed.XpRes;
+
+final class NativeIconButtons {
+    private NativeIconButtons() {
+    }
+
+    static ImageButton createRoundIconButton(
+            Context context,
+            int drawableRes,
+            String description,
+            int sizeDp,
+            int paddingDp
+    ) {
+        ImageButton button = createRoundIconButton(context, (Drawable) null, description, sizeDp, paddingDp);
+        setModuleIcon(button, context, drawableRes);
+        return button;
+    }
+
+    static ImageButton createRoundIconButton(
+            Context context,
+            Drawable drawable,
+            String description,
+            int sizeDp,
+            int paddingDp
+    ) {
+        ImageButton button = new ImageButton(context);
+        button.setContentDescription(description);
+        button.setImageDrawable(drawable);
+        button.setColorFilter(Color.rgb(232, 232, 238));
+        button.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        button.setPadding(dp(paddingDp), dp(paddingDp), dp(paddingDp), dp(paddingDp));
+        button.setMinimumWidth(dp(sizeDp));
+        button.setMinimumHeight(dp(sizeDp));
+        button.setClickable(true);
+        button.setFocusable(true);
+        button.setBackground(createRoundButtonBackground());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) button.setElevation(dp(8));
+        applyPressScale(button);
+        return button;
+    }
+
+    static GradientDrawable createRoundButtonBackground() {
+        GradientDrawable background = new GradientDrawable();
+        background.setShape(GradientDrawable.OVAL);
+        background.setColor(Color.argb(48, 255, 255, 255));
+        background.setStroke(dp(1), Color.argb(52, 255, 255, 255));
+        return background;
+    }
+
+    static void applyPressScale(View view) {
+        if (view == null) return;
+        view.setOnTouchListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start();
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                v.animate().scaleX(1f).scaleY(1f).setDuration(180).start();
+            }
+            return false;
+        });
+    }
+
+    static void setModuleIcon(ImageButton button, Context context, int drawableRes) {
+        if (button == null) return;
+        try {
+            android.content.res.Resources moduleResources = XpRes.moduleResources(context);
+            Drawable drawable = moduleResources == null ? null : moduleResources.getDrawable(drawableRes);
+            if (drawable == null && context != null) {
+                drawable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP
+                        ? context.getResources().getDrawable(drawableRes, context.getTheme())
+                        : context.getResources().getDrawable(drawableRes);
+            }
+            button.setImageDrawable(drawable);
+        } catch (Throwable t) {
+            XpLog.log(NativeSpicyLyricsHook.TAG + " failed to load module icon " + drawableRes + ": " + t);
+            button.setImageDrawable(null);
+        }
+    }
+}

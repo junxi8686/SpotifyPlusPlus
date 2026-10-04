@@ -1,0 +1,227 @@
+package com.spotifyplusplus.settings;
+
+import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.lyrics.LyricsBackgroundStyle;
+import com.spotifyplusplus.lyrics.ai.AiSettings;
+
+/**
+ * Pure panel policy: visibility, availability, commit policy, and rebuild scope.
+ *
+ * <p>Moved verbatim out of {@code SettingsPanel} so JVM tests cover the gating matrix.
+ * Reads only a {@link PanelSnapshot}; capability checks arrive as snapshot flags, never as
+ * statics.
+ */
+public final class PanelPolicy {
+    private PanelPolicy() {
+    }
+
+    public static boolean shouldRender(Settings.Setting<?> setting, PanelSnapshot snapshot) {
+        // The rest of the PiP section only matters while its button is enabled.
+        if (setting.section == Settings.PIP && setting != Settings.PIP_ENABLED) {
+            return Boolean.TRUE.equals(snapshot.get(Settings.PIP_ENABLED));
+        }
+        if (setting == Settings.DOWNLOAD_LANGUAGE_MODELS) return !snapshot.languageModelReady();
+        if ((setting.section == Settings.TRANSLITERATION || setting.section == Settings.TRANSLATION)
+                && !snapshot.languageModelReady()) return false;
+        if (setting == Settings.FORCE_DARK_BACKGROUND) {
+            return snapshot.animatedBackgroundAvailable()
+                    && LyricsBackgroundStyle.usesTexture(snapshot.get(Settings.BACKGROUND_STYLE));
+        }
+        if (setting == Settings.EXTRA_DARK_BACKGROUND) {
+            return shouldRenderForceDark(snapshot)
+                    && Boolean.TRUE.equals(snapshot.get(Settings.FORCE_DARK_BACKGROUND));
+        }
+        if (isLayoutEditorOnly(setting)) {
+            return false;
+        }
+        if (setting == Settings.SPICY_MANUAL_TOKEN) {
+            return snapshot.spicySourceEnabled();
+        }
+        if (setting == Settings.AI_ENABLED) return true;
+        if (setting == Settings.AI_DEEPSEEK_REASONING) {
+            return AiSettings.PROVIDER_DEEPSEEK.equals(snapshot.get(Settings.AI_PROVIDER))
+                    && aiSettingVisible(setting, snapshot.isAiEnabled());
+        }
+        if (setting.section == Settings.AI) {
+            return aiSettingVisible(setting, snapshot.isAiEnabled());
+        }
+        if (setting == Settings.TRANSLATION_TARGET || setting == Settings.TRANSLATION_BRIGHTNESS) {
+            return Boolean.TRUE.equals(snapshot.get(Settings.TRANSLATION_ENABLED));
+        }
+        if (setting == Settings.ALIGNED_PER_WORD_ROMAJI
+                || setting == Settings.JAPANESE_READING_MODE
+                || setting == Settings.CHINESE_MODE
+                || setting == Settings.KOREAN_ROMANIZATION
+                || setting == Settings.CHINESE_TONES
+                || setting == Settings.CYRILLIC_MODE
+                || setting == Settings.CYRILLIC_KEEP_SIGNS) {
+            return Boolean.TRUE.equals(snapshot.get(Settings.TRANSLITERATION_ENABLED));
+        }
+        if (setting == Settings.BACKGROUND_RENDER_QUALITY) {
+            return snapshot.animatedBackgroundAvailable()
+                    && LyricsBackgroundStyle.isAnimated(snapshot.get(Settings.BACKGROUND_STYLE));
+        }
+        if (setting == Settings.LYRICS_FONT_CUSTOM_PATH) {
+            return "custom".equals(snapshot.get(Settings.LYRICS_FONT));
+        }
+        if (setting == Settings.LYRICS_BLUR_INTENSITY) {
+            return !"Off".equals(snapshot.get(Settings.ENABLE_LINE_BLUR));
+        }
+        if (setting == Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS) {
+            return Boolean.TRUE.equals(snapshot.get(Settings.AUTO_RESUME_FOLLOW));
+        }
+        if (setting == Settings.LINE_SYNC_FILL) {
+            return "Gradient wash".equals(snapshot.get(Settings.ANIMATION_STYLE));
+        }
+        if (setting == Settings.WORD_BOUNCE || setting == Settings.WORD_BOUNCE_STYLE) {
+            // Apple motion is owned by the Apple section under Apple Music; the shared
+            // bounce rows would compete, so they stand down while the Apple card is up.
+            return !"Apple Music".equals(snapshot.get(Settings.ANIMATION_STYLE));
+        }
+        if (setting == Settings.APPLE_SPRING_STRENGTH) {
+            return "Apple Music".equals(snapshot.get(Settings.ANIMATION_STYLE));
+        }
+        if (isAppleOwned(setting)) {
+            return "Apple Music".equals(snapshot.get(Settings.ANIMATION_STYLE));
+        }
+        if (setting == Settings.LIVE_CARD_LINE_SYNC_FILL) {
+            return "Karaoke fill".equals(snapshot.get(Settings.LIVE_CARD_ANIMATION));
+        }
+        if (setting == Settings.LIVE_CARD_GLOW) {
+            return !"Minimal".equals(snapshot.get(Settings.LIVE_CARD_ANIMATION));
+        }
+        if (setting == Settings.LYRICS_TEXT_SIZE_CUSTOM) {
+            return "custom".equals(snapshot.get(Settings.LYRICS_TEXT_SIZE));
+        }
+        if (setting == Settings.LINE_SPACING_CUSTOM) {
+            return "custom".equals(snapshot.get(Settings.LINE_SPACING));
+        }
+        if (setting == Settings.LIVE_CARD_TEXT_SIZE_CUSTOM) {
+            return "custom".equals(snapshot.get(Settings.LIVE_CARD_TEXT_SIZE));
+        }
+        if (setting == Settings.TRACK_INFO_TEXT_SIZE_CUSTOM) {
+            return "Custom".equals(snapshot.get(Settings.TRACK_INFO_TEXT_SIZE));
+        }
+        if (setting == Settings.FURIGANA_BRIGHTNESS || setting == Settings.FURIGANA_POSITION_PERCENT) {
+            String reading = snapshot.get(Settings.JAPANESE_READING_MODE);
+            return Boolean.TRUE.equals(snapshot.get(Settings.TRANSLITERATION_ENABLED))
+                    && ("furigana_only".equals(reading) || "furigana_romaji".equals(reading));
+        }
+        return true;
+    }
+
+    private static boolean isLayoutEditorOnly(Settings.Setting<?> setting) {
+        return setting == Settings.TRACK_INFO_POSITION
+                || setting == Settings.BACKGROUND_STYLE
+                || setting == Settings.BACKGROUND_RENDER_QUALITY
+                || setting == Settings.FORCE_DARK_BACKGROUND
+                || setting == Settings.EXTRA_DARK_BACKGROUND
+                || setting == Settings.ANIMATION_STYLE
+                || setting == Settings.LOAD_LIFT_ANIMATION
+                || setting == Settings.APPLE_CASCADE_SPEED
+                || setting == Settings.APPLE_SPRING_STRENGTH
+                || setting == Settings.CHROME_CLUSTER_POSITION
+                || setting == Settings.CHROME_CLUSTER_LAYOUT
+                || setting == Settings.FULLSCREEN_CONTROLS
+                || setting == Settings.LIKED_SONGS_BUTTON
+                || setting == Settings.SKIP_CHIP_POSITION
+                || setting == Settings.FOLLOW_CHIP_POSITION
+                || setting == Settings.SKIP_CHIP_STYLE
+                || setting == Settings.FOLLOW_CHIP_STYLE;
+    }
+
+    private static boolean shouldRenderForceDark(PanelSnapshot snapshot) {
+        return snapshot.animatedBackgroundAvailable()
+                && LyricsBackgroundStyle.usesTexture(snapshot.get(Settings.BACKGROUND_STYLE));
+    }
+
+    /** Keep AI master switch visible; nest every other AI setting under that switch. */
+    public static boolean aiSettingVisible(Settings.Setting<?> setting, boolean enabled) {
+        return setting == Settings.AI_ENABLED || enabled;
+    }
+
+    /**
+     * Apple-owned dedicated section (R3): the Apple Music card appears only while the Animation
+     * style is Apple Music. Each key is read only under that style, so switching styles never
+     * rewrites shared keys and no prior-value snapshot/restore cycle is needed.
+     */
+    public static boolean isAppleOwned(Settings.Setting<?> setting) {
+        return setting == Settings.APPLE_FADE_PASSED_LINES
+                || setting == Settings.APPLE_COMPACT_TEXT
+                || setting == Settings.LINE_SLIDE_ANIMATION
+                || setting == Settings.APPLE_LIFT
+                || setting == Settings.LOAD_LIFT_ANIMATION
+                || setting == Settings.APPLE_CASCADE_SPEED;
+    }
+
+    public static boolean unavailable(Settings.Setting<?> setting, PanelSnapshot snapshot) {
+        return setting == Settings.TRANSLITERATION_ENABLED && !snapshot.languageModelReady();
+    }
+
+    /** Why one option is dimmed; empty means selectable. Locale-resolved, never hardcoded. */
+    public static String optionUnavailableReason(Settings.StringSetting setting, String value,
+                                                 PanelSnapshot snapshot, PanelStrings strings) {
+        if (setting != Settings.LIVE_CARD_SECONDARY_MODE) return "";
+        boolean needsTransliteration = "Transliteration".equals(value) || "Both".equals(value);
+        boolean needsTranslation = "Translation".equals(value) || "Both".equals(value);
+        if (needsTransliteration && !snapshot.languageModelReady()) {
+            return strings.get("settings_label_download_language_models", "Download language models");
+        }
+        if (needsTransliteration && !Boolean.TRUE.equals(snapshot.get(Settings.TRANSLITERATION_ENABLED))) {
+            return strings.get("settings_enable_transliteration", "Enable transliteration");
+        }
+        if (needsTranslation && !Boolean.TRUE.equals(snapshot.get(Settings.TRANSLATION_ENABLED))) {
+            return strings.get("settings_enable_translation", "Enable translation");
+        }
+        return "";
+    }
+
+    /**
+     * Which commit policy a setting uses.
+     *
+     * <p>The six language-class pickers are {@code CONFIRMING}: they accumulate a pending
+     * highlight and write only on an explicit Save, so a stray tap in an open list cannot change
+     * the interface language. This mirrors AndroidX {@code ListPreference}, which persists only
+     * in {@code onDialogClosed(positiveResult=true)}. Steppers settle after the last tick;
+     * everything else writes at once.
+     */
+    public static CommitPolicy commitPolicyFor(Settings.Setting<?> setting) {
+        if (isConfirmingSelector(setting)) return CommitPolicy.CONFIRMING;
+        if (setting instanceof Settings.IntegerSetting) return CommitPolicy.DEBOUNCED;
+        return CommitPolicy.IMMEDIATE;
+    }
+
+    /**
+     * Selectors that must never commit from a single tap. UI language is the dangerous one: an
+     * accidental pick re-renders every label, which reads as "the UI changed language on its own".
+     */
+    public static boolean isConfirmingSelector(Settings.Setting<?> setting) {
+        return setting == Settings.UI_LANGUAGE
+                || setting == Settings.TRANSLATION_TARGET
+                || setting == Settings.JAPANESE_READING_MODE
+                || setting == Settings.CHINESE_MODE
+                || setting == Settings.KOREAN_ROMANIZATION
+                || setting == Settings.CYRILLIC_MODE;
+    }
+
+    /** UI language rebuilds every label; dependency settings rebuild only their own section. */
+    public static boolean shouldRebuildSectionAfterChange(Settings.Setting<?> setting) {
+        return setting == Settings.PIP_ENABLED
+                || setting == Settings.AI_ENABLED
+                || setting == Settings.AI_PROVIDER
+                || setting == Settings.TRANSLATION_ENABLED
+                || setting == Settings.TRANSLITERATION_ENABLED
+                || setting == Settings.BACKGROUND_STYLE
+                || setting == Settings.FORCE_DARK_BACKGROUND
+                || setting == Settings.ANIMATION_STYLE
+                || setting == Settings.LIVE_CARD_ANIMATION
+                || setting == Settings.LYRICS_TEXT_SIZE
+                || setting == Settings.LINE_SPACING
+                || setting == Settings.LIVE_CARD_TEXT_SIZE
+                || setting == Settings.TRACK_INFO_TEXT_SIZE
+                || setting == Settings.LYRICS_SOURCE_OVERRIDE
+                || setting == Settings.LYRICS_SOURCE_MODE
+                || setting == Settings.ENABLE_LINE_BLUR
+                || setting == Settings.JAPANESE_READING_MODE;
+    }
+}

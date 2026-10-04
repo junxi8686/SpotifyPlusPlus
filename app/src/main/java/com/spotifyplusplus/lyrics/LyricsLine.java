@@ -1,0 +1,55 @@
+package com.spotifyplusplus.lyrics;
+
+import com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor;
+
+import java.util.ArrayList;
+import java.util.List;
+import com.spotifyplusplus.lyrics.reading.ReadingModels.RenderPlan;
+import com.spotifyplusplus.lyrics.session.DetectionResult;
+
+/** One parsed lyric line (vocal or interlude marker), before row planning. */
+public class LyricsLine {
+    public String text = "";
+    public String romanizedText = "";
+    public String translatedText = "";
+    public String providerTranslatedText = "";
+    public String providerTranslationLanguage = "";
+    public SpicyJapaneseChineseProcessor.JapaneseReading japaneseReading;
+    public RenderPlan readingRenderPlan;
+    public List<SyllableSegment> syllables = new ArrayList<>();
+    public List<BackgroundLine> backgroundLines = new ArrayList<>();
+    public String chineseMode = "";
+    public long startMs;
+    public long endMs;
+    public boolean interlude;
+    public boolean oppositeAligned;
+    /**
+     * Session-owned detection for this canonical row, shared by both render surfaces.
+     *
+     * <p>Display/pipeline input only: it is not canonical text and never persisted on the
+     * document. {@link LyricsDocument#copyOf} carries it so worker snapshots gate on the same
+     * result without re-running a detector.
+     */
+    public DetectionResult detection;
+
+    public static LyricsLine copyOf(LyricsLine source) {
+        if (source == null) return null;
+        LyricsLine copy = new LyricsLine();
+        copy.text = LyricsDocument.safe(source.text);
+        copy.romanizedText = LyricsDocument.safe(source.romanizedText);
+        copy.translatedText = LyricsDocument.safe(source.translatedText);
+        copy.providerTranslatedText = LyricsDocument.safe(source.providerTranslatedText);
+        copy.providerTranslationLanguage = LyricsDocument.safe(source.providerTranslationLanguage);
+        copy.japaneseReading = source.japaneseReading;
+        copy.readingRenderPlan = source.readingRenderPlan;
+        copy.chineseMode = LyricsDocument.safe(source.chineseMode);
+        copy.detection = source.detection;
+        copy.startMs = source.startMs;
+        copy.endMs = source.endMs;
+        copy.interlude = source.interlude;
+        copy.oppositeAligned = source.oppositeAligned;
+        for (SyllableSegment seg : source.syllables) copy.syllables.add(SyllableSegment.copyOf(seg));
+        for (BackgroundLine bg : source.backgroundLines) copy.backgroundLines.add(BackgroundLine.copyOf(bg));
+        return copy;
+    }
+}

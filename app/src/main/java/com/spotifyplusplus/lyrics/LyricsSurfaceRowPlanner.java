@@ -1,0 +1,548 @@
+package com.spotifyplusplus.lyrics;
+
+import com.spotifyplusplus.lyrics.language.ReadingLanguagePolicy;
+
+import static com.spotifyplusplus.lyrics.LyricUtils.isBlank;
+
+import java.util.ArrayList;
+import java.util.List;
+import com.spotifyplusplus.lyrics.reading.ReadingModels.RenderPlan;
+import com.spotifyplusplus.lyrics.processing.LyricsDocumentProcessor;
+
+/**
+ * Shared row-shape planner for fullscreen and now-playing surfaces.
+ *
+ * Surface hosts may choose size, spacing, secondary-line visibility, and overflow policy, but
+ * lyric semantics stay here: synthetic word creation, fill routing, furigana mode, and attached
+ * transliteration wiring.
+ */
+public final class LyricsSurfaceRowPlanner {
+    private LyricsSurfaceRowPlanner() {
+    }
+
+    public static RowPlan plan(
+            AppliedLine line,
+            LyricsDocument document,
+            SurfacePolicy policy
+    ) {
+        SurfacePolicy safePolicy = policy == null ? SurfacePolicy.defaultPolicy() : policy;
+        AppliedLine displayLine = displayLineForPolicy(line, safePolicy);
+        ensureAlignedWordsForSentenceSync(displayLine, safePolicy);
+
+        LyricsRowViewFactory.Options options = new LyricsRowViewFactory.Options();
+        options.lineSpacingMultiplier = safePolicy.lineSpacingMultiplier;
+        options.showRomanization = safePolicy.showRomanization;
+        options.showTranslation = safePolicy.showTranslation;
+        options.showJapaneseFurigana = LyricsDisplayMode.showJapaneseFurigana(
+                displayLine, safePolicy.showRomanization, safePolicy.japaneseReadingMode);
+        options.showJapaneseRomaji = LyricsDisplayMode.showJapaneseRomaji(
+                displayLine, safePolicy.showRomanization, safePolicy.japaneseReadingMode);
+        options.attachTransliterationToWords = safePolicy.attachTransliterationToWords;
+        options.lineLevelFillTopDown = safePolicy.lineLevelFillTopDown;
+        options.lineLevelFillSentence = safePolicy.lineLevelFillSentence;
+        options.wordLevelFill = safePolicy.wordLevelFill;
+        options.interludeNoteIcon = safePolicy.interludeNoteIcon;
+        options.lyricWeight = safePolicy.lyricWeight;
+        options.lyricsFont = safePolicy.lyricsFont;
+        options.textSizeMultiplier = safePolicy.textSizeMultiplier;
+        options.adaptiveTextSizeEnabled = safePolicy.adaptiveTextSizeEnabled;
+        options.appleStyle = safePolicy.appleStyle;
+        options.appleCompactText = safePolicy.appleCompactText;
+        options.translationBright = safePolicy.translationBright;
+        options.wrapLongLines = safePolicy.wrapLongLines;
+        options.adaptiveSectioningEnabled = safePolicy.adaptiveSectioningEnabled;
+        options.horizontalSafetyPadding = safePolicy.horizontalSafetyPadding;
+        if (options.showJapaneseFurigana) coalesceTimedWordsForRuby(displayLine);
+
+        boolean hasWords = displayLine != null && displayLine.words != null && !displayLine.words.isEmpty();
+        boolean alignedRomaji = hasWords
+                && !options.showJapaneseFurigana
+                && options.attachTransliterationToWords
+                && options.showRomanization
+                && displayLine != null;
+        options.documentText = alignedRomaji && document != null ? LyricsDocumentProcessor.collectText(document) : "";
+        return new RowPlan(displayLine, options);
+    }
+
+    static void coalesceTimedWordsForRuby(AppliedLine line) {
+        List<int[]> ranges = FuriganaText.crossingRubyWordRanges(line);
+        if (line == null || ranges.isEmpty()) return;
+        ArrayList<SyllableSegment> mergedWords = new ArrayList<>();
+        int rangeIndex = 0;
+        for (int index = 0; index < line.words.size();) {
+            int[] range = rangeIndex < ranges.size() ? ranges.get(rangeIndex) : null;
+            if (range == null || index != range[0]) {
+                mergedWords.add(line.words.get(index++));
+                continue;
+            }
+            mergedWords.add(mergeWords(line, range[0], range[1]));
+            index = range[1] + 1;
+            rangeIndex++;
+        }
+        line.words.clear();
+        line.words.addAll(mergedWords);
+    }
+
+    private static SyllableSegment mergeWords(AppliedLine line, int start, int end) {
+        List<SyllableSegment> words = line.words;
+        SyllableSegment first = words.get(start);
+        SyllableSegment last = words.get(end);
+        SyllableSegment merged = new SyllableSegment();
+        merged.spanId = joinSegmentIds(words, start, end);
+        merged.text = canonicalMergedText(line, start, end);
+        merged.sourceText = merged.text;
+        merged.romanizedText = joinSegmentField(words, start, end, false, true);
+        merged.startMs = first == null ? 0L : first.startMs;
+        merged.endMs = last == null ? merged.startMs + 1 : Math.max(merged.startMs + 1, last.endMs);
+        merged.totalMs = merged.endMs - merged.startMs;
+        merged.providerPartOfWord = last == null ? null : last.providerPartOfWord;
+        merged.boundaryAfter = last != null && last.boundaryAfter;
+        merged.boundaryProvenance = last == null ? "" : last.boundaryProvenance;
+        merged.partOfWord = !merged.boundaryAfter;
+        merged.canonicalStartCp = first == null ? -1 : first.canonicalStartCp;
+        merged.canonicalEndCp = last == null ? -1 : last.canonicalEndCp;
+        merged.dot = false;
+        merged.bgWord = first != null && first.bgWord;
+        return merged;
+    }
+
+    private static String canonicalMergedText(AppliedLine line, int start, int end) {
+        String text = line == null ? "" : LyricUtils.safe(line.text);
+        int cursor = 0;
+        int mergedStart = -1;
+        int mergedEnd = -1;
+        for (int index = 0; line != null && index <= end; index++) {
+            int[] range = FuriganaText.wordRange(line, line.words.get(index), index, cursor);
+            cursor = Math.max(cursor, range[1]);
+            if (index == start) mergedStart = range[0];
+            if (index == end) mergedEnd = range[1];
+        }
+        if (mergedStart >= 0 && mergedEnd >= mergedStart && mergedEnd <= text.length()) {
+            return text.substring(mergedStart, mergedEnd);
+        }
+        return joinSegmentField(line.words, start, end, false, false);
+    }
+
+    private static String joinSegmentIds(List<SyllableSegment> words, int start, int end) {
+        StringBuilder out = new StringBuilder();
+        for (int index = start; index <= end; index++) {
+            SyllableSegment segment = words.get(index);
+            String id = segment == null ? "" : segment.spanId;
+            if (id == null || id.trim().isEmpty()) id = String.valueOf(index);
+            if (out.length() > 0) out.append('+');
+            out.append(id);
+        }
+        return out.toString();
+    }
+
+    private static String joinSegmentField(List<SyllableSegment> words, int start, int end,
+                                           boolean source, boolean romanized) {
+        StringBuilder out = new StringBuilder();
+        for (int index = start; index <= end; index++) {
+            SyllableSegment segment = words.get(index);
+            if (segment == null) continue;
+            String value = source ? segment.sourceText : romanized ? segment.romanizedText : segment.text;
+            out.append(value == null ? "" : value);
+            if (index < end && segment.boundaryAfter && out.length() > 0
+                    && !Character.isWhitespace(out.codePointBefore(out.length()))) out.append(' ');
+        }
+        return out.toString();
+    }
+
+    private static AppliedLine displayLineForPolicy(AppliedLine line, SurfacePolicy policy) {
+        if (line == null || policy == null || !policy.forceStartAligned || !line.oppositeAligned) {
+            return line;
+        }
+        AppliedLine copy = new AppliedLine();
+        copy.text = line.text;
+        copy.romanizedText = line.romanizedText;
+        copy.translatedText = line.translatedText;
+        copy.japaneseReading = line.japaneseReading;
+        copy.readingRenderPlan = line.readingRenderPlan;
+        copy.words.addAll(line.words);
+        copy.syntheticWords = line.syntheticWords;
+        copy.sourceLine = line.sourceLine;
+        copy.startMs = line.startMs;
+        copy.endMs = line.endMs;
+        copy.totalMs = line.totalMs;
+        copy.dotLine = line.dotLine;
+        copy.bgLine = line.bgLine;
+        copy.oppositeAligned = false;
+        return copy;
+    }
+
+    private static void ensureAlignedWordsForSentenceSync(AppliedLine line, SurfacePolicy policy) {
+        boolean needsAttachedRomanization = policy.attachTransliterationToWords && policy.showRomanization
+                && line != null && line.readingRenderPlan != null
+                && !line.readingRenderPlan.timedReadingUnits.isEmpty();
+        boolean needsSyntheticWords = needsAttachedRomanization || policy.lineLevelFillSentence || policy.wordLevelFill;
+        if (line == null || line.dotLine || line.bgLine) return;
+        if (line.syntheticWords && !needsSyntheticWords) {
+            line.words.clear();
+            line.syntheticWords = false;
+            return;
+        }
+        if (!needsSyntheticWords) return;
+        if (!line.words.isEmpty()) return;
+        if (isJapaneseLine(line) && !policy.lineLevelFillSentence
+                && (!policy.wordLevelFill || hasJapaneseReading(line))
+                && !needsAttachedRomanization) return;
+        String text = line.text == null ? "" : line.text.trim();
+        if (text.isEmpty()) return;
+        if (needsAttachedRomanization
+                && !policy.lineLevelFillSentence
+                && !policy.wordLevelFill
+                && isBlank(line.romanizedText) && line.readingRenderPlan == null) {
+            return;
+        }
+        String[] parts;
+        boolean japaneseSyntheticWords = isJapaneseLine(line);
+        boolean chineseSyntheticWords = "zh".equals(ReadingLanguagePolicy.layoutLanguage(line));
+        if (japaneseSyntheticWords || chineseSyntheticWords) {
+            List<DisplayLayoutGroup> groups = DisplayLayoutGroup.forLine(
+                    ReadingLanguagePolicy.layoutLanguage(line), text, line.japaneseReading);
+            if (groups.size() < 2) return;
+            ArrayList<String> layoutParts = new ArrayList<>();
+            int sourceCursor = 0;
+            for (DisplayLayoutGroup group : groups) {
+                if (group == null || group.end <= group.start) continue;
+                if (group.start > sourceCursor) layoutParts.add(text.substring(sourceCursor, group.start));
+                layoutParts.add(text.substring(group.start, Math.min(text.length(), group.end)));
+                sourceCursor = Math.max(sourceCursor, group.end);
+            }
+            if (sourceCursor < text.length()) layoutParts.add(text.substring(sourceCursor));
+            if (layoutParts.size() < 2) return;
+            parts = layoutParts.toArray(new String[0]);
+        } else {
+            if (!text.contains(" ")) return;
+            parts = text.split("\\s+");
+            if (parts.length < 2) return;
+        }
+        int totalChars = 0;
+        for (String part : parts) totalChars += Math.max(1, part.length());
+        long span = Math.max(1L, line.endMs - line.startMs);
+        long cursor = line.startMs;
+        int acc = 0;
+        int sourceUtf16 = 0;
+        for (int i = 0; i < parts.length; i++) {
+            acc += Math.max(1, parts[i].length());
+            long end = (i == parts.length - 1)
+                    ? line.endMs
+                    : line.startMs + span * acc / totalChars;
+            SyllableSegment seg = new SyllableSegment();
+            seg.text = parts[i];
+            seg.canonicalStartCp = text.codePointCount(0, sourceUtf16);
+            sourceUtf16 = Math.min(text.length(), sourceUtf16 + parts[i].length());
+            seg.canonicalEndCp = text.codePointCount(0, sourceUtf16);
+            seg.startMs = cursor;
+            seg.endMs = Math.max(cursor + 1, end);
+            seg.totalMs = seg.endMs - seg.startMs;
+            // Japanese layout groups are wrap/timing sections, not lexical spaces. Add renderer
+            // margin only where canonical source text actually has whitespace after this range.
+            seg.boundaryAfter = japaneseSyntheticWords || chineseSyntheticWords
+                    ? sourceUtf16 < text.length() && Character.isWhitespace(text.codePointAt(sourceUtf16))
+                    : i < parts.length - 1;
+            seg.boundaryProvenance = "syntheticLineWords";
+            seg.partOfWord = !seg.boundaryAfter;
+            line.words.add(seg);
+            cursor = seg.endMs;
+        }
+        line.syntheticWords = true;
+    }
+
+    private static boolean isJapaneseLine(AppliedLine line) {
+        return LyricsDisplayMode.isJapaneseLine(line);
+    }
+
+    private static boolean hasJapaneseReading(AppliedLine line) {
+        return line != null
+                && line.japaneseReading != null
+                && line.japaneseReading.furigana != null
+                && !line.japaneseReading.furigana.isEmpty();
+    }
+
+    public static final class RowPlan {
+        public final AppliedLine line;
+        public final LyricsRowViewFactory.Options options;
+        RowPlan(AppliedLine line, LyricsRowViewFactory.Options options) {
+            this.line = line;
+            this.options = options;
+        }
+    }
+
+    public static final class SurfacePolicy {
+        public final float lineSpacingMultiplier;
+        public final boolean showRomanization;
+        public final boolean showTranslation;
+        public final String japaneseReadingMode;
+        public final boolean attachTransliterationToWords;
+        public final boolean lineLevelFillTopDown;
+        public final boolean lineLevelFillSentence;
+        public final boolean wordLevelFill;
+        public final boolean interludeNoteIcon;
+        public final String lyricWeight;
+        public final String lyricsFont;
+        public final float textSizeMultiplier;
+        public final boolean adaptiveTextSizeEnabled;
+        public final boolean appleStyle;
+        public final boolean appleCompactText;
+        public final boolean translationBright;
+        public final boolean wrapLongLines;
+        public final boolean adaptiveSectioningEnabled;
+        public final boolean forceStartAligned;
+        public final boolean horizontalSafetyPadding;
+
+        public SurfacePolicy(
+                float lineSpacingMultiplier,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode,
+                boolean attachTransliterationToWords,
+                boolean lineLevelFillTopDown,
+                boolean lineLevelFillSentence,
+                boolean wordLevelFill,
+                boolean interludeNoteIcon,
+                String lyricWeight,
+                String lyricsFont,
+                float textSizeMultiplier,
+                boolean translationBright,
+                boolean wrapLongLines
+        ) {
+            this(lineSpacingMultiplier, showRomanization, showTranslation, japaneseReadingMode,
+                    attachTransliterationToWords, lineLevelFillTopDown, lineLevelFillSentence,
+                    wordLevelFill, interludeNoteIcon, lyricWeight, lyricsFont, textSizeMultiplier,
+                    translationBright, wrapLongLines, false);
+        }
+
+        public SurfacePolicy(
+                float lineSpacingMultiplier,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode,
+                boolean attachTransliterationToWords,
+                boolean lineLevelFillTopDown,
+                boolean lineLevelFillSentence,
+                boolean wordLevelFill,
+                boolean interludeNoteIcon,
+                String lyricWeight,
+                String lyricsFont,
+                float textSizeMultiplier,
+                boolean translationBright,
+                boolean wrapLongLines,
+                boolean forceStartAligned
+        ) {
+            this(lineSpacingMultiplier, showRomanization, showTranslation, japaneseReadingMode,
+                    attachTransliterationToWords, lineLevelFillTopDown, lineLevelFillSentence,
+                    wordLevelFill, interludeNoteIcon, lyricWeight, lyricsFont, textSizeMultiplier,
+                    translationBright, wrapLongLines, forceStartAligned, true);
+        }
+
+        public SurfacePolicy(
+                float lineSpacingMultiplier,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode,
+                boolean attachTransliterationToWords,
+                boolean lineLevelFillTopDown,
+                boolean lineLevelFillSentence,
+                boolean wordLevelFill,
+                boolean interludeNoteIcon,
+                String lyricWeight,
+                String lyricsFont,
+                float textSizeMultiplier,
+                boolean translationBright,
+                boolean wrapLongLines,
+                boolean forceStartAligned,
+                boolean horizontalSafetyPadding
+        ) {
+            this(lineSpacingMultiplier, showRomanization, showTranslation, japaneseReadingMode,
+                    attachTransliterationToWords, lineLevelFillTopDown, lineLevelFillSentence,
+                    wordLevelFill, interludeNoteIcon, lyricWeight, lyricsFont, textSizeMultiplier,
+                    translationBright, wrapLongLines, forceStartAligned, horizontalSafetyPadding, true);
+        }
+
+        public SurfacePolicy(
+                float lineSpacingMultiplier,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode,
+                boolean attachTransliterationToWords,
+                boolean lineLevelFillTopDown,
+                boolean lineLevelFillSentence,
+                boolean wordLevelFill,
+                boolean interludeNoteIcon,
+                String lyricWeight,
+                String lyricsFont,
+                float textSizeMultiplier,
+                boolean translationBright,
+                boolean wrapLongLines,
+                boolean forceStartAligned,
+                boolean horizontalSafetyPadding,
+                boolean adaptiveSectioningEnabled
+        ) {
+            this(lineSpacingMultiplier, showRomanization, showTranslation, japaneseReadingMode,
+                    attachTransliterationToWords, lineLevelFillTopDown, lineLevelFillSentence,
+                    wordLevelFill, interludeNoteIcon, lyricWeight, lyricsFont, textSizeMultiplier,
+                    translationBright, wrapLongLines, forceStartAligned, horizontalSafetyPadding,
+                    adaptiveSectioningEnabled, true, false, false);
+        }
+
+        public SurfacePolicy(
+                float lineSpacingMultiplier,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode,
+                boolean attachTransliterationToWords,
+                boolean lineLevelFillTopDown,
+                boolean lineLevelFillSentence,
+                boolean wordLevelFill,
+                boolean interludeNoteIcon,
+                String lyricWeight,
+                String lyricsFont,
+                float textSizeMultiplier,
+                boolean translationBright,
+                boolean wrapLongLines,
+                boolean forceStartAligned,
+                boolean horizontalSafetyPadding,
+                boolean adaptiveSectioningEnabled,
+                boolean adaptiveTextSizeEnabled
+        ) {
+            this(lineSpacingMultiplier, showRomanization, showTranslation, japaneseReadingMode,
+                    attachTransliterationToWords, lineLevelFillTopDown, lineLevelFillSentence,
+                    wordLevelFill, interludeNoteIcon, lyricWeight, lyricsFont, textSizeMultiplier,
+                    translationBright, wrapLongLines, forceStartAligned, horizontalSafetyPadding,
+                    adaptiveSectioningEnabled, adaptiveTextSizeEnabled, false, false);
+        }
+
+        public SurfacePolicy(
+                float lineSpacingMultiplier,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode,
+                boolean attachTransliterationToWords,
+                boolean lineLevelFillTopDown,
+                boolean lineLevelFillSentence,
+                boolean wordLevelFill,
+                boolean interludeNoteIcon,
+                String lyricWeight,
+                String lyricsFont,
+                float textSizeMultiplier,
+                boolean translationBright,
+                boolean wrapLongLines,
+                boolean forceStartAligned,
+                boolean horizontalSafetyPadding,
+                boolean adaptiveSectioningEnabled,
+                boolean adaptiveTextSizeEnabled,
+                boolean appleStyle,
+                boolean appleCompactText
+        ) {
+            this.lineSpacingMultiplier = lineSpacingMultiplier;
+            this.showRomanization = showRomanization;
+            this.showTranslation = showTranslation;
+            this.japaneseReadingMode = japaneseReadingMode == null ? "" : japaneseReadingMode;
+            this.attachTransliterationToWords = attachTransliterationToWords;
+            this.lineLevelFillTopDown = lineLevelFillTopDown;
+            this.lineLevelFillSentence = lineLevelFillSentence;
+            this.wordLevelFill = wordLevelFill;
+            this.interludeNoteIcon = interludeNoteIcon;
+            this.lyricWeight = lyricWeight == null ? "Medium" : lyricWeight;
+            this.lyricsFont = lyricsFont == null ? "spotify" : lyricsFont;
+            this.textSizeMultiplier = textSizeMultiplier;
+            this.translationBright = translationBright;
+            this.wrapLongLines = wrapLongLines;
+            this.adaptiveSectioningEnabled = adaptiveSectioningEnabled;
+            this.adaptiveTextSizeEnabled = adaptiveTextSizeEnabled;
+            this.appleStyle = appleStyle;
+            this.appleCompactText = appleCompactText;
+            this.forceStartAligned = forceStartAligned;
+            this.horizontalSafetyPadding = horizontalSafetyPadding;
+        }
+
+        public static SurfacePolicy fullscreen(
+                LyricsRenderConfig config,
+                boolean showRomanization,
+                boolean showTranslation,
+                String japaneseReadingMode
+        ) {
+            LyricsRenderConfig cfg = config;
+            return new SurfacePolicy(
+                    cfg == null ? 1f : cfg.lineSpacingMultiplier,
+                    showRomanization,
+                    showTranslation,
+                    japaneseReadingMode,
+                    cfg != null && cfg.attachTransliterationToWords,
+                    cfg != null && cfg.lineSyncFillTopDown(),
+                    cfg != null && cfg.lineSyncFillSentence(),
+                    cfg != null && cfg.lineSyncFillWord(),
+                    cfg != null && cfg.interludeNoteIcon,
+                    cfg == null ? "Medium" : cfg.lyricWeight,
+                    cfg == null ? "spotify" : cfg.lyricsFont,
+                    cfg == null ? 1f : cfg.lyricsTextSizeMultiplier,
+                    cfg != null && cfg.translationBright,
+                    true,
+                    false,
+                    false,
+                    cfg == null || cfg.adaptiveSectioningEnabled,
+                    cfg == null || cfg.adaptiveTextSizeEnabled,
+                    cfg != null && cfg.appleStyle,
+                    cfg != null && cfg.appleCompactText);
+        }
+
+        public static SurfacePolicy liveCard(LyricsRenderConfig config) {
+            LyricsRenderConfig cfg = config;
+            boolean scrollOverflow = cfg != null && "Scroll with lyric".equals(cfg.liveCardOverflowMode);
+            boolean wrapOverflow = cfg != null && "Wrap".equals(cfg.liveCardOverflowMode);
+            return new SurfacePolicy(
+                    0.30f,
+                    cfg != null && cfg.liveCardShowTransliteration,
+                    cfg != null && cfg.liveCardShowTranslation,
+                    cfg == null ? "" : cfg.defaultJapaneseReadingMode,
+                    cfg != null && cfg.attachTransliterationToWords,
+                    cfg != null && cfg.lineSyncFillTopDown(),
+                    cfg != null && cfg.lineSyncFillSentence(),
+                    cfg != null && cfg.lineSyncFillWord(),
+                    cfg != null && cfg.interludeNoteIcon,
+                    cfg == null ? "Medium" : cfg.liveCardWeight,
+                    cfg == null ? "spotify" : cfg.lyricsFont,
+                    cfg == null ? 1f : Math.max(0.50f, 0.68f * cfg.liveCardTextSizeMultiplier),
+                    cfg != null && cfg.translationBright,
+                    wrapOverflow,
+                    scrollOverflow,
+                    wrapOverflow,
+                    cfg == null || cfg.adaptiveSectioningEnabled,
+                    cfg == null || cfg.adaptiveTextSizeEnabled);
+        }
+
+        /**
+         * Album-art overlay policy. Text semantics and timing stay on the shared row planner;
+         * the surface adapter only chooses the bounded row window that fits over the artwork.
+         */
+        public static SurfacePolicy artwork(LyricsRenderConfig config) {
+            LyricsRenderConfig cfg = config;
+            return new SurfacePolicy(
+                    cfg == null ? 1f : cfg.lineSpacingMultiplier,
+                    cfg != null && cfg.transliterationEnabled,
+                    cfg != null && cfg.translationEnabled,
+                    cfg == null ? "" : cfg.defaultJapaneseReadingMode,
+                    cfg != null && cfg.attachTransliterationToWords,
+                    cfg != null && cfg.lineSyncFillTopDown(),
+                    cfg != null && cfg.lineSyncFillSentence(),
+                    cfg != null && cfg.lineSyncFillWord(),
+                    cfg != null && cfg.interludeNoteIcon,
+                    cfg == null ? "Medium" : cfg.lyricWeight,
+                    cfg == null ? "spotify" : cfg.lyricsFont,
+                    cfg == null ? 1f : cfg.lyricsTextSizeMultiplier,
+                    cfg != null && cfg.translationBright,
+                    true,
+                    false,
+                    true,
+                    cfg == null || cfg.adaptiveSectioningEnabled,
+                    cfg == null || cfg.adaptiveTextSizeEnabled);
+        }
+
+        public static SurfacePolicy defaultPolicy() {
+            return new SurfacePolicy(1f, false, false, "", false, false, false,
+                    false, false, "Medium", "spotify", 1f, false, true, false);
+        }
+    }
+}

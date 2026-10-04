@@ -1,0 +1,10 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Byte-exact conformance fixtures. Each manifest.json records the SHA-256 of the sibling
+# fixture's own bytes, and `* text=auto` above rewrites those bytes to CRLF on a Windows
+# checkout - which changes the hash and fails JapaneseReadingPolicyConformanceTest and
+# JapaneseRomajiProjectionConformanceTest on a platform the corpus has nothing to do with.
+# These files must be checked out exactly as stored.
+app/src/test/resources/japanese-reading-policy/*.json -text
+app/src/test/resources/japanese-romaji-projection/*.json -text

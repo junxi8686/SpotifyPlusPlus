@@ -1,0 +1,238 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.spotifyplusplus'
+    compileSdk 35
+
+    // Keep focused JVM runs discoverable without moving the existing JUnit4 classes. Groups are
+    // intentionally additive: the narrower lyrics-ai and lyrics-session groups sit inside the
+    // broad lyrics group, while corpus names identify the golden language fixtures.
+    def unitTestGroups = [
+            settings: ['com.spotifyplusplus.Settings*', 'com.spotifyplusplus.settings.*',
+                    'com.spotifyplusplus.ui.SettingsUiStrings*'],
+            diagnostics: ['com.spotifyplusplus.diagnostics.*'],
+            hooks: ['com.spotifyplusplus.hooks.*'],
+            lyrics: ['com.spotifyplusplus.lyrics.*'],
+            'lyrics-ai': ['com.spotifyplusplus.lyrics.ai.*'],
+            'lyrics-session': ['com.spotifyplusplus.lyrics.session.*'],
+            corpus: [
+                    'com.spotifyplusplus.lyrics.ChineseRomanizerTest',
+                    'com.spotifyplusplus.lyrics.CyrillicRomanizerTest',
+                    'com.spotifyplusplus.lyrics.GreekRomanizerTest',
+                    'com.spotifyplusplus.lyrics.language.JapaneseReadingTest',
+                    'com.spotifyplusplus.lyrics.language.JapaneseReadingPolicyConformanceTest',
+                    'com.spotifyplusplus.lyrics.language.JapaneseRomajiProjectionConformanceTest',
+                    'com.spotifyplusplus.lyrics.JapaneseRubyGeometryTest',
+                    'com.spotifyplusplus.lyrics.language.JyutpingRomanizerTest',
+                    'com.spotifyplusplus.lyrics.language.KoreanPronunciationTest',
+                    'com.spotifyplusplus.lyrics.KoreanReadingProcessorTest',
+                    'com.spotifyplusplus.lyrics.KoreanRomanizerTest'
+            ]
+    ]
+    // Exporters and the billed model survey are evaluation tools, not regression tests: they
+    // write files or call paid providers and assert nothing. They are excluded from every
+    // default and grouped test run, and only execute with -PtestTools=<name>.
+    def optInTestTools = [
+            'jp-export': [
+                    'com.spotifyplusplus.lyrics.language.JapaneseSnapshotExporterTest',
+                    'com.spotifyplusplus.lyrics.language.JapaneseReadingPolicyResultExporterTest',
+                    'com.spotifyplusplus.lyrics.language.JapaneseRomajiProjectionResultExporterTest'
+            ],
+            'model-survey': ['com.spotifyplusplus.lyrics.ai.OpenRouterModelSurveyTest']
+    ]
+    def requestedTestGroup = providers.gradleProperty('testGroup').orNull
+    if (requestedTestGroup != null && !unitTestGroups.containsKey(requestedTestGroup)) {
+        throw new GradleException("Unknown testGroup '${requestedTestGroup}'. Choose one of: "
+                + unitTestGroups.keySet().join(', '))
+    }
+    def requestedTestTools = providers.gradleProperty('testTools').orNull
+    if (requestedTestTools != null && !optInTestTools.containsKey(requestedTestTools)) {
+        throw new GradleException("Unknown testTools '${requestedTestTools}'. Choose one of: "
+                + optInTestTools.keySet().join(', '))
+    }
+
+    def keystorePath = System.getenv("SIGNING_KEYSTORE_FILE")
+    def releaseStorePassword = System.getenv("SIGNING_STORE_PASSWORD")
+    def releaseKeyAlias = System.getenv("SIGNING_KEY_ALIAS")
+    def releaseKeyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+    // Release artifacts must retain one signing lineage. Validate the complete credential set, then
+    // fail packaging tasks instead of silently producing debug-signed APKs.
+    def releaseKeystoreValid = false
+    def releaseSigningError = "release signing credentials are missing"
+    if (keystorePath != null && !keystorePath.trim().isEmpty()
+            && releaseStorePassword != null && !releaseStorePassword.isEmpty()
+            && releaseKeyAlias != null && !releaseKeyAlias.trim().isEmpty()
+            && releaseKeyPassword != null && !releaseKeyPassword.isEmpty()
+            && new File(keystorePath).isFile()) {
+        try {
+            def ks = java.security.KeyStore.getInstance("JKS")
+            new File(keystorePath).withInputStream { ks.load(it, releaseStorePassword.toCharArray()) }
+            def key = ks.getKey(releaseKeyAlias, releaseKeyPassword.toCharArray())
+            if (!(key instanceof java.security.PrivateKey) || ks.getCertificate(releaseKeyAlias) == null) {
+                throw new java.security.KeyStoreException("alias does not contain a private key and certificate")
+            }
+            releaseKeystoreValid = true
+            releaseSigningError = ""
+        } catch (Throwable t) {
+            releaseSigningError = "release signing credentials are unusable (" + t.class.simpleName + ")"
+        }
+    }
+
+    gradle.taskGraph.whenReady { graph ->
+        def packagesRelease = graph.allTasks.any { task ->
+            task.project == project && task.name.toLowerCase(java.util.Locale.ROOT)
+                    .matches("(assemble|package|bundle).*release.*")
+        }
+        if (packagesRelease && !releaseKeystoreValid) {
+            throw new GradleException("SpicyEX: ${releaseSigningError}; refusing to create release artifacts.")
+        }
+    }
+
+    defaultConfig {
+        applicationId "com.spotifyplusplus"
+        minSdk 27
+        targetSdk 35
+        versionCode 1
+        versionName "1.0"
+        def diagnosticIntakeUrl = providers.gradleProperty("DIAGNOSTIC_INTAKE_URL")
+                .orElse("")
+                .get()
+        buildConfigField "String", "DIAGNOSTIC_INTAKE_URL", "\"${diagnosticIntakeUrl}\""
+        def modelPackUrl = providers.gradleProperty("LANGUAGE_MODEL_PACK_URL")
+            .orElse("https://github.com/amarinne/spicy-ex/releases/download/v1/spicyex-language-models-v1.zip")
+            .get()
+        def modelPackSha256 = providers.gradleProperty("LANGUAGE_MODEL_PACK_SHA256")
+            .orElse("fab585db878657fb124e49722f4579aaeb994b902b1dbf288b4b17700f90eb37")
+            .get()
+        buildConfigField "String", "LANGUAGE_MODEL_PACK_URL", "\"${modelPackUrl}\""
+        buildConfigField "String", "LANGUAGE_MODEL_PACK_SHA256", "\"${modelPackSha256}\""
+
+    }
+
+    buildFeatures {
+        aidl true
+        buildConfig true
+    }
+
+    sourceSets {
+        // Model files are delivered only through the language model pack, never inside the APK.
+        // JVM tests still read the JMdict tables straight from the pack's source folder.
+        test {
+            resources.srcDirs += 'language-models'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (releaseKeystoreValid) {
+                storeFile file(keystorePath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (releaseKeystoreValid) signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    testOptions {
+        unitTests.all {
+            filter {
+                if (requestedTestTools != null) {
+                    optInTestTools[requestedTestTools].each { includeTestsMatching(it) }
+                } else {
+                    optInTestTools.values().flatten().each { excludeTestsMatching(it) }
+                    if (requestedTestGroup != null) {
+                        unitTestGroups[requestedTestGroup].each { includeTestsMatching(it) }
+                    }
+                }
+            }
+        }
+    }
+
+    compileOptions {
+        // javac defaults to the platform encoding, which on a Chinese Windows install is GBK.
+        // Every Chinese literal in the sources - the Simplified/Traditional search tables, the
+        // error-text mapping, the unit-test fixtures - was being decoded as mojibake, which
+        // silently misaligned paired character tables instead of failing the build.
+        encoding "UTF-8"
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    packaging {
+        resources {
+            excludes += [
+                    'META-INF/CONTRIBUTORS.md',
+                    'META-INF/LICENSE.md'
+            ]
+            // The libraries ship their own copies of these models; the language model pack
+            // carries them instead (see packageLanguageModelPack).
+            excludes += [
+                    'com/atilika/kuromoji/unidic/*.bin',
+                    'org/apache/tika/langdetect/charsoup/*.bin'
+            ]
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'
+    testImplementation 'junit:junit:4.13.2'
+    // Test-runtime copy of the hook API so adapter seam tests can drive a fake
+    // interceptor chain on the JVM. Production stays compileOnly (no API in APK).
+    testImplementation 'io.github.libxposed:api:102.0.0'
+    compileOnly 'io.github.libxposed:api:102.0.0'
+    implementation 'com.google.android.flexbox:flexbox:3.0.0'
+    implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'org.luckypray:dexkit:2.0.0'
+    // OkHttp 5 races IPv4/IPv6 (Happy Eyeballs fast fallback, on by default) instead of
+    // trying routes in order. Required baseline on networks with a blackholed IPv6 route,
+    // where 4.x burned the full connect timeout per new connection. See
+    // docs/backlog/HAPPY_EYEBALLS_TRANSPORT_REQUIREMENTS.md.
+    implementation 'com.squareup.okhttp3:okhttp:5.0.0'
+    implementation 'org.apache.tika:tika-langdetect-charsoup-core:4.0.0'
+    implementation 'com.atilika.kuromoji:kuromoji-unidic:0.9.0'
+    implementation 'com.belerweb:pinyin4j:2.5.1'
+}
+
+// Creates the ZIP consumed by LanguageModelPack. Publish it from a trusted HTTPS
+// release location and pass its SHA-256 when building the external-model APK.
+tasks.register("packageLanguageModelPack", Zip) {
+    archiveFileName = "spicyex-language-models-v1.zip"
+    destinationDirectory = layout.buildDirectory.dir("language-models")
+    from("language-models")
+    from(configurations.debugRuntimeClasspath.collect { zipTree(it) }) {
+        include "com/atilika/kuromoji/unidic/*.bin"
+        include "org/apache/tika/langdetect/charsoup/langdetect-20260320.bin"
+        eachFile { details ->
+            if (details.path.startsWith("com/atilika/kuromoji/unidic/")) {
+                details.path = "kuromoji/" + details.name
+            } else {
+                details.path = "tika/" + details.name
+            }
+        }
+        includeEmptyDirs = false
+    }
+}
+
+
+// Persist version-stamped debug APKs to <repo>/artifacts/ so installs do not dig through build/.
+android.applicationVariants.configureEach { variant ->
+    if (variant.buildType.name != 'debug') return
+    def cap = variant.name.capitalize()
+    tasks.register("copy${cap}Apk", Copy) {
+        from layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+        into rootProject.layout.projectDirectory.dir('artifacts')
+        rename { "SpotifyPlusPlus-debug-${variant.versionName}.apk" }
+    }
+    tasks.named("assemble${cap}").configure { finalizedBy "copy${cap}Apk" }
+}

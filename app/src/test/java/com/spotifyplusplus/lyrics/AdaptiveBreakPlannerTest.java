@@ -1,0 +1,113 @@
+package com.spotifyplusplus.lyrics;
+
+import com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor;
+
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.assertEquals;
+
+import org.junit.Test;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+public class AdaptiveBreakPlannerTest {
+    @Test
+    public void keepsSingleLineWhenAllChildrenFit() {
+        assertArrayEquals(new boolean[]{false, false, false},
+                AdaptiveBreakPlanner.plan(new int[]{20, 20, 20}, 60, null, null));
+    }
+
+    @Test
+    public void balancesMinimalLineCountInsteadOfKeepingGreedyBreak() {
+        assertArrayEquals(new boolean[]{false, true, false, false},
+                AdaptiveBreakPlanner.plan(new int[]{40, 10, 10, 10}, 50, null, null));
+    }
+
+    @Test
+    public void avoidsLeavingOneTrailingGlyphWhenAnotherPartitionUsesSameLines() {
+        assertArrayEquals(new boolean[]{false, true, false},
+                AdaptiveBreakPlanner.plan(new int[]{40, 20, 20}, 60, null, null));
+    }
+
+    @Test
+    public void fittingKeepTogetherGroupCannotSplit() {
+        assertArrayEquals(new boolean[]{false, false, true},
+                AdaptiveBreakPlanner.plan(
+                        new int[]{40, 10, 10}, 50,
+                        new boolean[]{true, false},
+                        new int[][]{{0, 1}}));
+    }
+
+    @Test
+    public void oversizedKeepTogetherGroupCanSplit() {
+        assertArrayEquals(new boolean[]{false, true, false},
+                AdaptiveBreakPlanner.plan(
+                        new int[]{40, 20, 10}, 50,
+                        new boolean[]{true, false},
+                        new int[][]{{0, 1}}));
+    }
+
+    @Test
+    public void oversizedSingleChildGetsItsOwnLine() {
+        // A child wider than the row overflows whichever line it lands on, so it occupies one on
+        // its own. Treating that as unplannable used to abandon the whole row to greedy wrapping.
+        assertArrayEquals(new boolean[]{false, true},
+                AdaptiveBreakPlanner.plan(new int[]{70, 10}, 50, null, null));
+    }
+
+    @Test
+    public void oneOversizedChildStillLetsTheRestOfTheRowBalance() {
+        // The regression this guards: the long word used to switch off planning for every other
+        // word on its line, which is what produced stranded single-word rows next to full ones.
+        boolean[] plan = AdaptiveBreakPlanner.plan(
+                new int[]{70, 25, 25, 25, 25}, 50, null, null);
+        assertArrayEquals(new boolean[]{false, true, false, true, false}, plan);
+    }
+
+    @Test
+    public void aWideSingleChildRowIsNotTreatedAsARunt() {
+        // 40 of 50 is a full-looking row; the old "one child = penalise" rule rejected it and
+        // produced a ragged layout instead.
+        assertArrayEquals(new boolean[]{false, true, false, false},
+                AdaptiveBreakPlanner.plan(new int[]{40, 10, 10, 10}, 50, null, null));
+    }
+
+    @Test
+    public void avoidsStrandingATinyTrailingFragment() {
+        // [45,5] vs [25,25]: same line count, but the first leaves a 5px runt.
+        boolean[] plan = AdaptiveBreakPlanner.plan(new int[]{25, 20, 5}, 30, null, null);
+        assertArrayEquals(new boolean[]{false, true, false}, plan);
+    }
+
+    @Test
+    public void mapsOnlyCertainAdjacentChildrenInsideSameLayoutGroup() {
+        List<DisplayLayoutGroup> groups = Collections.singletonList(
+                new DisplayLayoutGroup(0, 2, "phrase", true, 1.0));
+        List<int[]> ranges = Arrays.asList(new int[]{0, 1}, new int[]{1, 2}, new int[]{2, 3});
+
+        assertArrayEquals(new boolean[]{true, false},
+                LyricsRowViewFactory.adaptiveForbiddenBreaks(groups, ranges));
+        assertEquals(1, LyricsRowViewFactory.adaptiveKeepTogetherGroups(groups, ranges).length);
+        assertArrayEquals(new int[]{0, 1},
+                LyricsRowViewFactory.adaptiveKeepTogetherGroups(groups, ranges)[0]);
+    }
+
+    @Test
+    public void uncertainChildRangeDoesNotJoinUnrelatedText() {
+        List<DisplayLayoutGroup> groups = Collections.singletonList(
+                new DisplayLayoutGroup(0, 3, "phrase", true, 1.0));
+        List<int[]> ranges = Arrays.asList(new int[]{0, 1}, null, new int[]{2, 3});
+
+        assertArrayEquals(new boolean[]{false, false},
+                LyricsRowViewFactory.adaptiveForbiddenBreaks(groups, ranges));
+    }
+
+    @Test
+    public void japaneseReadingForcesJapaneseLayoutClassification() {
+        AppliedLine line = new AppliedLine();
+        line.japaneseReading = SpicyJapaneseChineseProcessor.analyzeJapaneseLine("音楽", null);
+
+        assertEquals("ja", LyricsRowViewFactory.adaptiveLayoutLanguage(line));
+    }
+}

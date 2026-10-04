@@ -1,0 +1,342 @@
+package com.spotifyplusplus.lyrics;
+
+import com.spotifyplusplus.lyrics.language.SpicyTextDetection;
+
+import android.app.Activity;
+import android.content.Context;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.TextPaint;
+import android.text.style.MetricAffectingSpan;
+import android.view.Gravity;
+import android.widget.ImageButton;
+import android.widget.TextView;
+
+import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.SpotifyPlusConfig;
+
+import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import static com.spotifyplusplus.lyrics.LyricUtils.safe;
+
+/** Text, font, and chip factory for the native lyrics shell. */
+public final class LyricsTextFactory {
+    private final Activity activity;
+    private final SpotifyPlusConfig config;
+    private final Map<String, Typeface> typefaceCache = new LinkedHashMap<>();
+
+    public LyricsTextFactory(Activity activity, SpotifyPlusConfig config) {
+        this.activity = activity;
+        this.config = config;
+    }
+
+    public Typeface resolveTypeface(boolean bold) {
+        // Inherit SPOTIFY'S OWN font (we run inside Spotify): SpotifyMixUI title-extrabold for the
+        // thick bold lyric, regular for non-bold — Spotify's real Circular-family weights, far
+        // heavier/cleaner than the bundled SF-Pro/medium mismatch. Falls back to bundled if the host
+        // font resource can't be resolved.
+        String key = bold ? "|bold" : "|regular";
+        Typeface cached = typefaceCache.get(key);
+        if (cached != null) return cached;
+        Typeface resolved = loadSpotifyFont(bold ? "spotify_mix_ui_title_extrabold" : "spotify_mix_ui_regular");
+        if (resolved == null) {
+            try {
+                resolved = Typeface.createFromAsset(activity.getAssets(),
+                        bold ? "fonts/sf-pro-display-bold.ttf" : "fonts/spotifymix-medium.ttf");
+            } catch (Throwable t) {
+                resolved = bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT;
+            }
+        }
+        typefaceCache.put(key, resolved);
+        return resolved;
+    }
+
+    public Typeface resolveTypefaceForText(String text, boolean bold) {
+        if (shouldUseSystemFallbackForText(text)) return bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT;
+        return resolveTypeface(bold);
+    }
+
+    /** Lyric typeface for a user weight choice: Regular / Medium (Spotify bold) / Bold (extrabold). */
+    public Typeface resolveLyricTypeface(String weight) {
+        return resolveLyricTypeface(weight, config == null ? "spotify" : config.get(Settings.LYRICS_FONT));
+    }
+
+    /** Lyric typeface for a user weight + family choice. */
+    public Typeface resolveLyricTypeface(String weight, String family) {
+        return resolveLyricTypeface(weight, family, "");
+    }
+
+    public Typeface resolveLyricTypeface(String weight, String family, String text) {
+        if (shouldUseSystemFallbackForText(text)) {
+            return "Regular".equals(weight) ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD;
+        }
+        if (SpicyTextDetection.hasCjkIdeograph(text) || SpicyTextDetection.hasKana(text)) {
+            return resolveCjkTypeface(weight);
+        }
+        String normalizedFamily = safe(family).toLowerCase(Locale.ROOT);
+        if ("apple".equals(normalizedFamily)) {
+            String key = "lyric|apple|" + safe(weight);
+            Typeface cached = typefaceCache.get(key);
+            if (cached != null) return cached;
+            Typeface resolved;
+            try {
+                // Apple family end to end: SF medium (BlinkMacSystemFont) for Regular, SF Pro
+                // Display bold for Medium/Bold — never a Spotify face under the "apple" label.
+                resolved = Typeface.createFromAsset(activity.getAssets(),
+                        "Regular".equals(weight) ? "fonts/lyrics_medium.ttf" : "fonts/sf-pro-display-bold.ttf");
+            } catch (Throwable t) {
+                resolved = "Regular".equals(weight) ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD;
+            }
+            typefaceCache.put(key, resolved);
+            return resolved;
+        }
+
+        if ("custom".equals(normalizedFamily)) {
+            String path = config == null ? "" : safe(config.get(Settings.LYRICS_FONT_CUSTOM_PATH));
+            if (path.isEmpty()) {
+                normalizedFamily = "spotify";
+            } else {
+                String key = "lyric|custom|" + path;
+                Typeface cached = typefaceCache.get(key);
+                if (cached == null) {
+                    java.io.File file = new java.io.File(path);
+                    if (file.isFile()) {
+                        try {
+                            cached = Typeface.createFromFile(file);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    if (cached == null) {
+                        // Not a real file on disk - try it as an installed/system font family
+                        // name instead (e.g. "sans-serif-medium", "serif", "casual"). Typeface#
+                        // create() never throws for an unknown name, it just falls back to the
+                        // platform default, so this always yields *something* rather than the
+                        // silent "looks like nothing happened" of an empty/bad path.
+                        cached = Typeface.create(path, Typeface.NORMAL);
+                    }
+                    typefaceCache.put(key, cached);
+                }
+                // A standalone font file has no separate weight files the way the bundled
+                // families do - synthetic bold is the only way to honor a Bold/Medium request.
+                return Typeface.create(cached, "Regular".equals(weight) ? Typeface.NORMAL : Typeface.BOLD);
+            }
+        }
+
+        String font = "Regular".equals(weight) ? "spotify_mix_ui_regular"
+                : "Bold".equals(weight) ? "spotify_mix_ui_title_extrabold"
+                : "spotify_mix_ui_bold"; // Medium — Spotify's bold reads as a clean medium next to extrabold
+        String key = "lyric|" + normalizedFamily + "|" + safe(weight);
+        Typeface cached = typefaceCache.get(key);
+        if (cached != null) return cached;
+        Typeface resolved = loadSpotifyFont(font);
+        if (resolved == null) {
+            try {
+                resolved = Typeface.createFromAsset(activity.getAssets(),
+                        "Regular".equals(weight) ? "fonts/spotifymix-medium.ttf" : "fonts/sf-pro-display-bold.ttf");
+            } catch (Throwable t) {
+                resolved = "Regular".equals(weight) ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD;
+            }
+        }
+        typefaceCache.put(key, resolved);
+        return resolved;
+    }
+
+    /** Preserve configured Latin face while applying weighted system fallback only to CJK runs. */
+    public void applyLyricTypeface(TextView view, CharSequence value, String weight, String family) {
+        if (view == null) return;
+        String plain = value == null ? "" : value.toString();
+        if (shouldUseSystemFallbackForText(plain)) {
+            view.setTypeface("Regular".equals(weight) ? Typeface.DEFAULT : Typeface.DEFAULT_BOLD);
+            view.setText(value == null ? "" : value);
+            return;
+        }
+        Typeface configured = resolveConfiguredLyricTypeface(weight, family);
+        view.setTypeface(configured);
+        List<int[]> ranges = cjkFontRanges(plain);
+        if (ranges.isEmpty()) {
+            view.setText(value == null ? "" : value);
+            return;
+        }
+        SpannableStringBuilder styled = new SpannableStringBuilder(value == null ? "" : value);
+        Typeface cjk = resolveCjkTypeface(weight);
+        for (int[] range : ranges) {
+            styled.setSpan(new ExactTypefaceSpan(cjk), range[0], range[1], Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        view.setText(styled);
+    }
+
+    private Typeface resolveConfiguredLyricTypeface(String weight, String family) {
+        return resolveLyricTypeface(weight, family, "");
+    }
+
+    static List<int[]> cjkFontRanges(String text) {
+        String value = safe(text);
+        int n = value.length();
+        boolean[] cjk = new boolean[n];
+        for (int index = 0; index < n;) {
+            int cp = value.codePointAt(index);
+            int next = index + Character.charCount(cp);
+            if (isCjkFontCodePoint(cp)) {
+                for (int unit = index; unit < next; unit++) cjk[unit] = true;
+            }
+            index = next;
+        }
+        // ASCII digits immediately adjacent to CJK share the CJK font run. Without this, a ruby
+        // span over a numeric-person unit like 1人 = [0,2] splits at the digit/kanji font boundary
+        // into per-fragment replacement draws (B615), duplicating the reading (ひとりひとり) and
+        // later leaving it centered only over the digit.
+        for (int index = 1; index < n; index++) {
+            char c = value.charAt(index);
+            if (c >= '0' && c <= '9' && cjk[index - 1]) cjk[index] = true;
+        }
+        for (int index = n - 2; index >= 0; index--) {
+            char c = value.charAt(index);
+            if (c >= '0' && c <= '9' && cjk[index + 1]) cjk[index] = true;
+        }
+        ArrayList<int[]> ranges = new ArrayList<>();
+        int start = -1;
+        for (int index = 0; index < n;) {
+            boolean cjkHere = cjk[index];
+            if (cjkHere && start < 0) start = index;
+            if (!cjkHere && start >= 0) {
+                ranges.add(new int[]{start, index});
+                start = -1;
+            }
+            index += Character.charCount(value.codePointAt(index));
+        }
+        if (start >= 0) ranges.add(new int[]{start, n});
+        return ranges;
+    }
+
+    private static boolean isCjkFontCodePoint(int cp) {
+        return (cp >= 0x3040 && cp <= 0x30FF)
+                || (cp >= 0x3400 && cp <= 0x4DBF)
+                || (cp >= 0x4E00 && cp <= 0x9FFF)
+                || (cp >= 0x3000 && cp <= 0x303F)
+                || cp == 0x3005;
+    }
+
+    private static final class ExactTypefaceSpan extends MetricAffectingSpan {
+        private final Typeface typeface;
+
+        ExactTypefaceSpan(Typeface typeface) {
+            this.typeface = typeface;
+        }
+
+        @Override
+        public void updateMeasureState(TextPaint paint) {
+            paint.setTypeface(typeface);
+        }
+
+        @Override
+        public void updateDrawState(TextPaint paint) {
+            paint.setTypeface(typeface);
+        }
+    }
+
+    static boolean shouldUseSystemFallbackForText(String text) {
+        return SpicyTextDetection.hasIndicScript(text);
+    }
+
+    /**
+     * CJK lyric text: SpotifyMix has no CJK glyphs, so the system fallback (Noto Sans CJK) renders
+     * them — at bold weight when the base typeface is bold, which reads far heavier than desktop
+     * Spicy (whose weight-700 request silently falls back to regular-weight CJK). Match the desktop
+     * *rendered* look with explicit mid weights.
+     */
+    private Typeface resolveCjkTypeface(String weight) {
+        int w = "Regular".equals(weight) ? 400 : "Bold".equals(weight) ? 600 : 500;
+        String key = "lyric|cjk|" + w;
+        Typeface cached = typefaceCache.get(key);
+        if (cached != null) return cached;
+        Typeface resolved;
+        if (android.os.Build.VERSION.SDK_INT >= 28) {
+            resolved = Typeface.create(Typeface.DEFAULT, w, false);
+        } else {
+            resolved = w >= 600 ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT;
+        }
+        typefaceCache.put(key, resolved);
+        return resolved;
+    }
+
+    /** Load a font resource from the host (Spotify) package by name, e.g. "spotify_mix_ui_bold". */
+    private Typeface loadSpotifyFont(String name) {
+        try {
+            android.content.res.Resources res = activity.getResources();
+            int id = res.getIdentifier(name, "font", activity.getPackageName());
+            if (id != 0) return res.getFont(id);
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    public void emphasizePrimaryLyric(TextView view) {
+        if (view == null) return;
+        // Real extrabold face now carries the weight — no synthetic fake-bold (which muddied glyphs).
+    }
+
+    public TextView createChip(Context context, String value) {
+        TextView view = createText(context, value, 14, Color.WHITE, resolveTypeface(true));
+        view.setGravity(Gravity.CENTER);
+        view.setMinWidth(dp(44));
+        view.setMinHeight(dp(44));
+        view.setIncludeFontPadding(false);
+        view.setPadding(0, 0, 0, dp(1));
+        return view;
+    }
+
+    public void styleChip(TextView view, boolean enabled) {
+        if (view == null) return;
+        view.setTextColor(enabled ? Color.rgb(245, 245, 248) : Color.rgb(178, 178, 186));
+        view.setAlpha(enabled ? 1.0f : 0.78f);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(enabled ? Color.argb(78, 255, 255, 255) : Color.argb(30, 255, 255, 255));
+        bg.setStroke(dp(1), enabled ? Color.argb(88, 255, 255, 255) : Color.argb(38, 255, 255, 255));
+        view.setBackground(bg);
+    }
+
+    public void styleIconChip(ImageButton view, boolean enabled) {
+        if (view == null) return;
+        view.setColorFilter(enabled ? Color.rgb(245, 245, 248) : Color.rgb(178, 178, 186));
+        view.setAlpha(enabled ? 0.96f : 0.72f);
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        bg.setColor(enabled ? Color.argb(48, 255, 255, 255) : Color.argb(22, 255, 255, 255));
+        bg.setStroke(dp(1), enabled ? Color.argb(58, 255, 255, 255) : Color.argb(30, 255, 255, 255));
+        view.setBackground(bg);
+    }
+
+    public TextView createText(Context context, String value, int sp, int color, Typeface typeface) {
+        TextView view = new TextView(context);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTextColor(color);
+        view.setTypeface(typeface);
+        view.setIncludeFontPadding(true);
+        view.setLineSpacing(0f, 1.18f); // Spicy lyric line-height parity (Mixed.css 1.1818)
+        return view;
+    }
+
+    public SpicyAnimatedTextView createSecondaryAnimatedText(Context context, String value, int sp, Typeface typeface) {
+        SpicyAnimatedTextView view = new SpicyAnimatedTextView(context);
+        view.setText(value);
+        view.setTextSize(sp);
+        view.setTypeface(typeface);
+        view.setIncludeFontPadding(true);
+        view.setLineSpacing(0f, 1.04f);
+        view.setGradientPosition(LyricAnimations.GRADIENT_UNSUNG, 0f);
+        return view;
+    }
+
+    private int dp(int value) {
+        float density = activity == null ? 1f : activity.getResources().getDisplayMetrics().density;
+        return Math.round(value * density);
+    }
+
+}
