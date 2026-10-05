@@ -245,6 +245,23 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
                 : Kind.CHEVRONS_UP_DOWN;
     }
 
+    /** Opens and reveals a section through its existing header action. */
+    public boolean openSection(String id) {
+        for (Settings.Section section : SettingsUiSchema.orderedSections()) {
+            if (!section.id.equals(id)) continue;
+            int index = indexOfChildByTag(PanelTags.header(section));
+            if (index < 0 || scrollRoot == null) return false;
+            View header = sectionsContainer.getChildAt(index);
+            if (!expandedSections.contains(id)) header.performClick();
+            scrollRoot.postDelayed(() -> {
+                if (scrollRoot.isAttachedToWindow()) scrollRoot.scrollTo(0,
+                        sectionsContainer.getTop() + header.getTop());
+            }, Motion.dur(Motion.BASE) + 50L);
+            return true;
+        }
+        return false;
+    }
+
     // --- Section rendering ---
 
     private void renderSections(LinearLayout content) {
