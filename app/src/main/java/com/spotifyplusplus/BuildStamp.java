@@ -12,8 +12,8 @@ package com.spotifyplusplus;
  * so there is one string to change rather than three that can drift apart.
  */
 public final class BuildStamp {
-    public static final String VERSION = "1.1";
-    /** Empty on a plain release; a build with a clue reads {@code 1.0 [clue]}. */
+    public static final String VERSION = "2.0";
+    /** Empty on a plain release; a build with a clue reads {@code 2.0 [clue]}. */
     public static final String CLUE = "";
     public static final String FULL = CLUE.isEmpty() ? VERSION : VERSION + " [" + CLUE + "]";
 
