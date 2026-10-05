@@ -3,6 +3,8 @@ package com.spotifyplusplus.lyrics.session;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -120,6 +122,11 @@ public final class LyricsSourcePreferences {
     public static boolean sourceEnabled(Context context, Source source) {
         if (isRetired(source)) return false;
         if (context == null) return enabledByDefault(source);
+        // SpicyLyrics.org has nothing to serve until a client key is stored, so it does not report
+        // itself enabled before then: an enabled source feeds the fetch order and the picker, and
+        // this one could only answer with "client key not set". Once a key exists the stored
+        // preference takes over as usual. Retired sources never reach here.
+        if (source == Source.SPICY_ORG && !SpicyOrgKeyStore.has(context)) return false;
         // Deliberately NOT forced off here when the blanking setting is on.
         //
         // Reading that setting into this answer made the source switch impossible to turn on:
