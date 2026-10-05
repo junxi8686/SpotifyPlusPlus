@@ -18,6 +18,9 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -120,7 +123,20 @@ public final class LyricsRepository {
                 karaokeOriginalLyrics, callback, 0);
     }
 
-    /** Source-order Auto: first enabled source in user order that yields lyrics wins. */
+    /**
+     * Source-order Auto: every enabled source is asked at the same time, the first usable answer is
+     * shown at once, and a later answer only replaces it when it scores strictly better.
+     *
+     * <p>Asking in sequence made the wait the sum of every source's latency and meant a slow first
+     * source hid a fast later one; a source that had already answered correctly was never improved
+     * on either. Racing them makes the wait the fastest source, and the quality comparison makes
+     * the winner the best answer rather than the earliest one.
+     *
+     * <p>Scoring is {@link LyricQualityRanker}: syllable timing outranks word, which outranks line,
+     * which outranks unsynced, so a word-timed delivery that arrives first is still replaced by a
+     * syllable-timed one that arrives later. An upgrade is only delivered when it is strictly
+     * better, so the first eligible answer is never downgraded and a tie keeps the earlier one.
+     */
     private void fetchOrderedSources(Context context, SpotifyTrack track, int generation,
                                      java.util.List<com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source> enabledOrder,
                                      String accessToken, boolean karaokeOriginalLyrics,
@@ -129,31 +145,73 @@ public final class LyricsRepository {
             callback.onError("All lyric sources disabled");
             return;
         }
-        attemptOrderedSource(context, track, generation, enabledOrder, 0, accessToken,
-                karaokeOriginalLyrics, callback);
+        final int count = enabledOrder.size();
+        final AtomicInteger settled = new AtomicInteger();
+        final AtomicInteger deliveredScore = new AtomicInteger(LyricQualityRanker.REJECT);
+        final AtomicReference<LyricsDocument> delivered = new AtomicReference<>();
+        final AtomicBoolean reportedError = new AtomicBoolean();
+
+        for (int index = 0; index < count; index++) {
+            final String source = labelFor(enabledOrder.get(index));
+            // Each source needs its own Runnable: the pool rejects a task that is already running.
+            final Runnable attempt = () -> fetchSingleSource(context, track, generation, source,
+                    accessToken, karaokeOriginalLyrics, new ResultCallback() {
+                        @Override public void onSuccess(LyricsDocument document) {
+                            consider(document);
+                        }
+
+                        @Override public void onError(String error) {
+                            settle();
+                        }
+
+                        private void consider(LyricsDocument document) {
+                            try {
+                                int score = LyricQualityRanker.score(document);
+                                if (score != LyricQualityRanker.REJECT) {
+                                    synchronized (deliveredScore) {
+                                        // Strictly better only: a tie keeps whichever answer the
+                                        // renderer already shows, so a second equally good source
+                                        // never causes a visible swap.
+                                        if (score > deliveredScore.get()) {
+                                            deliveredScore.set(score);
+                                            delivered.set(document);
+                                            callback.onSuccess(document);
+                                        }
+                                    }
+                                }
+                            } finally {
+                                settle();
+                            }
+                        }
+
+                        private void settle() {
+                            if (settled.incrementAndGet() == count && delivered.get() == null
+                                    && reportedError.compareAndSet(false, true)) {
+                                callback.onError("No lyric source in order produced lyrics");
+                            }
+                        }
+                    }, 0);
+            boolean accepted = submitAttempt(attempt);
+            if (!accepted) {
+                // The pool would not take the task, so it will never settle; count it now or the
+                // "no source produced lyrics" error would never be raised.
+                if (settled.incrementAndGet() == count && delivered.get() == null
+                        && reportedError.compareAndSet(false, true)) {
+                    callback.onError("No lyric source in order produced lyrics");
+                }
+            }
+        }
     }
 
-    private void attemptOrderedSource(Context context, SpotifyTrack track, int generation,
-                                      java.util.List<com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source> enabledOrder,
-                                      int index, String accessToken, boolean karaokeOriginalLyrics,
-                                      ResultCallback callback) {
-        if (index >= enabledOrder.size()) {
-            callback.onError("No lyric source in order produced lyrics");
-            return;
+    /** Dispatches one source attempt onto the lyrics pool; false when the pool refuses it. */
+    private static boolean submitAttempt(Runnable attempt) {
+        try {
+            com.spotifyplusplus.hooks.NativeRuntime.LYRICS_IO.execute(attempt);
+            return true;
+        } catch (Throwable refused) {
+            XpLog.log(TAG + " source attempt not scheduled: " + refused);
+            return false;
         }
-        String source = labelFor(enabledOrder.get(index));
-        fetchSingleSource(context, track, generation, source, accessToken,
-                karaokeOriginalLyrics, new ResultCallback() {
-            @Override public void onSuccess(LyricsDocument document) {
-                callback.onSuccess(document);
-            }
-            @Override public void onError(String error) {
-                // The strict source already recorded its terminal outcome; move to the next
-                // source without recording it twice.
-                attemptOrderedSource(context, track, generation, enabledOrder, index + 1,
-                        accessToken, karaokeOriginalLyrics, callback);
-            }
-        }, 0);
     }
 
     private static String labelFor(com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source source) {

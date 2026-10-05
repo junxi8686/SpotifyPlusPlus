@@ -42,13 +42,22 @@ public final class SpicyOrgAttribution {
 
     private static String providerLabel(LyricsDocument document) {
         if (SpicyOrgPolicy.isRestricted(document)) {
-            switch (safe(document.spicyOrgSource)) {
+            // A restricted document came through the SpicyLyrics.org API, so an origin value this
+            // build does not recognise is a new upstream value, not an unknown provider. Falling
+            // back to the provider the parse already derived - and finally to the product name -
+            // keeps the footer truthful instead of printing "Unknown source" for lyrics we know
+            // the origin of.
+            String origin = safe(document.spicyOrgSource).toLowerCase(java.util.Locale.ROOT);
+            switch (origin) {
                 case "spicy_lyrics": return "Spicy Lyrics";
                 case "apple_music": return "Apple Music";
                 case "spotify": return "Spotify";
                 case "musixmatch": return "Musixmatch";
-                default: return "Unknown source";
+                default: break;
             }
+            String derived = safe(document.provider);
+            if (!derived.isEmpty() && !"unknown".equalsIgnoreCase(derived)) return derived;
+            return "Spicy Lyrics";
         }
         String provider = safe(document.provider);
         if (provider.toLowerCase(java.util.Locale.ROOT).endsWith(" cache")) {

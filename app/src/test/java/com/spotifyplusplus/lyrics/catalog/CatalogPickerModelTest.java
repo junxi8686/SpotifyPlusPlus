@@ -44,9 +44,9 @@ public class CatalogPickerModelTest {
 
     @Test
     public void autoRowShowsWinnerWithoutDuplicatingIt() {
-        CatalogCandidate apple = cand(SourceId.APPLE, TimingLevel.SYLLABLE);
-        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(apple),
-                Collections.<SourceId, ProviderStatus>emptyMap(), null, auto(apple));
+        CatalogCandidate lrclibFixture = cand(SourceId.LRCLIB, TimingLevel.SYLLABLE);
+        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(lrclibFixture),
+                Collections.<SourceId, ProviderStatus>emptyMap(), null, auto(lrclibFixture));
 
         assertEquals(RowKind.AUTO, rows.get(0).kind);
         assertEquals("Auto", rows.get(0).title);
@@ -54,21 +54,21 @@ public class CatalogPickerModelTest {
         // claim it compared against every source.
         assertEquals("", rows.get(0).subtitle);
         assertTrue(rows.get(0).selected);
-        Row winner = sourceRow(rows, SourceId.APPLE);
+        Row winner = sourceRow(rows, SourceId.LRCLIB);
         assertTrue(winner != null && winner.selected);
     }
 
     @Test
     public void storedSourceRowShowsMatchStatusAndCapabilities() {
-        CatalogCandidate apple = cand(SourceId.APPLE, TimingLevel.LINE);
+        CatalogCandidate lrclibFixture = cand(SourceId.LRCLIB, TimingLevel.LINE);
         Map<SourceId, ProviderStatus> states = new HashMap<>();
-        states.put(SourceId.APPLE, ProviderStatus.AVAILABLE);
-        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(apple), states,
-                null, auto(apple));
+        states.put(SourceId.LRCLIB, ProviderStatus.AVAILABLE);
+        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(lrclibFixture), states,
+                null, auto(lrclibFixture));
 
-        Row row = sourceRow(rows, SourceId.APPLE);
+        Row row = sourceRow(rows, SourceId.LRCLIB);
         assertTrue(row != null);
-        assertEquals("Apple Music · Line", row.title);
+        assertEquals("LRCLIB · Line", row.title);
         assertEquals("Available · Translation", row.subtitle);
         assertTrue(row.selected);
         assertTrue(row.stored);
@@ -120,12 +120,11 @@ public class CatalogPickerModelTest {
 
     @Test
     public void manualSelectionMarksThePinnedSourceRow() {
-        CatalogCandidate apple = cand(SourceId.APPLE, TimingLevel.LINE);
         CatalogCandidate lrclib = cand(SourceId.LRCLIB, TimingLevel.LINE);
         CatalogSelection manual = new CatalogSelection("track", SelectionMode.MANUAL,
                 lrclib.candidateId, SourceId.LRCLIB, "item", "");
-        List<Row> rows = CatalogPickerModel.build(Arrays.asList(apple, lrclib),
-                Collections.<SourceId, ProviderStatus>emptyMap(), manual, auto(apple));
+        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(lrclib),
+                Collections.<SourceId, ProviderStatus>emptyMap(), manual, auto(lrclib));
 
         assertTrue(!rows.get(0).selected);
         assertEquals("", rows.get(0).subtitle);
@@ -135,32 +134,32 @@ public class CatalogPickerModelTest {
 
     @Test
     public void manualSelectionKeepsPinnedProviderVariantVisible() {
-        CatalogCandidate pinnedLine = cand(SourceId.APPLE, TimingLevel.LINE);
-        CatalogCandidate newerSyllable = cand(SourceId.APPLE, TimingLevel.SYLLABLE);
+        CatalogCandidate pinnedLine = cand(SourceId.LRCLIB, TimingLevel.LINE);
+        CatalogCandidate newerSyllable = cand(SourceId.LRCLIB, TimingLevel.SYLLABLE);
         CatalogSelection manual = new CatalogSelection("track", SelectionMode.MANUAL,
-                pinnedLine.candidateId, SourceId.APPLE, "item", pinnedLine.canonicalDigest);
+                pinnedLine.candidateId, SourceId.LRCLIB, "item", pinnedLine.canonicalDigest);
 
         List<Row> rows = CatalogPickerModel.build(Arrays.asList(newerSyllable, pinnedLine),
                 Collections.<SourceId, ProviderStatus>emptyMap(), manual,
                 auto(newerSyllable));
 
-        Row apple = sourceRow(rows, SourceId.APPLE);
-        assertTrue(apple.selected);
-        assertEquals(pinnedLine.candidateId, apple.candidateId);
-        assertEquals("Apple Music · Line", apple.title);
+        Row lrclibRow = sourceRow(rows, SourceId.LRCLIB);
+        assertTrue(lrclibRow.selected);
+        assertEquals(pinnedLine.candidateId, lrclibRow.candidateId);
+        assertEquals("LRCLIB · Line", lrclibRow.title);
     }
 
     @Test
     public void theAutoRowNeverCarriesSubtitleText() {
-        CatalogCandidate apple = cand(SourceId.APPLE, TimingLevel.LINE);
+        CatalogCandidate lrclibFixture = cand(SourceId.LRCLIB, TimingLevel.LINE);
         CatalogCandidate syllable = cand(SourceId.AMLL, TimingLevel.SYLLABLE);
         CatalogSelection manual = new CatalogSelection("track", SelectionMode.MANUAL,
-                apple.candidateId, SourceId.APPLE, "item", "");
+                lrclibFixture.candidateId, SourceId.LRCLIB, "item", "");
 
         // Every reachable combination: a winner, a manual pin over a winner, and no winner at all.
-        List<Row> withWinner = CatalogPickerModel.build(Collections.singletonList(apple),
-                Collections.<SourceId, ProviderStatus>emptyMap(), null, auto(apple));
-        List<Row> withManual = CatalogPickerModel.build(Arrays.asList(apple, syllable),
+        List<Row> withWinner = CatalogPickerModel.build(Collections.singletonList(lrclibFixture),
+                Collections.<SourceId, ProviderStatus>emptyMap(), null, auto(lrclibFixture));
+        List<Row> withManual = CatalogPickerModel.build(Arrays.asList(lrclibFixture, syllable),
                 Collections.<SourceId, ProviderStatus>emptyMap(), manual, auto(syllable));
         List<Row> withNothing = CatalogPickerModel.build(Collections.<CatalogCandidate>emptyList(),
                 Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
@@ -179,11 +178,10 @@ public class CatalogPickerModelTest {
         List<Row> rows = CatalogPickerModel.build(Collections.<CatalogCandidate>emptyList(),
                 Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
 
-        // Seven sources, not six: SpicyLyrics.org is the fork's primary source and now has its own
-        // row here too, matching CatalogPolicy.automaticOrder() and the DEFAULT_ORDER in
-        // LyricsSourcePreferences. Without it a stored SpicyLyrics.org candidate had no row to be
-        // seen or picked from.
-        assertEquals(1 + 7 + 2, rows.size());
+        // Six sources: SpicyLyrics.org, Spotify, AMLL, LRCLIB, QQ and NetEase, matching
+        // CatalogPolicy.automaticOrder() and the DEFAULT_ORDER in LyricsSourcePreferences.
+        // Apple Music is deliberately absent - it is retired, so it gets no row.
+        assertEquals(1 + 6 + 2, rows.size());
         assertEquals("Auto · nothing stored yet", rows.get(0).title);
         // The Auto row carries its state in the title and the selected-green colour only. No
         // subtitle in any state, so no state text can be parked in this menu again.
@@ -193,10 +191,12 @@ public class CatalogPickerModelTest {
         // sequence, and one that never called back left the row on "checking" with nothing on
         // screen able to clear it. The per-source rows do the same job one at a time.
         // The escape hatch for a release catalogued under a name no respelling reaches.
-        assertEquals(RowKind.ACTION_MANUAL_SEARCH, rows.get(8).kind);
-        assertEquals("Search by name…", rows.get(8).title);
-        assertEquals(RowKind.ACTION_DELETE_TRACK, rows.get(9).kind);
-        assertEquals("Clear saved lyrics", rows.get(9).title);
+        // Indices follow the six source rows plus the Auto row; retiring Apple Music moved both
+        // actions up one slot.
+        assertEquals(RowKind.ACTION_MANUAL_SEARCH, rows.get(7).kind);
+        assertEquals("Search by name…", rows.get(7).title);
+        assertEquals(RowKind.ACTION_DELETE_TRACK, rows.get(8).kind);
+        assertEquals("Clear saved lyrics", rows.get(8).title);
     }
 
     @Test
@@ -234,23 +234,36 @@ public class CatalogPickerModelTest {
 
     @Test
     public void storedSourceAlwaysCarriesHaveMark() {
-        CatalogCandidate apple = cand(SourceId.APPLE, TimingLevel.LINE);
+        CatalogCandidate lrclibFixture = cand(SourceId.LRCLIB, TimingLevel.LINE);
         Map<SourceId, ProviderStatus> states = new HashMap<>();
-        states.put(SourceId.APPLE, ProviderStatus.AVAILABLE);
-        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(apple), states,
-                null, auto(apple));
+        states.put(SourceId.LRCLIB, ProviderStatus.AVAILABLE);
+        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(lrclibFixture), states,
+                null, auto(lrclibFixture));
 
-        Row row = sourceRow(rows, SourceId.APPLE);
+        Row row = sourceRow(rows, SourceId.LRCLIB);
         assertTrue(row != null && row.stored);
         assertEquals("Available · Translation", row.subtitle);
     }
 
     @Test
     public void brandsStayUntranslated() {
+        // Apple Music keeps its label even though the source is retired from every picker: a
+        // catalogue row stored before it was withdrawn still has to name itself.
         assertEquals("Apple Music", CatalogPickerModel.displaySource(SourceId.APPLE));
+        assertEquals("SpicyLyrics.org", CatalogPickerModel.displaySource(SourceId.SPICY_ORG));
         assertEquals("Spotify", CatalogPickerModel.displaySource(SourceId.SPOTIFY_NATIVE));
         assertEquals("LRCLIB", CatalogPickerModel.displaySource(SourceId.LRCLIB));
         assertEquals("QQ Music", CatalogPickerModel.displaySource(SourceId.QQ));
+    }
+
+    @Test
+    public void retiredAppleMusicHasNoPickerRow() {
+        // The retired source must not appear as a selectable row, but a candidate already stored
+        // for it stays visible so the owner can see and clear what is on screen.
+        List<Row> rows = CatalogPickerModel.build(Collections.<CatalogCandidate>emptyList(),
+                Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
+        assertTrue(sourceRow(rows, SourceId.APPLE) == null);
+        assertTrue(sourceRow(rows, SourceId.SPICY_ORG) != null);
     }
 
     @Test

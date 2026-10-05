@@ -53,9 +53,15 @@ public final class CatalogPickerModel {
         EMPTY
     }
 
-    /** Source display order matches the automatic tie-break. */
+    /**
+     * Source display order matches the automatic tie-break.
+     *
+     * <p>Apple Music is absent: its anonymous endpoint no longer returns usable lyrics, so it is
+     * retired from every surface. Leaving it here kept a row in the source picker for a provider
+     * that could only ever answer with an error.
+     */
     static final SourceId[] SOURCE_ORDER = {
-            SourceId.SPICY_ORG, SourceId.APPLE, SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB,
+            SourceId.SPICY_ORG, SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB,
             SourceId.QQ, SourceId.NETEASE,
     };
 

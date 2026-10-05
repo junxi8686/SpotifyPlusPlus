@@ -30,11 +30,23 @@ public final class NativeRuntime {
             .readTimeout(HTTP_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .writeTimeout(HTTP_WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build();
-    static final java.util.concurrent.ScheduledThreadPoolExecutor LYRICS_IO = new java.util.concurrent.ScheduledThreadPoolExecutor(2);
+    /**
+     * Lyrics source attempts all share this pool, and automatic resolution now asks every enabled
+     * source at once, so the pool has to be at least as wide as the number of lyric sources
+     * (SpicyLyrics.org, Spotify, AMLL, LRCLIB, QQ, NetEase) or the "race" would serialise behind
+     * its own threads and lose the latency it exists to save. The work is network-bound and mostly
+     * waiting, so a handful of threads is cheap.
+     *
+     * <p>Public because the repository dispatches each source attempt onto it directly.
+     */
+    public static final java.util.concurrent.ScheduledThreadPoolExecutor LYRICS_IO = new java.util.concurrent.ScheduledThreadPoolExecutor(6);
     static {
         LYRICS_IO.setRemoveOnCancelPolicy(true);
         LYRICS_IO.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
         LYRICS_IO.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+        // A source that answers badly must not be able to starve the pool for the next track.
+        LYRICS_IO.setKeepAliveTime(30L, TimeUnit.SECONDS);
+        LYRICS_IO.allowCoreThreadTimeOut(true);
     }
     // Sound and Meaning get distinct bounded jobs. Neither lane may park the other's thread on
     // network I/O, and cancelling one never starves the other.
