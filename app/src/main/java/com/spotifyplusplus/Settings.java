@@ -133,6 +133,16 @@ public final class Settings {
             "Icon", "Label", "Auto"
     );
 
+    // Which glyph the "Follow lyrics" chip shows - independent of FOLLOW_CHIP_STYLE above
+    // (that one owns Icon/Label/Auto presentation; this one owns which icon). Adaptive arrow
+    // (the default) points down while the viewport sits above the current lyric target and up
+    // while it sits below; Static arrow keeps the old downward arrow; Waveform keeps the
+    // audio-bars glyph. Edited from the layout editor's Follow-lyrics element.
+    public static final Setting<String> FOLLOW_CHIP_ICON = enumSetting(
+            "lyric_follow_chip_icon", INTERNAL, "Follow-lyrics chip icon", "Adaptive arrow",
+            "Adaptive arrow", "Static arrow", "Waveform"
+    );
+
     // Adds a button to Spotify's persistent mini player (every non-lyrics screen) that jumps
     // straight to the native fullscreen lyrics - see LyricsActivityTakeoverHook.
     public static final Setting<Boolean> MINI_PLAYER_LYRICS_ICON = boolSetting(
