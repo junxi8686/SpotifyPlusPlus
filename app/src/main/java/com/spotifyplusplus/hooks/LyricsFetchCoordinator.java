@@ -177,6 +177,13 @@ final class LyricsFetchCoordinator {
         String bare = fetchTrackKey(track);
         String key = pickerKey(bare, source, karaokeOriginalLyrics);
         if (repositorySource == null || key.isEmpty() || callback == null) {
+            // Say which of the three failed and for which source. The surface only renders the
+            // message, so without this the three causes are indistinguishable from a log.
+            com.spotifyplusplus.xposed.XpLog.log("[SpotifyPlusSourceCheck] rejected source="
+                    + source + " mapped=" + repositorySource
+                    + " trackKey=" + (bare == null || bare.isEmpty() ? "empty" : bare)
+                    + " key=" + (key == null || key.isEmpty() ? "empty" : "ok")
+                    + " callback=" + (callback == null ? "null" : "ok"));
             if (callback != null) callback.onError("Unknown lyrics source");
             return;
         }

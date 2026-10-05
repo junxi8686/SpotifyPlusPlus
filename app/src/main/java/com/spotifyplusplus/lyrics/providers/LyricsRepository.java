@@ -428,6 +428,8 @@ public final class LyricsRepository {
                     });
             return;
         }
+        com.spotifyplusplus.xposed.XpLog.log("[SpotifyPlusSourceCheck] unmapped label='"
+                + source + "' trackId=" + trackIdFromUri(track == null ? "" : track.uri));
         callback.onError("Unknown lyrics source");
     }
 
