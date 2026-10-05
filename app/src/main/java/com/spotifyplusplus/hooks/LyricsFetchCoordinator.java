@@ -99,8 +99,13 @@ final class LyricsFetchCoordinator {
         String operationKey = fetchKey(track, sendToken, authorized)
                 + "|source=" + sourceOverride
                 + "|scope=" + (scope == null ? "none" : scope.key())
-                + "|manual=" + (manualSpicyToken == null || manualSpicyToken.trim().isEmpty()
-                ? "none" : Integer.toHexString(manualSpicyToken.hashCode()));
+                // SpicyLyrics.org identity is the key rotation epoch plus the access revision, not
+                // a hash of the key text. Both change when the owner replaces the key or when
+                // access is confirmed terminated/restored, so a request made under the old state
+                // can never be joined by one made under the new state - and the raw credential
+                // never reaches an in-flight identity string.
+                + "|spicyOrgEpoch=" + com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore.epoch(context)
+                + "|orgAccessRevision=" + com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.revision(context);
         InFlightFetch existing;
         LyricsDocument replay = null;
         boolean joined = false;
