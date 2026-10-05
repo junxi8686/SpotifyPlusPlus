@@ -366,6 +366,7 @@
     <string name="source_picker_track_changed">曲目已切换</string>
     <string name="source_picker_reject_wrong_match">拒绝错误匹配</string>
     <string name="source_picker_remove_saved_candidate">移除保存的候选</string>
+    <string name="source_picker_spicy_key_required">请在设置里填入你的个人客户端密钥</string>
     <string name="settings_source_track_title">当前歌曲歌词</string>
     <string name="settings_source_track_idle">未在播放</string>
 

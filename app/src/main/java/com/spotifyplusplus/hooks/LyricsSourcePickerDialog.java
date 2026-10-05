@@ -14,6 +14,8 @@ import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.spotifyplusplus.lyrics.LyricsDocument;
 import com.spotifyplusplus.lyrics.catalog.CatalogPickerModel;
 import com.spotifyplusplus.lyrics.catalog.CatalogPickerState;
+import com.spotifyplusplus.lyrics.catalog.CatalogSource;
+import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.settings.RowSyncPlan;
 import com.spotifyplusplus.ui.ActionIconDrawable;
 import com.spotifyplusplus.ui.PanelDialog;
@@ -432,9 +434,19 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
         CatalogPickerModel.Row row = shown.row;
         view.title.setText((row.selected ? "✓ " : "") + row.title);
         view.title.setTextColor(row.selected ? PanelDialog.COL_ACCENT : PanelDialog.COL_TITLE);
-        view.subtitle.setText(row.subtitle);
+        // A SpicyLyrics.org source row is selectable but can never deliver until the owner has
+        // stored their own client key. Saying so on the row is the only place the requirement is
+        // discoverable at the moment the owner is choosing a source; the settings row that stores
+        // the key is named in the text so the next step is obvious.
+        String subtitle = row.kind == CatalogPickerModel.RowKind.SOURCE && !shown.pending && !row.stored
+                && row.sourceId == CatalogSource.SourceId.SPICY_ORG
+                && !SpicyOrgKeyStore.has(activity)
+                ? text(strings, "source_picker_spicy_key_required",
+                        "Add your personal client key in Settings")
+                : row.subtitle;
+        view.subtitle.setText(subtitle);
         patchTrailing(view, row);
-        view.root.setContentDescription(row.title + ", " + row.subtitle
+        view.root.setContentDescription(row.title + ", " + subtitle
                 + (row.selected ? ", selected" : ""));
         view.root.setEnabled(!shown.pending);
         view.root.setAlpha(shown.pending ? 0.5f : 1f);

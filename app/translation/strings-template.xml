@@ -513,6 +513,7 @@
     <string name="source_picker_track_changed">Track changed</string>
     <string name="source_picker_reject_wrong_match">Reject wrong match</string>
     <string name="source_picker_remove_saved_candidate">Remove saved candidate</string>
+    <string name="source_picker_spicy_key_required">Add your personal client key in Settings</string>
     <string name="settings_source_track_title">Current song lyrics</string>
     <string name="settings_source_track_idle">Nothing playing</string>
     <string name="settings_label_lyric_load_lift_animation">Rise in on load</string>
