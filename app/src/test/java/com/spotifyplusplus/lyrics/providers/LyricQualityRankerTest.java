@@ -5,6 +5,9 @@ import org.junit.Test;
 import com.spotifyplusplus.lyrics.LyricsDocument;
 import com.spotifyplusplus.lyrics.LyricsLine;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -15,7 +18,9 @@ public class LyricQualityRankerTest {
     }
 
     @Test
-    public void officialSpicyLineBeatsNativeSynced() {
+    public void officialSpicyLineBeatsNativeLineAtTheSameSyncLevel() {
+        // Timing is equal here, so the provider decides - and the richer payload wins. This used to
+        // be the other way round while the provider was the primary key; it is a tiebreak now.
         assertTrue(score(spicy("Line", true, false)) > score(nativeDoc("Line")));
     }
 
@@ -30,8 +35,32 @@ public class LyricQualityRankerTest {
     }
 
     @Test
-    public void nativeSyncedBeatsPlainSpicyLine() {
-        assertTrue(score(nativeDoc("Line")) > score(spicy("Line", false, false)));
+    public void plainSpicyLineLosesToSpicyLineButBeatsNothingTimedLess() {
+        // A non-packed payload is the weaker of the two Spicy shapes, but it is still a real
+        // document: what matters is that it does not outrank the packed one.
+        assertTrue(score(spicy("Line", true, false)) > score(spicy("Line", false, false)));
+        assertTrue(score(spicy("Line", false, false)) > score(spicy("Static", false, false)));
+    }
+
+    @Test
+    public void timingOutranksProviderEvenAgainstSpotify() {
+        // The owner's stated order: word timing beats line timing whoever supplies them, and line
+        // timing beats no timing at all. The provider may not pull a lower sync level above a
+        // higher one - that was the bug where Spotify's line-synced text always won.
+        assertTrue(score(amll("Word")) > score(nativeDoc("Line")));
+        assertTrue(score(netease("Line")) > score(nativeDoc("Static")));
+        assertTrue(score(qq("Word")) > score(nativeDoc("Line")));
+    }
+
+    @Test
+    public void simplifiedLyricsBeatTraditionalAtTheSameSyncLevelAndProvider() {
+        LyricsDocument simplified = doc("Line", "netease", "NetEase");
+        simplified.lines.clear();
+        simplified.lines.addAll(lines("从奇迹中诞生 在这片大地"));
+        LyricsDocument traditional = doc("Line", "netease", "NetEase");
+        traditional.lines.clear();
+        traditional.lines.addAll(lines("從奇蹟中誕生 在這片大地"));
+        assertTrue(score(simplified) > score(traditional));
     }
 
     @Test
@@ -50,8 +79,9 @@ public class LyricQualityRankerTest {
     }
 
     @Test
-    public void nativeStaticBeatsOfficialSpicyStatic() {
-        assertTrue(score(nativeDoc("Static")) > score(spicy("Static", true, false)));
+    public void officialSpicyStaticBeatsNativeStaticAtTheSameSyncLevel() {
+        // Same timing band, richer provider: Spicy wins the tiebreak.
+        assertTrue(score(spicy("Static", true, false)) > score(nativeDoc("Static")));
     }
 
     @Test
@@ -65,8 +95,10 @@ public class LyricQualityRankerTest {
     }
 
     @Test
-    public void nativeStaticBeatsPlainSpicyStatic() {
-        assertTrue(score(nativeDoc("Static")) > score(spicy("Static", false, false)));
+    public void plainSpicyStaticStillBeatsNativeStaticAtTheSameSyncLevel() {
+        // Provider is only the tiebreak now, and Spicy outranks Spotify's native text at equal
+        // timing. What must NOT change is that any timed document outranks an untimed one.
+        assertTrue(score(spicy("Static", false, false)) > score(nativeDoc("Static")));
     }
 
     @Test
@@ -139,6 +171,25 @@ public class LyricQualityRankerTest {
 
     private static LyricsDocument amll(String type) {
         return doc(type, "amll_ttml", "AMLL");
+    }
+
+    private static LyricsDocument netease(String type) {
+        return doc(type, "netease", "NetEase");
+    }
+
+    private static LyricsDocument qq(String type) {
+        return doc(type, "qq_music", "QQ Music");
+    }
+
+    /** Replaces a fixture's body with the given lines, for the script-preference cases. */
+    private static List<LyricsLine> lines(String... texts) {
+        List<LyricsLine> out = new ArrayList<>();
+        for (String text : texts) {
+            LyricsLine line = new LyricsLine();
+            line.text = text;
+            out.add(line);
+        }
+        return out;
     }
 
     private static LyricsDocument doc(String type, String fetchSource, String provider) {
