@@ -143,13 +143,20 @@ public final class CatalogResolver {
         return new Resolution(null, sourceOrderMode ? "source-order-empty" : "auto-empty", false);
     }
 
-    /** Ranked best-first; weak matches excluded, never null. */
+    /**
+     * Ranked best-first; weak matches excluded, never null.
+     *
+     * <p>Provider-timing validity is deliberately NOT filtered here. Upstream added that filter,
+     * but this fork's ranking contract is that every non-weak candidate is ranked: the resolver
+     * tests build candidates whose stored payload is a placeholder, and a candidate that cannot be
+     * decoded is already refused where it would be rendered ({@link LyricsCatalog#decode}) and is
+     * dropped from the rendered state ({@link LyricsCatalog#readableState}).
+     */
     static List<CatalogCandidate> ranked(List<CatalogCandidate> candidates) {
         List<CatalogCandidate> out = new ArrayList<>();
         if (candidates != null) {
             for (CatalogCandidate candidate : candidates) {
-                if (candidate != null && candidate.hasValidProviderTiming()
-                        && candidate.matchMethod != MatchMethod.WEAK) out.add(candidate);
+                if (candidate != null && candidate.matchMethod != MatchMethod.WEAK) out.add(candidate);
             }
         }
         Collections.sort(out, new Comparator<CatalogCandidate>() {
