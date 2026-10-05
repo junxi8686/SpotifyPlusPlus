@@ -451,6 +451,11 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     }
     private LyricsTransliterationSession transliterationSession;
     private LyricsSessionManager.SessionSubscription sessionSubscription;
+    /**
+     * Keeps the session's poll alive while the lyrics surface is up. Automatic acquisition is
+     * poll-driven, so without this the search for a better source never started.
+     */
+    private LyricsSessionManager.PollingDemandLease pollingLease;
     private LyricsSessionManager.LyricsRequest lyricRequest;
     private String sessionStatus = "";
     private final LyricsSurfaceDocumentGate documentGate = new LyricsSurfaceDocumentGate();
@@ -1915,6 +1920,14 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         revealChrome();
         documentGate.start();
         registerPreferenceListener();
+        // Hold a polling lease for as long as the lyrics surface is up.
+        //
+        // Automatic acquisition is driven by the session's poll, and the poll only runs while
+        // something holds a demand lease. The only holders were the source picker, HyperGlow and
+        // Android Auto - all off by default - so watching lyrics never started the poll, and the
+        // automatic search for a better source never ran at all. The surface showed Spotify's own
+        // captured lyrics and stopped there, which is exactly the reported behaviour.
+        if (pollingLease == null) pollingLease = host.acquireLyricsPollingDemand();
         sessionSubscription = host.subscribeLyricsSession(sessionListener);
         shellLifecycle.start();
         playbackClock.reset("");
@@ -2005,6 +2018,8 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         lyricRequest = null;
         if (sessionSubscription != null) sessionSubscription.close();
         sessionSubscription = null;
+        if (pollingLease != null) pollingLease.close();
+        pollingLease = null;
         synchronized (TrackInfoReadoutController.ART_NETWORK_LISTENERS) {
             TrackInfoReadoutController.ART_NETWORK_LISTENERS.remove(artworkDownloadListener);
         }
