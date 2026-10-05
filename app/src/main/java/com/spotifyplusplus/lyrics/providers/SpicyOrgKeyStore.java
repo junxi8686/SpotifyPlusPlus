@@ -23,6 +23,17 @@ public final class SpicyOrgKeyStore {
 
     public static boolean has(Context context) { return !load(context).isEmpty(); }
 
+    /**
+     * Masked form for the settings row: enough of the prefix and tail to tell two keys apart,
+     * never enough to use. Empty when no key is stored.
+     */
+    public static String masked(Context context) {
+        String key = load(context);
+        if (key.isEmpty()) return "";
+        if (key.length() <= 12) return "••••";
+        return key.substring(0, 9) + "••••" + key.substring(key.length() - 4);
+    }
+
     public static synchronized boolean save(Context context, String key) {
         return save(context, key, AiCredentialStore.create(context));
     }

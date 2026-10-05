@@ -33,6 +33,7 @@ import com.spotifyplusplus.lyrics.cache.CacheStoragePolicy;
 import com.spotifyplusplus.lyrics.language.LanguageModelPack;
 import com.spotifyplusplus.lyrics.providers.LyricsFetchDiagnosticsState;
 import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
+import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.settings.PanelDialogs;
 import com.spotifyplusplus.settings.PanelPolicy;
 import com.spotifyplusplus.settings.PanelSnapshot;
@@ -440,6 +441,10 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
             spicyTokenRow(content);
             return;
         }
+        if (setting == Settings.SPICY_ORG_CLIENT_KEY) {
+            spicyOrgKeyRow(content);
+            return;
+        }
         if (setting == Settings.LYRICS_FONT_CUSTOM_PATH) {
             lyricsFontPathRow(content);
             return;
@@ -789,6 +794,32 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
         rows.aiFieldRow(content, uiStrings.setting(Settings.SPICY_MANUAL_TOKEN),
                 masked.isEmpty() ? uiStrings.get("settings_spicy_token_absent", "Not set") : masked,
                 false, Settings.SPICY_MANUAL_TOKEN.key, v -> dialogs.promptSpicyToken(),
+                actions.toArray(new AiSettingsRows.IconAction[0]));
+    }
+
+    /**
+     * SpicyLyrics.org client key row. The value shown is always the masked form; the plaintext
+     * only ever appears in the reveal dialog, which is itself a secure dialog.
+     */
+    private void spicyOrgKeyRow(LinearLayout content) {
+        String masked = SpicyOrgKeyStore.masked(context);
+        List<AiSettingsRows.IconAction> actions = new ArrayList<>();
+        actions.add(new AiSettingsRows.IconAction(Kind.EDIT,
+                uiStrings.get("settings_spicy_key_edit", "Enter key"),
+                v -> dialogs.promptSpicyOrgKey()));
+        if (!masked.isEmpty()) {
+            actions.add(new AiSettingsRows.IconAction(Kind.VISIBILITY,
+                    uiStrings.get("settings_spicy_key_reveal", "Reveal key"),
+                    v -> dialogs.revealSpicyOrgKey()));
+            actions.add(new AiSettingsRows.IconAction(Kind.DELETE,
+                    uiStrings.get("settings_spicy_key_delete", "Delete key"), v -> {
+                SpicyOrgKeyStore.delete(context);
+                rebuildSection(Settings.LYRICS_SOURCES);
+            }));
+        }
+        rows.aiFieldRow(content, uiStrings.setting(Settings.SPICY_ORG_CLIENT_KEY),
+                masked.isEmpty() ? uiStrings.get("settings_spicy_key_absent", "Not set") : masked,
+                false, Settings.SPICY_ORG_CLIENT_KEY.key, v -> dialogs.promptSpicyOrgKey(),
                 actions.toArray(new AiSettingsRows.IconAction[0]));
     }
 

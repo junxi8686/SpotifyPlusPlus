@@ -161,6 +161,7 @@ public final class LyricsRepository {
         switch (source) {
             case APPLE_MUSIC: return "Apple Music";
             case SPICY: return "Spicy";
+            case SPICY_ORG: return "Spicy Lyrics";
             case SPOTIFY: return "Spotify";
             case AMLL: return "AMLL";
             case LRCLIB: return "LRCLIB";
@@ -168,6 +169,14 @@ public final class LyricsRepository {
             case NETEASE: return "NetEase";
             default: return "Auto";
         }
+    }
+
+    /**
+     * Only an explicit source check may verify restored access with a key the module has already
+     * marked terminated; automatic resolution stays blocked until a check succeeds.
+     */
+    public void fetchSpicyOrgAccessCheck(Context context, SpotifyTrack track, ResultCallback callback) {
+        new SpicyOrgAdapter(http, parser).fetchForAccessCheck(context, track, callback);
     }
 
     private static boolean isStepEnabled(
@@ -194,6 +203,19 @@ public final class LyricsRepository {
                                    String source, String accessToken,
                                    boolean karaokeOriginalLyrics, ResultCallback callback,
                                    int nativeRetryCount) {
+        if ("Spicy Lyrics".equals(source)) {
+            // SpicyLyrics.org needs the owner's own sl_pk_ client key. Without one the request
+            // cannot be made at all, so report that instead of a network error the owner cannot
+            // act on - the settings row that stores the key is named in the message.
+            if (!SpicyOrgKeyStore.has(context)) {
+                String missing = "SpicyLyrics.org client key not set";
+                recordStrictError(context, track, CatalogSource.SourceId.SPICY_ORG, missing);
+                callback.onError(missing);
+                return;
+            }
+            new SpicyOrgAdapter(http, parser).fetch(context, track, callback);
+            return;
+        }
         if ("Apple Music".equals(source) || "Spicy".equals(source)) {
             // "Spicy" is a retired legacy alias: it resolves to the same Apple Music (Lenerd)
             // endpoint so old persisted strict selections keep working without hitting

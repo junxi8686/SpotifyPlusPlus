@@ -9,6 +9,7 @@ import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.spotifyplusplus.lyrics.providers.LyricsResponseCache;
 import com.spotifyplusplus.lyrics.cache.CacheStoragePolicy;
 import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
+import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.lyrics.session.AIPaidArtifactCache;
 import com.spotifyplusplus.lyrics.session.CanonicalSourceCache;
 import com.spotifyplusplus.ui.ActionIconDrawable;
@@ -235,6 +236,45 @@ public final class PanelDialogs {
                 strings.setting(Settings.SPICY_MANUAL_TOKEN))
                 .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
         dialog.secretValue(token);
+        dialog.show();
+    }
+
+    /**
+     * SpicyLyrics.org client key. The key is the owner's own credential, obtained from the
+     * Spicy Lyrics developer catalogue; without it the source cannot be queried at all, so the
+     * dialog says where to get one instead of only rejecting a bad value.
+     */
+    public void promptSpicyOrgKey() {
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.setting(Settings.SPICY_ORG_CLIENT_KEY)).secure();
+        dialog.paragraph(strings.get("settings_spicy_key_help",
+                "Get a personal client key at " + SpicyOrgKeyStore.CATALOG_URL));
+        EditText field = dialog.field(true, "");
+        dialog.primary(strings.get("settings_ai_save", "Save"), () -> {
+            if (SpicyOrgKeyStore.save(style.context(), field.getText().toString().trim())) {
+                host.onSpicyTokenChanged();
+            } else {
+                android.widget.Toast.makeText(style.context(),
+                        strings.get("settings_spicy_key_rejected",
+                                "Key not saved: expected a sl_pk_ value"),
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        });
+        dialog.secondary(strings.get("settings_ai_cancel", "Cancel"), null);
+        dialog.show();
+    }
+
+    public void revealSpicyOrgKey() {
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        String key = SpicyOrgKeyStore.load(style.context());
+        if (key.isEmpty()) return;
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.setting(Settings.SPICY_ORG_CLIENT_KEY))
+                .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
+        dialog.secretValue(key);
         dialog.show();
     }
 }

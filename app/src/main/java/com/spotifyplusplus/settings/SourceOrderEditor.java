@@ -159,6 +159,7 @@ public final class SourceOrderEditor {
         final SettingsUiStrings strings = host.strings();
         if (source == Source.APPLE_MUSIC) return strings.get("lyrics_source_name_apple", "Apple Music");
         if (source == Source.SPICY) return strings.get("lyrics_source_name_spicy", "Spicy");
+        if (source == Source.SPICY_ORG) return strings.get("lyrics_source_name_spicy_org", "SpicyLyrics.org");
         if (source == Source.SPOTIFY) return strings.get("lyrics_source_name_spotify", "Spotify");
         if (source == Source.AMLL) return strings.get("lyrics_source_name_amll", "AMLL");
         if (source == Source.QQ) return strings.get("lyrics_source_name_qq", "QQ Music");

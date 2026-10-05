@@ -20,6 +20,7 @@ import com.spotifyplusplus.lyrics.session.LyricsSourcePreferences;
 import com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source;
 import com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.RankingMode;
 import com.spotifyplusplus.lyrics.cache.CacheClearKind;
+import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.settings.SourcePreferencesAdapter;
 import com.spotifyplusplus.settings.SettingsWriter;
 import com.spotifyplusplus.xposed.XpLog;
@@ -337,6 +338,9 @@ final class AgentCommandChannel {
                 case "sources":
                     sources(argument, correlation);
                     return;
+                case "spicy-key":
+                    spicyKey(argument, correlation);
+                    return;
                 case "action":
                     onMain(verb, correlation, () -> {
                         NativeSpicyShellView shell = requireShell(verb, correlation);
@@ -610,6 +614,44 @@ final class AgentCommandChannel {
                     + " order=" + LyricsSourcePreferences.sourceOrder(activity)
                     + " enabled=" + enabled + "}", correlation);
         });
+    }
+
+    /**
+     * SpicyLyrics.org client key. The key is a credential, so a status reply reports only whether
+     * one is stored - never the value - and the accepted form is checked here rather than
+     * silently stored, because a rejected key otherwise looks like a working source that never
+     * returns lyrics.
+     */
+    private void spicyKey(String argument, String correlation) {
+        String[] args = argument.isEmpty() ? new String[0] : argument.split("\\s+");
+        String action = args.length == 0 ? "status" : args[0].toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "status": {
+                boolean stored = SpicyOrgKeyStore.has(context);
+                reply("ok", "spicy-key", "stored=" + stored
+                        + " catalog=" + SpicyOrgKeyStore.CATALOG_URL, correlation);
+                return;
+            }
+            case "clear": {
+                SpicyOrgKeyStore.delete(context);
+                host.reconcileLyricsSources();
+                reply("ok", "spicy-key", "cleared", correlation);
+                return;
+            }
+            case "set": {
+                String key = args.length < 2 ? "" : args[1];
+                if (SpicyOrgKeyStore.save(context, key)) {
+                    host.reconcileLyricsSources();
+                    reply("ok", "spicy-key", "stored=true length=" + key.length(), correlation);
+                } else {
+                    reply("error", "spicy-key",
+                            "rejected: expected a sl_pk_ value, got length=" + key.length(), correlation);
+                }
+                return;
+            }
+            default:
+                reply("error", "spicy-key", "usage: spicy-key status|set <key>|clear", correlation);
+        }
     }
 
     // -- layout editor probe -------------------------------------------------------

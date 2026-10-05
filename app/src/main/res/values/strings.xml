@@ -648,6 +648,7 @@
     <!-- New in the zh-CN pass: source picker rows and provider names. -->
     <string name="lyrics_source_name_apple">Apple Music</string>
     <string name="lyrics_source_name_spicy">Spicy</string>
+    <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
     <string name="lyrics_source_name_spotify">Spotify</string>
     <string name="lyrics_source_name_amll">AMLL</string>
     <string name="lyrics_source_name_lrclib">LRCLIB</string>
