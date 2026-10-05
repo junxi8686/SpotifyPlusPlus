@@ -85,9 +85,11 @@ final class LyricsSessionManager {
         final boolean playing;
         final long positionMs;
         final long sampledAtMs;
+        /** Spotify's effective playback rate at {@link #sampledAtMs}; 0 while paused. */
+        final double playbackRate;
 
         Snapshot(SpotifyTrack track, String trackUri, int generation, String status,
-                 boolean playing, long positionMs, long sampledAtMs) {
+                 boolean playing, long positionMs, long sampledAtMs, double playbackRate) {
             this.track = track;
             this.trackUri = trackUri;
             this.generation = generation;
@@ -95,6 +97,7 @@ final class LyricsSessionManager {
             this.playing = playing;
             this.positionMs = positionMs;
             this.sampledAtMs = sampledAtMs;
+            this.playbackRate = playbackRate;
         }
     }
 
@@ -287,7 +290,7 @@ final class LyricsSessionManager {
                     boolean playing = hook.isPlayerActuallyPlaying();
                     long position = hook.readBestMeasuredProgressMs(current, playing);
                     notifyState(new Snapshot(current, policy.trackUri(), policy.generation(), status, playing,
-                            position, SystemClock.elapsedRealtime()));
+                            position, SystemClock.elapsedRealtime(), hook.readEffectivePlaybackRate(playing)));
                     maybeFetch();
                 }
             } catch (Throwable ignored) {
@@ -1495,7 +1498,7 @@ final class LyricsSessionManager {
         boolean playing = track != null && hook.isPlayerActuallyPlaying();
         long position = track == null ? 0L : hook.readBestMeasuredProgressMs(track, playing);
         return new Snapshot(track, policy.trackUri(), policy.generation(), status, playing, position,
-                snapshotClock.getAsLong());
+                snapshotClock.getAsLong(), track == null ? 0d : hook.readEffectivePlaybackRate(playing));
     }
 
     private void notifyState(Snapshot snapshot) {

@@ -20,6 +20,8 @@ public class AppliedLine {
     public String translatedText = "";
     public SpicyJapaneseChineseProcessor.JapaneseReading japaneseReading;
     public RenderPlan readingRenderPlan;
+    /** Finalized display groups supplied by a cross-process render adapter, or null for local analysis. */
+    public List<DisplayLayoutGroup> displayLayoutGroups;
     public final List<SyllableSegment> words = new ArrayList<>();
     // True when `words` were synthesised from the line text (sentence-synced line) purely to attach
     // per-word transliteration — not real word-level timing. Lets us drop them if the setting is off.

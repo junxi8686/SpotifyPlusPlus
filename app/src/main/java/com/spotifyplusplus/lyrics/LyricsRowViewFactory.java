@@ -214,7 +214,7 @@ public final class LyricsRowViewFactory {
     }
 
     /** Plan text wins when aligned; AI and other whole-line readings use the legacy line slot. */
-    static String displayReading(AppliedLine line) {
+    public static String displayReading(AppliedLine line) {
         if (line == null) return "";
         String planned = line.readingRenderPlan == null
                 ? "" : LyricUtils.safe(line.readingRenderPlan.joinedDisplayText);

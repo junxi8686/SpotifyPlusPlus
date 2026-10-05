@@ -411,6 +411,74 @@ final class PlaybackBridge {
         seekOverrideUntilElapsedMs = SystemClock.elapsedRealtime() + 1800;
     }
 
+    /**
+     * Effective playback rate for the shared lyrics clock: 0 while paused, Spotify's reported
+     * speed while playing, 1 when no PlayerState or speed accessor is available.
+     *
+     * <p>Read-only by construction. It is deliberately not wired into this class's position
+     * clock, which keeps its own fork-specific 1x media-session arithmetic; the rate is only
+     * published so the cross-process Android Auto projection can extrapolate between samples
+     * (podcasts at other speeds). Absent accessor and out-of-range values read as normal speed,
+     * not as a stop, exactly as upstream's parser does.
+     */
+    synchronized double readEffectivePlaybackRate(boolean playing) {
+        if (!playing) return 0d;
+        try {
+            Object state = References.playerState == null ? null : References.playerState.get();
+            if (state == null) return 1d;
+            Method speed = playbackSpeedAccessor(state.getClass());
+            if (speed == null) return 1d;
+            double rawSpeed = leadingNumber(speed.invoke(state), 1d);
+            return rawSpeed > 0d && rawSpeed < 8d ? rawSpeed : 1d;
+        } catch (Throwable ignored) {
+            return 1d;
+        }
+    }
+
+    private Class<?> speedAccessorOwner;
+    private Method speedAccessor;
+
+    /** Resolved once per PlayerState class: the accessor cannot change while the class does not. */
+    private Method playbackSpeedAccessor(Class<?> stateClass) {
+        if (stateClass == speedAccessorOwner && speedAccessorOwner != null) return speedAccessor;
+        Method resolved = accessor(stateClass, "playbackSpeed");
+        if (resolved == null) resolved = accessor(stateClass, "speed");
+        speedAccessor = resolved;
+        speedAccessorOwner = stateClass;
+        return resolved;
+    }
+
+    private static Method accessor(Class<?> cls, String name) {
+        for (Class<?> c = cls; c != null && c != Object.class; c = c.getSuperclass()) {
+            try {
+                Method method = c.getDeclaredMethod(name);
+                if (Modifier.isStatic(method.getModifiers())) continue;
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException ignored) {
+            }
+        }
+        return null;
+    }
+
+    /** The first number in a value, or its Optional's toString ("Optional.of(1.5)"). */
+    static double leadingNumber(Object value, double fallback) {
+        if (value == null) return fallback;
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        String s = value.toString();
+        int i = 0;
+        int n = s.length();
+        while (i < n && !Character.isDigit(s.charAt(i))) i++;
+        if (i == n) return fallback;
+        int start = i;
+        while (i < n && (Character.isDigit(s.charAt(i)) || s.charAt(i) == '.')) i++;
+        try {
+            return Double.parseDouble(s.substring(start, i));
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
     private long readPlayerStateProgressMs(boolean playing) {
         try {
             Object state = References.playerState == null ? null : References.playerState.get();

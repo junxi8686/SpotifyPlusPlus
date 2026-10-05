@@ -84,6 +84,7 @@ public class NativeSpicyLyricsHook extends SpotifyHook implements LyricsHost {
             // storage; it performs no provider request and leaves the source XML untouched.
             AIPaidArtifactCache.prepare(applicationContext);
             lyricsSessionManager.start();
+            new AutoPrototypePublisher(applicationContext, lyricsSessionManager).start();
             bridgeCoordinator = new SpicyLyricBridgeCoordinator(
                     lyricsSessionManager, applicationContext);
             bridgeCoordinator.start();
@@ -181,6 +182,12 @@ public class NativeSpicyLyricsHook extends SpotifyHook implements LyricsHost {
 
     public boolean isPlayerActuallyPlaying() {
         return playbackBridge.isPlayerActuallyPlaying();
+    }
+
+    /** See {@link PlaybackBridge#readEffectivePlaybackRate(boolean)}; 0 paused, else 1x or Spotify's speed. */
+    @Override
+    public double readEffectivePlaybackRate(boolean playing) {
+        return playbackBridge.readEffectivePlaybackRate(playing);
     }
 
     @Override

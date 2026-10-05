@@ -24,6 +24,15 @@ public interface LyricsHost {
 
     long readBestMeasuredProgressMs(SpotifyTrack track, boolean playing);
 
+    /**
+     * Spotify's effective playback rate at the moment a session sample is taken: 0 while paused,
+     * its reported speed (podcasts at other speeds) while playing, 1 when unavailable.
+     *
+     * <p>The session's own position clock stays 1x; this value is published so a cross-process
+     * consumer can extrapolate between samples. It is never a pause signal by itself.
+     */
+    double readEffectivePlaybackRate(boolean playing);
+
     boolean seekSpotifyTo(long positionMs);
 
     /** Whether a seek would currently be honored (ACTION_SEEK_TO advertised right now) - lets
