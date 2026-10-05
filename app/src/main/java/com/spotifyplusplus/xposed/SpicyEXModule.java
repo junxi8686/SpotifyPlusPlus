@@ -53,6 +53,14 @@ public final class SpicyEXModule extends XposedModule {
 
     @Override
     public void onPackageReady(@NonNull PackageReadyParam param) {
+        // Android Auto's head-unit app is a separate scope entry: it hosts the projection surface
+        // and never loads the Spotify hook, so it gets its own bounded install and nothing else.
+        if ("com.google.android.projection.gearhead".equals(param.getPackageName())) {
+            ClassLoader loader = param.getClassLoader();
+            XpHooks.findAfter(Application.class, "attach", "auto:Application#attach", p ->
+                    com.spotifyplusplus.auto.AndroidAutoPrototype.install((Context) p.args[0], loader), Context.class);
+            return;
+        }
         if (!TARGET_PACKAGE.equals(param.getPackageName())) return;
         Diagnostics.markHookRuntimeActive();
         XpLog.log(TAG + " Loading SpotifyPlus");

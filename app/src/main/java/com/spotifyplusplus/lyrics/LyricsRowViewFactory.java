@@ -5,7 +5,7 @@ import com.spotifyplusplus.lyrics.language.ReadingLanguagePolicy;
 import com.spotifyplusplus.lyrics.language.SpicyTextDetection;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
+import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.text.LineBreakConfig;
@@ -35,10 +35,10 @@ import static com.spotifyplusplus.lyrics.LyricUtils.isBlank;
 
 /** Builds mounted Android views for applied lyric rows. */
 public final class LyricsRowViewFactory {
-    private final Activity activity;
+    private final Context activity;
     private final LyricsTextFactory textFactory;
 
-    public LyricsRowViewFactory(Activity activity, LyricsTextFactory textFactory) {
+    public LyricsRowViewFactory(Context activity, LyricsTextFactory textFactory) {
         this.activity = activity;
         this.textFactory = textFactory;
     }
