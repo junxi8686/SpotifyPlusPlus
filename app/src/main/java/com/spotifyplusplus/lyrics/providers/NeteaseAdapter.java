@@ -90,16 +90,25 @@ public final class NeteaseAdapter {
         // NetEase indexes Simplified titles; the reported title may be Traditional. Ask the
         // reported spelling first and walk the remaining spellings only while nothing matches.
         List<String> queries = SmartSearch.queries(context, searchTrack);
+        // No candidate carried in yet: every spelling of the plan is walked and scored, and the
+        // best hit across all of them is what gets fetched.
         searchVariant(context, track, searchTrack, substituted, generation, queries, 0, false,
-                callback);
+                Collections.<NeteaseSongRanker.Candidate>emptyList(), callback);
     }
 
     private void searchVariant(Context context, SpotifyTrack track, SpotifyTrack queryTrack,
                                boolean substituted, int generation, List<String> queries,
                                int index, boolean webEndpoint,
+                               List<NeteaseSongRanker.Candidate> carried,
                                LyricsRepository.ResultCallback callback) {
         if (queries == null || index >= queries.size()) {
-            fail(context, track, callback, "NetEase empty" + aiNote(context));
+            // Every spelling has been asked. The best hit found anywhere in the plan is the
+            // answer; only a plan that produced no acceptable hit at all reports nothing.
+            if (carried != null && !carried.isEmpty()) {
+                fetchLyric(context, track, queryTrack, substituted, generation, carried, callback);
+                return;
+            }
+            fail(context, track, callback, "NetEase empty");
             return;
         }
         String query = queries.get(index);
@@ -113,6 +122,12 @@ public final class NeteaseAdapter {
         http.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
+                // An earlier spelling may already have produced an acceptable hit; a failure on
+                // this one is a reason to stop asking, not a reason to throw that hit away.
+                if (carried != null && !carried.isEmpty()) {
+                    fetchLyric(context, track, queryTrack, substituted, generation, carried, callback);
+                    return;
+                }
                 fail(context, track, callback, "NetEase search failed: " + safe(e.getMessage()));
             }
 
@@ -133,30 +148,40 @@ public final class NeteaseAdapter {
                     long duration = queryTrack == null ? 0L : queryTrack.duration;
                     List<NeteaseSongRanker.Candidate> songs =
                             NeteaseSongRanker.rank(hits, title, artist, album, duration);
+                    // What the search actually returned for this spelling, and how much of it
+                    // survived the identity gate. The candidate trace lists only survivors, so
+                    // without this a source that found nothing, one whose hits were all refused
+                    // and one whose lyrics then failed all look the same: absent.
+                    try {
+                        com.spotifyplusplus.xposed.XpLog.log("SpotifyPlusSpicy " + "netease q=\"" + query + "\" web=" + webEndpoint
+                                + " hits=" + (hits == null ? 0 : hits.size())
+                                + " accepted=" + songs.size());
+                    } catch (Throwable traceFailure) {
+                        // A trace must never affect the request it describes.
+                    }
                     if (songs.isEmpty()) {
-                        // Either nothing came back, or everything that did was refused.
-                        List<NeteaseSongRanker.Candidate> near = NeteaseSongRanker.insufficient(
-                                hits, title, artist, album, duration,
-                                AiLyricCandidateArbiter.MAX_CANDIDATES);
-                        int picked = arbitrate(context, queryTrack, near);
-                        if (picked >= 0) {
-                            fetchLyric(context, track, queryTrack, substituted, generation,
-                                    Collections.singletonList(near.get(picked)), callback);
-                            return;
-                        }
+                        // Either nothing came back, or everything that did was refused. Nothing
+                        // is promoted over that refusal any more: the model that used to be asked
+                        // to override it is gone, and a refusal that stands is the honest answer.
                         if (!webEndpoint) {
-                            // Nothing here. The looser endpoint returns a much wider set for the
-                            // same spelling, so it is worth one try before abandoning it.
+                            // The looser endpoint returns a much wider set for the same spelling,
+                            // so it is worth one try before abandoning the spelling.
                             searchVariant(context, track, queryTrack, substituted, generation,
-                                    queries, index, true, callback);
+                                    queries, index, true, carried, callback);
                             return;
                         }
                         searchVariant(context, track, queryTrack, substituted, generation,
-                                queries, index + 1, false, callback);
+                                queries, index + 1, false, carried, callback);
                         return;
                     }
-                    fetchLyric(context, track, queryTrack, substituted, generation, songs,
-                            callback);
+                    List<NeteaseSongRanker.Candidate> best = betterOf(carried, songs);
+                    if (settled(best) || index + 1 >= queries.size()) {
+                        fetchLyric(context, track, queryTrack, substituted, generation, best,
+                                callback);
+                        return;
+                    }
+                    searchVariant(context, track, queryTrack, substituted, generation,
+                            queries, index + 1, false, best, callback);
                 } catch (Throwable t) {
                     fail(context, track, callback,
                             "NetEase search parse failed: " + safe(t.getMessage()));
@@ -232,6 +257,15 @@ public final class NeteaseAdapter {
                     LyricsDocument doc =
                             parser.parseNeteaseWordLyrics(context, queryTrack, raw);
                     if (doc == null || doc.lines.isEmpty()) {
+                        // The same response carries the line-level lyrics: this request asks for
+                        // every level, so lrc, tlyric and yrc all come back together. Reading only
+                        // the word level and then falling through sent the line-level case to the old
+                        // music.163.com/api/song/lyric endpoint, which now answers with an empty body
+                        // for most tracks - so a song NetEase does carry line lyrics for was reported
+                        // as having none, and the whole source read as not found.
+                        doc = parser.parseNeteaseLyrics(context, queryTrack, raw);
+                    }
+                    if (doc == null || doc.lines.isEmpty()) {
                         fallback.run();
                         return;
                     }
@@ -248,6 +282,8 @@ public final class NeteaseAdapter {
     private void fetchLyricById(Context context, SpotifyTrack track, SpotifyTrack queryTrack,
                                 boolean substituted, int generation, String songId,
                                 LyricsRepository.ResultCallback callback) {
+        // Last resort only. This endpoint answers with an empty body for most tracks now; the
+        // EAPI response is the one that carries the lyrics, and it is read before this runs.
         String url = "https://music.163.com/api/song/lyric?id=" + Uri.encode(songId)
                 + "&lv=1&kv=1&tv=1";
         Request request = new Request.Builder()
@@ -305,6 +341,39 @@ public final class NeteaseAdapter {
                       LyricsRepository.ResultCallback callback, String error) {
         CatalogAdapters.recordError(context, CatalogSource.SourceId.NETEASE, track, error);
         callback.onError(error);
+    }
+
+    /**
+     * The better of two ranked lists, comparing their best entries the way the ranker orders them.
+     *
+     * <p>This is what makes the plan score its spellings together rather than in turn. A spelling
+     * that produced an adequate hit no longer ends the search, so a later spelling still has the
+     * chance to produce a better one.
+     */
+    static List<NeteaseSongRanker.Candidate> betterOf(
+            List<NeteaseSongRanker.Candidate> carried, List<NeteaseSongRanker.Candidate> fresh) {
+        if (fresh == null || fresh.isEmpty()) return carried;
+        if (carried == null || carried.isEmpty()) return fresh;
+        NeteaseSongRanker.Candidate a = carried.get(0);
+        NeteaseSongRanker.Candidate b = fresh.get(0);
+        return TrackMatchScorer.compareForRanking(
+                a.score, a.supportsWordLyrics(), a.durationDiffMs,
+                b.score, b.supportsWordLyrics(), b.durationDiffMs) <= 0 ? carried : fresh;
+    }
+
+    /**
+     * Whether the walk can stop: an exact or near-exact title match on the playing recording, which
+     * no other spelling of the same metadata is going to beat.
+     *
+     * <p>Kept at VERY_HIGH rather than MEDIUM on purpose. Stopping only at a perfect match would
+     * send every request the plan allows, and these are third-party endpoints that rate limit;
+     * stopping at merely-acceptable is what let a wrong recording end the search.
+     */
+    static boolean settled(List<NeteaseSongRanker.Candidate> carried) {
+        if (carried == null || carried.isEmpty()) return false;
+        TrackMatchScorer.Tier titleTier = carried.get(0).score.title;
+        return titleTier == TrackMatchScorer.Tier.PERFECT
+                || titleTier == TrackMatchScorer.Tier.VERY_HIGH;
     }
 
     static List<NeteaseSongRanker.Candidate> rankSongs(String body, SpotifyTrack track) {

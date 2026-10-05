@@ -33,6 +33,11 @@ public final class LyricsErrorText {
             {"Apple Music request cancelled", "Apple Music 请求已取消"},
             {"AMLL source unavailable: no match", "AMLL 来源不可用：没有匹配"},
             {"NetEase search parse failed: ", "网易云搜索结果解析失败："},
+            // The lyric fetch failed rather than the search. Without this the toast read
+            // "网易云来源不可用：NetEase parse failed: NetEase lyric 为空" - half translated, and
+            // its wording said "parse failed" for what is only an empty response.
+            {"NetEase parse failed: NetEase lyric 为空", "该曲目在网易云没有歌词内容"},
+            {"NetEase parse failed: ", "网易云解析失败："},
             {"NetEase search HTTP ", "网易云搜索 HTTP "},
             {"NetEase search failed: ", "网易云搜索失败："},
             {"NetEase lyric failed: ", "网易云歌词获取失败："},
@@ -47,6 +52,24 @@ public final class LyricsErrorText {
             {"QQ Music source unavailable: ", "QQ 音乐来源不可用："},
             {"NetEase source unavailable: ", "网易云来源不可用："},
             {"Apple Music source unavailable: ", "Apple Music 来源不可用："},
+            // Spotify's own request failures. Every one of these reaches the panel when a check
+            // fails, and none of them was in this table - which is why tapping a source's check
+            // reported the failure in English on an otherwise Chinese screen.
+            {"Spotify lyrics request unavailable", "无法向 Spotify 请求歌词"},
+            {"Spotify lyrics request timed out", "请求 Spotify 歌词超时"},
+            {"Spotify lyrics request failed", "请求 Spotify 歌词失败"},
+            {"Spotify lyrics response unavailable", "Spotify 没有返回歌词内容"},
+            // A sentinel as well as a message: LyricsSessionManager compares this exact string to
+            // tell "Spotify has none" from "the request failed". That comparison reads the raw
+            // value and runs before this table is applied, so translating it here is safe - but
+            // the English text on the left must not change.
+            {"Spotify has no lyrics for this track", "这首歌在 Spotify 上没有歌词"},
+            {"Unsupported Spotify track", "不支持这个 Spotify 曲目"},
+            // Apple and AMLL failures beyond the "source unavailable" prefix.
+            {"Apple Music parse failed: ", "Apple Music 解析失败："},
+            {"Apple Music response failed: ", "Apple Music 响应失败："},
+            {"AMLL TTML parse failed: ", "AMLL 歌词解析失败："},
+            {"AMLL no match", "AMLL 没有匹配"},
             {"cached no-result", "已缓存的无结果"},
             {"No LRCLIB result", "LRCLIB 无结果"},
             {"LRCLIB lyrics empty", "LRCLIB 歌词为空"},

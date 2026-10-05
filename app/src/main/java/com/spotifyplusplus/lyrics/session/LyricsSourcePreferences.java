@@ -98,22 +98,28 @@ public final class LyricsSourcePreferences {
                 .getBoolean(ENABLED_PREFIX + source.id, enabledByDefault(source));
     }
 
-    /** Whether Spotify's own lyrics are excluded from resolution entirely. */
+    /**
+     * Always false. The setting behind this is gone.
+     *
+     * <p>It used to mean "do not use Spotify's own lyrics", and the two things that consumed it
+     * are both retired. The blanking it gated never removed the Compose card, broke the capture
+     * by clearing the fields the document is built from, and wrote empty strings into Spotify's
+     * own lyrics table - and the source switch it also overrode is the source panel's job, where
+     * the owner can simply turn Spotify off. Kept as a method because callers still ask; the
+     * answer is that there is nothing to honour.
+     */
     public static boolean ignoresSpotifyLyrics(Context context) {
-        if (context == null) return false;
-        try {
-            return Boolean.TRUE.equals(
-                    com.spotifyplusplus.SpotifyPlusConfig.from(context)
-                            .get(com.spotifyplusplus.Settings.IGNORE_SPOTIFY_LYRICS));
-        } catch (Throwable t) {
-            return false;
-        }
+        return false;
     }
-
     /** Network search sources are opt-in; established ID-based sources retain their defaults. */
     public static boolean enabledByDefault(Source source) {
-        return source != null && source != Source.SPICY
-                && source != Source.QQ && source != Source.NETEASE;
+        // Only the retired remote path stays off.
+        //
+        // QQ Music and NetEase were opt-in - network search sources were treated as expensive
+        // and left for the owner to switch on - but they are the two the owner actually wants
+        // and the two that carry Chinese catalogue text, so leaving them off meant every fresh
+        // install resolved from Apple, Spotify, AMLL and LRCLIB and never from either.
+        return source != null && source != Source.SPICY;
     }
 
     /**

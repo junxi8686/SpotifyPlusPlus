@@ -60,7 +60,8 @@ public class QqSongRankerTest {
     public void exactTitleAndArtistWinsOverCloserRuntimeWithWrongTitle() {
         JsonArray list = new JsonArray();
         list.add(song("Talking to the Moon", "Bruno Mars", "Doo-Wops", 217, 111, "wrong"));
-        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 320, 222, "right"));
+        // 219 s against a 217 s query: eligible, so identity still decides here.
+        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 219, 222, "right"));
         QqSongRanker.Candidate best = QqSongRanker.best(
                 list, "That's What I Like", "Bruno Mars", "24K Magic", 217_000);
         assertNotNull(best);
@@ -71,7 +72,8 @@ public class QqSongRankerTest {
     public void wrongTitleHitNeverSuppressesACorrectOne() {
         JsonArray list = new JsonArray();
         list.add(song("Completely Different Song", "Bruno Mars", "24K Magic", 200, 1, "wrong"));
-        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 600, 2, "right"));
+        // 202 s against a 200 s query - see the note above.
+        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 202, 2, "right"));
         QqSongRanker.Candidate best = QqSongRanker.best(
                 list, "That's What I Like", "Bruno Mars", "24K Magic", 200_000);
         assertNotNull(best);
@@ -267,5 +269,24 @@ public class QqSongRankerTest {
         albumObject.addProperty("name", album);
         song.add("album", albumObject);
         return song;
+    }
+    @Test
+    public void refusesADifferentRecordingOutright() {
+        // A hit this far from the playing length is not the same recording however exactly its
+        // title and artist agree, so it is refused rather than ranked. Ranking it lower is not
+        // enough: with only wrong-length hits in the response, the best of them was still fetched
+        // and its lyrics read. The owner's report was exactly this - one source's hit was minutes
+        // off and it was used anyway.
+        JsonArray list = new JsonArray();
+        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 337, 1, "wrong-length"));
+        assertTrue(QqSongRanker.rank(
+                list, "That's What I Like", "Bruno Mars", "24K Magic", 217_000).isEmpty());
+
+        // And a gap just inside the threshold stays eligible, so ordinary catalogue disagreement
+        // does not turn into a missing track.
+        JsonArray ok = new JsonArray();
+        ok.add(song("That's What I Like", "Bruno Mars", "24K Magic", 214, 2, "close-enough"));
+        assertEquals(1, QqSongRanker.rank(
+                ok, "That's What I Like", "Bruno Mars", "24K Magic", 217_000).size());
     }
 }

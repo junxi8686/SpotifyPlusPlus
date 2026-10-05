@@ -67,7 +67,12 @@ public final class AiTextCall {
      * this catalogue under any spelling; the other means a setting is switched off.
      */
     public static String note(Context context) {
-        return available(context) ? " (AI checked, none matched)" : " (AI not enabled)";
+        // Empty: nothing consults a model on the search path any more, so no message may say
+        // that one did. This suffix was still being appended to "nothing found" and read as
+        // "AI 已判断，都不是" after the calls themselves had been removed, which told the owner
+        // a model had judged the track when the answer was just that the queries came back
+        // empty.
+        return "";
     }
 
     /** The model's reply text, or empty when it cannot be asked or does not answer. */

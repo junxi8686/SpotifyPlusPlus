@@ -214,7 +214,13 @@ public final class CatalogPickerState {
         List<Shown> out = new ArrayList<>(rows.size());
         for (Row row : rows) {
             String key = key(row);
-            boolean busy = isBusy(key) || (isCheckAll(key) && climb != Climb.NONE);
+            // A walk in progress means every source in it is being checked right now, so every
+            // source row reports that - not just the row that started the walk. Marking only that
+            // one left the per-source rows reading "tap to check" for the whole walk, so the
+            // panel looked like nothing had happened.
+            boolean climbing = climb != Climb.NONE;
+            boolean busy = isBusy(key) || (isCheckAll(key) && climbing)
+                    || (climbing && row.kind == RowKind.SOURCE);
             boolean armed = key.equals(armedKey);
             Row shown = row;
             if (armed) shown = shown.withTitle(confirmLabel);

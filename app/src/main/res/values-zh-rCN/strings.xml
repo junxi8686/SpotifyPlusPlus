@@ -670,6 +670,7 @@
     <string name="picker_hint_failed">失败 · 点击重试</string>
     <string name="picker_hint_needs_refresh">需要刷新 · 点击重试</string>
     <string name="picker_hint_rejected">已拒绝 · 点击重试</string>
+    <string name="source_picker_timed_out">超时 —— 点击重试</string>
     <string name="picker_source_unknown">未知</string>
     <string name="picker_status_available">可用</string>
     <string name="picker_status_not_checked">未检查</string>

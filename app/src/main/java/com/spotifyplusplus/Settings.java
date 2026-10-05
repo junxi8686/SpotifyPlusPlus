@@ -48,7 +48,7 @@ public final class Settings {
     // --- Lyrics ---
     public static final Setting<String> UI_LANGUAGE = stringSetting(
             "settings_ui_language", LYRICS, "Interface language",
-            "en"
+            "zh-CN"
     );
 
     public static final Setting<String> TAP_SEEK_MODE = enumSetting(
@@ -69,18 +69,6 @@ public final class Settings {
             "lyric_auto_resume_follow", LYRICS, "Auto-resume lyric follow", false
     );
 
-    // Off by default, and the label says why.
-    //
-    // Turning this on does two things: Spotify stops being a lyrics source for the module, and
-    // the lyrics it hands its own Now Playing card are emptied - which is the only way to keep
-    // its card from showing text, because that card is Compose and cannot be hidden as a View.
-    // Emptying it needs writes into the host's own model objects, and the strongest of those
-    // (dropping a nested container, clearing a shared list) can make Spotify throw if it then
-    // serialises or stores what it finds. That is why this is off: the owner opts in, warned.
-    public static final Setting<Boolean> IGNORE_SPOTIFY_LYRICS = boolSetting(
-            "lyric_ignore_spotify_native", LYRICS,
-            "Ignore Spotify's own lyrics (may crash Spotify)", false
-    );
 
     // Cooldown, in seconds, after a manual scroll settles before auto-resuming follow - see
     // NativeSpicyShellViewImpl#maybeAutoResumeFollow. 3s is close to the old hardcoded 2.5s,

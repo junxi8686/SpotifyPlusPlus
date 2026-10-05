@@ -83,6 +83,37 @@ public final class CatalogAdapters {
      * malformed and must not be stored. Pure and JVM-tested; storage itself is the thin
      * {@link #recordSuccess} below.
      */
+    /**
+     * How much longer the lyrics run than the recording does, in milliseconds; negative when they
+     * stop short.
+     *
+     * <p>Read from the document's own last timestamp. A lyrics file that ends well past the end of
+     * the track belongs to a different edit - a longer mix, a live take, a full-length album cut
+     * against a trimmed single - and its lines drift against what is playing. That is a measurable
+     * property of the two things being compared, not a judgement about quality.
+     *
+     * <p>This field used to be a hardcoded zero, so the ranking compared it and found a tie every
+     * single time: two candidates from different sources were reported as equally close in length
+     * regardless of what either document actually contained, and the decision fell through to the
+     * enum order. The owner spotted the real difference on screen - the lyrics ran longer than the
+     * song - which is exactly the comparison this is meant to make.
+     *
+     * <p>Zero when either side is unknown, which reads as "no objection" rather than "a perfect
+     * fit"; an unmeasurable document must not be treated as a measured one.
+     */
+    private static long lyricsOverrunMs(SpotifyTrack track, LyricsDocument doc) {
+        long trackMs = track == null ? 0L : track.duration;
+        if (trackMs <= 0 || doc == null || doc.lines == null) return 0L;
+        long last = 0L;
+        for (LyricsLine line : doc.lines) {
+            if (line == null) continue;
+            long end = line.endMs > 0 ? line.endMs : line.startMs;
+            if (end > last) last = end;
+        }
+        if (last <= 0) return 0L;
+        return last - trackMs;
+    }
+
     public static CatalogCandidate buildCandidate(SourceId source, SpotifyTrack track,
                                                   LyricsDocument doc, MatchMethod method,
                                                   String providerItemId, String rawPayload,
@@ -116,7 +147,8 @@ public final class CatalogAdapters {
             }
         }
         return new CatalogCandidate(candidateId, bareId, source, item,
-                method == null ? MatchMethod.STRONG_SEARCH : method, 0.8, 0L, timing, true,
+                method == null ? MatchMethod.STRONG_SEARCH : method, 0.8,
+                lyricsOverrunMs(track, doc), timing, true,
                 timing == TimingLevel.UNSYNCED || hasTiming(doc), hasProviderTranslation(doc),
                 hasTransliteration, hasBackgroundVocals(doc), hasDuet(doc),
                 !isBlank(doc.songWriters),

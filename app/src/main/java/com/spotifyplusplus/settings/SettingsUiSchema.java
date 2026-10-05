@@ -47,7 +47,6 @@ public final class SettingsUiSchema {
             Settings.STAY_IN_LYRICS,
             Settings.AUTO_RESUME_FOLLOW,
             Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS,
-            Settings.IGNORE_SPOTIFY_LYRICS,
             Settings.AUTO_SKIP_INTRO_OUTRO,
             Settings.MINI_PLAYER_LYRICS_ICON,
             Settings.STATUS_BAR_HIDDEN_MODE,

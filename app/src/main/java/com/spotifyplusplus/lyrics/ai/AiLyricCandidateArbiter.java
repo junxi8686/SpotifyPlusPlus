@@ -50,11 +50,14 @@ public final class AiLyricCandidateArbiter {
      */
     public static int pick(Context context, String title, String artist, long durationMs,
                            List<Candidate> candidates) {
-        if (context == null || candidates == null || candidates.isEmpty()) return -1;
-        int limit = Math.min(candidates.size(), MAX_CANDIDATES);
-        String reply = AiTextCall.ask(context, SYSTEM_PROMPT,
-                userPrompt(title, artist, durationMs, candidates.subList(0, limit)), 32);
-        return parsePick(reply, limit);
+        // Disabled: the search path is deterministic, as the reference implementation's is.
+        //
+        // Returning -1 is the answer this method already used for every failure - an
+        // unanswerable question must not become a user-visible error - so the callers need no
+        // change and a refused hit simply stays refused. It also makes resolution reproducible:
+        // the same track now resolves the same way on every device, instead of depending on
+        // whether a model key happened to be configured.
+        return -1;
     }
 
     /** 1-based number in the reply to a 0-based index; -1 when the answer is 0 or unusable. */

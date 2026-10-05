@@ -91,15 +91,25 @@ public final class QqMusicAdapter {
         }
         // QQ Music indexes Simplified titles, and the reported title may not be one.
         List<String> queries = SmartSearch.queries(context, searchTrack);
+        // No candidate carried in yet: the whole plan is walked and scored, and the best hit
+        // across all of its spellings is what gets fetched.
         searchVariant(context, track, searchTrack, substituted, generation, karaokeOriginalLyrics,
-                callback, retryCount, queries, 0);
+                callback, retryCount, queries, 0,
+                Collections.<QqSongRanker.Candidate>emptyList());
     }
 
     private void searchVariant(Context context, SpotifyTrack track, SpotifyTrack queryTrack,
                                boolean substituted, int generation, boolean karaokeOriginalLyrics,
                                LyricsRepository.ResultCallback callback, int retryCount,
-                               List<String> queries, int index) {
+                               List<String> queries, int index,
+                               List<QqSongRanker.Candidate> carried) {
         if (queries == null || index >= queries.size()) {
+            // The best hit found anywhere in the plan is the answer; only a plan that produced
+            // no acceptable hit at all reports nothing.
+            if (carried != null && !carried.isEmpty()) {
+                fetchLyric(context, track, queryTrack, substituted, generation, carried, callback);
+                return;
+            }
             fail(context, track, callback, "QQ Music empty");
             return;
         }
@@ -117,6 +127,10 @@ public final class QqMusicAdapter {
                 .build();
         http.newCall(request).enqueue(new Callback() {
             @Override public void onFailure(Call call, IOException e) {
+                if (carried != null && !carried.isEmpty()) {
+                    fetchLyric(context, track, queryTrack, substituted, generation, carried, callback);
+                    return;
+                }
                 fail(context, track, callback, "QQ Music search failed: " + safe(e.getMessage()));
             }
 
@@ -136,21 +150,20 @@ public final class QqMusicAdapter {
                     long duration = queryTrack == null ? 0L : queryTrack.duration;
                     List<QqSongRanker.Candidate> songs =
                             QqSongRanker.rank(hits, title, artist, album, duration);
+                    // As on NetEase: what came back, and what cleared the gate. code is included
+                    // because this endpoint answers 200 with an empty list while throttling, which
+                    // is otherwise indistinguishable from the catalogue not carrying the track.
+                    try {
+                        com.spotifyplusplus.xposed.XpLog.log("SpotifyPlusSpicy " + "qq q=\"" + query + "\" code=" + searchCode
+                                + " hits=" + (hits == null ? 0 : hits.size())
+                                + " accepted=" + songs.size());
+                    } catch (Throwable traceFailure) {
+                        // A trace must never affect the request it describes.
+                    }
                     if (songs.isEmpty()) {
-                        if (searchCode == 0) {
-                            // Nothing cleared the identity gate. Before moving on, let the model
-                            // look at what the search did return: a hit that is plainly the same
-                            // recording written differently is a decision a threshold cannot make.
-                            List<QqSongRanker.Candidate> near = QqSongRanker.insufficient(
-                                    hits, title, artist, album, duration,
-                                    AiLyricCandidateArbiter.MAX_CANDIDATES);
-                            int picked = arbitrate(context, queryTrack, near);
-                            if (picked >= 0) {
-                                fetchLyric(context, track, queryTrack, substituted, generation,
-                                        Collections.singletonList(near.get(picked)), callback);
-                                return;
-                            }
-                        }
+                        // Nothing cleared the identity gate, and nothing is promoted over that
+                        // refusal any more: the model that used to be asked to override it is
+                        // gone from this path.
                         // Retry an empty result whatever the reported code.
                         //
                         // This endpoint answers 200 with an empty list when it throttles, which is
@@ -171,16 +184,27 @@ public final class QqMusicAdapter {
                         if (index + 1 < queries.size()) {
                             searchVariant(context, track, queryTrack, substituted, generation,
                                     karaokeOriginalLyrics, callback, retryCount, queries,
-                                    index + 1);
+                                    index + 1, carried);
+                            return;
+                        }
+                        if (carried != null && !carried.isEmpty()) {
+                            fetchLyric(context, track, queryTrack, substituted, generation,
+                                    carried, callback);
                             return;
                         }
                         fail(context, track, callback, "QQ Music empty"
-                                + (searchCode != 0 ? " (code " + searchCode + ")" : "")
-                                + NeteaseAdapter.aiNote(context));
+                                + (searchCode != 0 ? " (code " + searchCode + ")" : ""));
                         return;
                     }
-                    fetchLyric(context, track, queryTrack, substituted, generation, songs,
-                            callback);
+                    List<QqSongRanker.Candidate> best = betterOf(carried, songs);
+                    if (settled(best) || index + 1 >= queries.size()) {
+                        fetchLyric(context, track, queryTrack, substituted, generation, best,
+                                callback);
+                        return;
+                    }
+                    searchVariant(context, track, queryTrack, substituted, generation,
+                            karaokeOriginalLyrics, callback, retryCount, queries,
+                            index + 1, best);
                 } catch (Throwable t) {
                     fail(context, track, callback,
                             "QQ Music search parse failed: " + safe(t.getMessage()));
@@ -345,6 +369,30 @@ public final class QqMusicAdapter {
         } catch (Throwable t) {
             return 0;
         }
+    }
+
+    /** The better of two ranked lists, compared the way the ranker orders them. */
+    static List<QqSongRanker.Candidate> betterOf(
+            List<QqSongRanker.Candidate> carried, List<QqSongRanker.Candidate> fresh) {
+        if (fresh == null || fresh.isEmpty()) return carried;
+        if (carried == null || carried.isEmpty()) return fresh;
+        QqSongRanker.Candidate a = carried.get(0);
+        QqSongRanker.Candidate b = fresh.get(0);
+        return TrackMatchScorer.compareForRanking(
+                a.score, a.supportsWordLyrics(), a.durationDiffMs,
+                b.score, b.supportsWordLyrics(), b.durationDiffMs) <= 0 ? carried : fresh;
+    }
+
+    /**
+     * Whether the walk can stop: an exact or near-exact title match, which no other spelling of the
+     * same metadata is going to beat. Deliberately not merely-acceptable, which is what let a wrong
+     * recording end the search.
+     */
+    static boolean settled(List<QqSongRanker.Candidate> carried) {
+        if (carried == null || carried.isEmpty()) return false;
+        TrackMatchScorer.Tier titleTier = carried.get(0).score.title;
+        return titleTier == TrackMatchScorer.Tier.PERFECT
+                || titleTier == TrackMatchScorer.Tier.VERY_HIGH;
     }
 
     static List<QqSongRanker.Candidate> rankSongs(String body, SpotifyTrack track) {

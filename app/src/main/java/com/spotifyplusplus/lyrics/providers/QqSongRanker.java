@@ -24,6 +24,51 @@ public final class QqSongRanker {
     /** How many distinct hits the caller should be willing to try word-level lyrics on. */
     public static final int MAX_WORD_LYRIC_ATTEMPTS = 3;
 
+    // Script preference is read from ChineseScriptVariants.traditionalConfidence in the
+    // comparator, not here: TrackMatchScorer.compareName folds the script before comparing,
+    // so both editions score identically and nothing downstream of it can prefer one.
+
+    /**
+     * The best hit a query returned for a target, with the tiers that decided it, logged when the
+     * gate refused every hit.
+     *
+     * <p>Written because "twenty hits, none accepted" cannot be acted on: the tier that is out of
+     * reach could be the title, the artist, the album or the runtime, and each has a different fix.
+     */
+    private static void traceRefusal(JsonArray list, TrackMatchScorer.Target target,
+                                     String trackTitle, String trackArtist, String trackAlbum,
+                                     long trackDurationMs) {
+        try {
+            if (list == null || list.size() == 0) return;
+            TrackMatchScorer.Score best = null;
+            String bestName = "";
+            String bestArtist = "";
+            long bestDuration = 0L;
+            for (JsonElement element : list) {
+                if (element == null || !element.isJsonObject()) continue;
+                Candidate candidate = evaluate(element.getAsJsonObject(), target, false);
+                if (candidate == null) continue;
+                if (best == null || candidate.score.total > best.total) {
+                    best = candidate.score;
+                    bestName = candidate.title;
+                    bestArtist = candidate.artists.isEmpty() ? "" : candidate.artists.get(0);
+                    bestDuration = candidate.durationMs;
+                }
+            }
+            if (best == null) return;
+            com.spotifyplusplus.xposed.XpLog.log("SpotifyPlusSpicy qq refusal"
+                    + " want=\"" + trackTitle + "\"/\"" + trackArtist + "\"/" + trackDurationMs
+                    + " got=\"" + bestName + "\"/\"" + bestArtist + "\"/" + bestDuration
+                    + " tiers title=" + best.title + " artist=" + best.artist
+                    + " album=" + best.album + " dur=" + best.duration
+                    + " total=" + Math.round(best.total * 10) / 10d
+                    + " need=" + TrackMatchScorer.ACCEPT_SCORE
+                    + " accepted=" + best.accepted());
+        } catch (Throwable traceFailure) {
+            // A trace must never affect the request it describes.
+        }
+    }
+
     private QqSongRanker() {
     }
 
@@ -82,9 +127,25 @@ public final class QqSongRanker {
         for (JsonElement element : list) {
             collect(element, accepted, target, true, true);
         }
-        Collections.sort(accepted, (a, b) -> TrackMatchScorer.compareForRanking(
-                a.score, a.supportsWordLyrics(), a.durationDiffMs,
-                b.score, b.supportsWordLyrics(), b.durationDiffMs));
+        if (accepted.isEmpty()) {
+            // Nothing cleared the gate. Re-evaluate the closest hit without the gate and say
+            // which tier refused it: twenty hits accepted none, and only the score knows which
+            // of the four comparisons is the one out of reach.
+            traceRefusal(list, target, trackTitle, trackArtist, trackAlbum, trackDurationMs);
+        }
+        Collections.sort(accepted, (a, b) -> {
+            // A Simplified edition wins when the match quality is otherwise equal - see
+            // simplifiedEdition for why this cannot live in the scorer.
+            // Ordered by how much of the title is Traditional, not by whether any of it is.
+            // Two editions that both contain Traditional characters are still ordered against
+            // each other, which a boolean could not do.
+            double aTraditional = ChineseScriptVariants.traditionalConfidence(a.title);
+            double bTraditional = ChineseScriptVariants.traditionalConfidence(b.title);
+            if (aTraditional != bTraditional) return aTraditional < bTraditional ? -1 : 1;
+            return TrackMatchScorer.compareForRanking(
+                    a.score, a.supportsWordLyrics(), a.durationDiffMs,
+                    b.score, b.supportsWordLyrics(), b.durationDiffMs);
+        });
         return accepted;
     }
 
@@ -119,9 +180,16 @@ public final class QqSongRanker {
         List<String> artists = artistNames(song);
         TrackMatchScorer.Score score = TrackMatchScorer.score(
                 target, name, artists, albumName, durationMs);
+        // A different recording, not a different pressing. Refusing it here - rather than only
+        // ranking it lower - is what makes a source whose every hit is the wrong length report
+        // that it does not have the track, instead of the best of those hits being fetched and
+        // read. Ordering alone cannot do this: it only chooses between candidates that are
+        // already acceptable.
+        long durationDiffMs = TrackMatchScorer.durationDiff(target.durationMs, durationMs);
+        if (requireAccepted && durationDiffMs >= TrackMatchScorer.LENGTH_REJECT_MS) return null;
         if (requireAccepted && !score.accepted()) return null;
         return new Candidate(mid, numericSongId(song), name, artists, score, durationMs,
-                TrackMatchScorer.durationDiff(target.durationMs, durationMs));
+                durationDiffMs);
     }
 
     /**

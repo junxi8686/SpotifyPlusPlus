@@ -60,6 +60,35 @@ public final class ChineseScriptVariants {
     }
 
     /** Traditional -> Simplified, character by character. Returns the input when nothing maps. */
+    /**
+     * The share of Han characters in {@code text} that differ from their Simplified form, 0..1.
+     *
+     * <p>The reference implementation carries this as {@code TraditionalChineseConfidence}, and
+     * it exists because a yes/no answer cannot order two editions: 周杰倫 - 說好不哭 and a title
+     * with a single variant glyph are both "contains Traditional" and both "not Simplified", so
+     * neither could be preferred over the other. As a proportion they are 1.0 and about 0.1, and
+     * the more Simplified edition wins.
+     *
+     * <p>Text with no Han characters returns 0, which is what an English or Japanese title has:
+     * there is no script to prefer, so it must not read as fully Traditional.
+     */
+    public static double traditionalConfidence(String text) {
+        if (text == null || text.isEmpty()) return 0d;
+        String simplified = toSimplified(text);
+        // The fold is character for character, so a length change means the mapping could not be
+        // applied to this string; report no preference rather than an invented one.
+        if (simplified == null || simplified.length() != text.length()) return 0d;
+        int total = 0;
+        int traditional = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c < '\u4e00' || c > '\u9fff') continue;
+            total++;
+            if (c != simplified.charAt(i)) traditional++;
+        }
+        return total == 0 ? 0d : traditional / (double) total;
+    }
+
     public static String toSimplified(String text) {
         return ALIGNED ? convert(text, TRADITIONAL, SIMPLIFIED) : text;
     }

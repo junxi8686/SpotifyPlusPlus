@@ -657,6 +657,7 @@
     <string name="picker_hint_failed">Failed · tap to retry</string>
     <string name="picker_hint_needs_refresh">Needs refresh · tap to retry</string>
     <string name="picker_hint_rejected">Rejected · tap to retry</string>
+    <string name="source_picker_timed_out">Timed out — tap to try again</string>
     <string name="picker_source_unknown">Unknown</string>
     <string name="picker_status_available">Available</string>
     <string name="picker_status_not_checked">Not checked</string>

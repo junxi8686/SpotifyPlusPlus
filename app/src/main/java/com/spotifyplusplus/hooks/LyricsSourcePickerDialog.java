@@ -40,6 +40,17 @@ import java.util.Map;
 public final class LyricsSourcePickerDialog implements LyricsSessionManager.Listener {
     private static final String TAG = "[SpotifyPlusSourcePicker]";
     /** How long a delete stays armed before it reverts on its own. */
+    /** How long to wait for the store to commit before reading the rows again. */
+    /** How long to wait for the opening load to name the track before starting the walk. */
+    private static final long AUTO_CHECK_POLL_MS = 150L;
+    private static final int AUTO_CHECK_ATTEMPTS = 20;
+
+    /** Row re-read interval while checks are landing, how long to keep it up, and its state. */
+    private static final long ROW_TICK_MS = 500L;
+    private static final int ROW_TICK_MAX = 24;
+    private int rowTickGeneration;
+    private int ticksRemaining;
+
     private static final long ARM_EXPIRY_MS = 4000L;
 
     /** How long a started command may hold its row before the row is released again. */
@@ -146,6 +157,18 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             ((LinearLayout.LayoutParams) rows.getLayoutParams()).bottomMargin = 0;
             dialog.onDismiss(this::close);
             reload();
+            // Walk every enabled source once the panel is up.
+            //
+            // Started here, in the opening path, and nowhere else. It was briefly started from
+            // reload(), which is called by document changes and session ticks as well as by the
+            // open - and the walk's own first step calls reload(), so each pass started another,
+            // the state was reset by each of them, and the walk never began. One call per open is
+            // what this wants to be.
+            //
+            // The poll inside waits for the track uri, which the opening load fills in
+            // asynchronously; calling the walk before that is what made the previous attempt a
+            // no-op, because the walk's own first check drops a request whose track is unknown.
+            handler.post(() -> autoCheckWhenReady(AUTO_CHECK_ATTEMPTS));
         } catch (Throwable t) {
             XpLog.log(TAG + " picker show failed: " + t);
             close();
@@ -268,6 +291,103 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
         } catch (Throwable t) {
             XpLog.log(TAG + " picker document change failed: " + t);
         }
+    }
+
+    /**
+     * Starts the opening walk once the track is actually known.
+     *
+     * <p>Calling run() straight away did nothing: its first check compares the host's track with
+     * the state's, and the state's is filled by the asynchronous opening load - so at open the
+     * comparison failed and the walk was never started. Rather than drop the walk, wait for the
+     * uri to arrive, re-reading the rows while waiting so the stored ones are on screen first.
+     */
+    private void autoCheckWhenReady(int attemptsLeft) {
+        if (closed || attemptsLeft <= 0) return;
+        try {
+            String uri = host.catalogTrackUri();
+            boolean known = uri != null && !uri.isEmpty() && uri.equals(state.trackUri);
+            if (known) {
+                checkEverySource();
+                return;
+            }
+            // Deliberately no reload() here. This method is polled, and reload() is where it used
+            // to be started from, so calling it closed a loop: poll -> reload -> poll. The
+            // opening load already ran and the session ticks re-read the rows, so there is
+            // nothing to drive from here.
+            dispatch(state.trackChanged(uri == null ? "" : uri));
+        } catch (Throwable t) {
+            XpLog.log(TAG + " picker auto check failed: " + t);
+            return;
+        }
+        handler.postDelayed(() -> autoCheckWhenReady(attemptsLeft - 1), AUTO_CHECK_POLL_MS);
+    }
+
+    /**
+     * One check per source row, each independent of the others.
+     *
+     * <p>Not the ordered walk. That action asks each enabled source in turn and waits for each
+     * answer before asking the next, so a single source that never calls back parks the whole thing -
+     * the log's own words are that Apple Music's fetch "has been seen to leave the whole chain
+     * waiting forever", and the panel's check-all row had to be removed for exactly that reason.
+     * Used as the opening check it did the same thing again: the walk started, never finished, the
+     * watchdog released it at twenty seconds, and every row fell back to "tap to check".
+     *
+     * <p>Independently, a slow source costs its own row and nothing else. Each marks its own row
+     * busy, so each shows the checking label while it runs, and each settles to a tick or a cross as
+     * it answers.
+     */
+    private void checkEverySource() {
+        if (closed) return;
+        List<CatalogPickerState.Shown> shown;
+        try {
+            shown = state.project(checkingLabel(), confirmLabel());
+        } catch (Throwable t) {
+            XpLog.log(TAG + " picker auto check failed: " + t);
+            return;
+        }
+        int started = 0;
+        for (CatalogPickerState.Shown row : shown) {
+            if (row.source == null || row.source.kind != CatalogPickerModel.RowKind.SOURCE) continue;
+            if (row.source.sourceId == null || row.pending) continue;
+            final com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId sourceId =
+                    row.source.sourceId;
+            run(row.key, callback -> host.refreshCatalogSource(sourceId, callback),
+                    text(strings, "source_picker_checked", "Source checked"));
+            started++;
+        }
+        XpLog.log(TAG + " picker auto check started for " + started + " sources");
+    }
+
+    /**
+     * Keeps the rows current while anything is still landing.
+     *
+     * <p>Needed because the notifications are asymmetric: a source that succeeds hands over a
+     * document and {@link #onDocumentChanged} reloads, while a source that fails hands over nothing
+     * and no callback fires at all. Rows for the failing sources therefore kept their previous state
+     * until the panel was closed and reopened - which is what the owner saw after clearing: the
+     * successful rows updated and the rest did not.
+     *
+     * <p>A tick rather than one more callback, because the failure paths are several and share no
+     * single notification. Rows are re-read from the store, so this cannot invent state; it stops as
+     * soon as no fetch is in flight, and the remaining ticks are capped so a panel left open settles
+     * instead of polling for ever.
+     */
+    private void startRowTicker() {
+        rowTickGeneration++;
+        final int generation = rowTickGeneration;
+        handler.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (closed || generation != rowTickGeneration) return;
+                boolean inFlight = false;
+                try {
+                    inFlight = host.catalogFetchInFlight();
+                } catch (Throwable ignored) {
+                }
+                reload();
+                ticksRemaining = inFlight ? ROW_TICK_MAX : Math.max(0, ticksRemaining - 1);
+                if (ticksRemaining > 0) handler.postDelayed(this, ROW_TICK_MS);
+            }
+        }, ROW_TICK_MS);
     }
 
     // --- Rendering ---
@@ -706,6 +826,10 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             if (closed) return;
             dispatch(state.finished(key, success));
             load();
+            // A completed command usually starts more work behind it - a delete re-checks the
+            // sources, a refresh re-seats the candidates - and the rows for whatever fails in
+            // that follow-on work have no callback to announce it. Ticking covers them.
+            startRowTicker();
             if (success && isCheckAll(key)) {
                 handler.postDelayed(this::settleClimb, CLIMB_SETTLE_MS);
             }

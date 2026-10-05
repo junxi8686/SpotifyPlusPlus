@@ -179,18 +179,19 @@ public class CatalogPickerModelTest {
         List<Row> rows = CatalogPickerModel.build(Collections.<CatalogCandidate>emptyList(),
                 Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
 
-        assertEquals(1 + 6 + 3, rows.size());
+        assertEquals(1 + 6 + 2, rows.size());
         assertEquals("Auto · nothing stored yet", rows.get(0).title);
         // The Auto row carries its state in the title and the selected-green colour only. No
         // subtitle in any state, so no state text can be parked in this menu again.
         assertEquals("", rows.get(0).subtitle);
-        assertEquals(RowKind.ACTION_CHECK_ALL, rows.get(7).kind);
-        assertEquals("Check all sources in order", rows.get(7).title);
+        // The "check all sources in order" row is gone. Its command walked every enabled source in
+        // sequence, and one that never called back left the row on "checking" with nothing on
+        // screen able to clear it. The per-source rows do the same job one at a time.
         // The escape hatch for a release catalogued under a name no respelling reaches.
-        assertEquals(RowKind.ACTION_MANUAL_SEARCH, rows.get(8).kind);
-        assertEquals("Search by name…", rows.get(8).title);
-        assertEquals(RowKind.ACTION_DELETE_TRACK, rows.get(9).kind);
-        assertEquals("Clear saved lyrics", rows.get(9).title);
+        assertEquals(RowKind.ACTION_MANUAL_SEARCH, rows.get(7).kind);
+        assertEquals("Search by name…", rows.get(7).title);
+        assertEquals(RowKind.ACTION_DELETE_TRACK, rows.get(8).kind);
+        assertEquals("Clear saved lyrics", rows.get(8).title);
     }
 
     @Test
@@ -219,7 +220,11 @@ public class CatalogPickerModelTest {
         Row spotify = sourceRow(rows, SourceId.SPOTIFY_NATIVE);
         assertEquals("Failed · tap to retry", spotify.subtitle);
         assertEquals(CatalogPickerModel.DataMark.EMPTY, spotify.mark);
-        assertEquals("Check all: Spotify, LRCLIB", rows.get(7).subtitle);
+        // No row summarises the enabled order any more: the only row that did was the check-all
+        // action, and it is gone. The per-source rows carry the same information themselves.
+        for (Row row : rows) {
+            assertTrue(!row.subtitle.startsWith("Check all"));
+        }
     }
 
     @Test

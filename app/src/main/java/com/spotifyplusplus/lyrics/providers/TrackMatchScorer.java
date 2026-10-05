@@ -55,6 +55,27 @@ public final class TrackMatchScorer {
     public static final double ACCEPT_SCORE = 11d;
 
     /**
+     * The runtime gap at which a hit stops being another pressing of the same recording and
+     * becomes a different recording.
+     *
+     * <p>It is the scorer's own last duration tier: at and beyond this the runtime contributes
+     * nothing to the score, so it is the point the scorer itself already treats as a
+     * disagreement rather than a variation.
+     */
+    public static final long LENGTH_DISQUALIFYING_MS = 3500L;
+
+    /**
+     * The runtime gap past which a hit is refused outright rather than merely outranked.
+     *
+     * <p>Deliberately far looser than {@link #LENGTH_DISQUALIFYING_MS}. A few seconds apart is
+     * ordinary between catalogues for the same recording - a different master, a cold intro, a
+     * longer fade - and refusing on that would report correct sources as not having the track.
+     * This is the gap that cannot be the same recording, so a source whose only hits sit at or
+     * past it has not got the track, and says so.
+     */
+    public static final long LENGTH_REJECT_MS = 20000L;
+
+    /**
      * Last-resort credited-name agreement, as {@link #textSimilarity}'s percentage.
      *
      * <p>Two catalogues routinely spell one act differently - "哔哩哔哩拜年季" against NetEase's
@@ -110,6 +131,11 @@ public final class TrackMatchScorer {
         }
 
         public boolean accepted() {
+            // Length is deliberately NOT tested here. This class grades the tier, whose loosest
+            // step is LENGTH_DISQUALIFYING_MS - three and a half seconds - which is the right line
+            // for preferring a candidate and far too tight for refusing one, because providers
+            // routinely disagree by that much on the same recording. The refusal lives in the
+            // rankers, where the raw difference is available, at LENGTH_REJECT_MS.
             return accept(title, artist, total);
         }
     }
@@ -153,6 +179,10 @@ public final class TrackMatchScorer {
      * title, and on artist whenever the playing track's artist is known, before it is eligible at
      * all - so a provider simply not having the track falls through to the next source instead of
      * confidently showing someone else's lyrics.
+     *
+     * <p>Runtime can refuse a hit outright as well, but at a much looser threshold than the ranking
+     * uses - see {@link #LENGTH_REJECT_MS} - and that check lives in the rankers, which are the
+     * ones holding the raw millisecond difference.
      */
     public static boolean accept(Tier title, Tier artist, double total) {
         if (total < ACCEPT_SCORE) return false;
@@ -174,19 +204,32 @@ public final class TrackMatchScorer {
      * Orders two candidates: identity first, then whether word-level lyrics are even obtainable,
      * then runtime closeness.
      *
-     * <p>Title, artist and album answer "which song is this"; runtime answers "which pressing", and
-     * for lyrics purposes pressings of the same song are interchangeable - word-level availability
-     * is not. Ranking on the full score instead lets a few seconds of runtime difference (a whole
-     * duration tier, worth more than three points) outweigh the difference between a hit that can
-     * be word-synced and one that can only ever come back line-synced, which is exactly what this
-     * ranking exists to get right.
+     * <p>Title, artist and album answer "which song is this"; runtime answers "which pressing".
+     * Between two pressings of the same song the word-level one is worth more, because pressings
+     * are interchangeable for lyrics and word-level availability is not - so a few seconds of
+     * runtime difference must not outweigh it.
+     *
+     * <p>That reasoning only covers differences small enough to be pressings. Past
+     * {@link #LENGTH_DISQUALIFYING_MS} the runtime gap says the hit is a different recording, and
+     * then word-level availability no longer decides: a track that matches the playing length is
+     * preferred even when it can only ever come back line-synced.
      */
     public static int compareForRanking(Score aScore, boolean aWord, long aDurationDiff,
                                         Score bScore, boolean bWord, long bDurationDiff) {
         if (Math.abs(aScore.identity - bScore.identity) > 0.5d) {
             return Double.compare(bScore.identity, aScore.identity);
         }
-        if (aWord != bWord) return aWord ? -1 : 1;
+        if (aWord != bWord) {
+            // Word-level availability decides only between two hits whose runtimes are both
+            // plausible for the playing track. A hit whose runtime is off by more than the
+            // scorer's last duration tier is a different recording, and carrying it over a
+            // correctly-lengthed one on the strength of its word lyrics is how the wrong
+            // track's lyrics get read. -1 means unknown and is never disqualifying.
+            boolean aLengthWrong = aDurationDiff >= LENGTH_DISQUALIFYING_MS;
+            boolean bLengthWrong = bDurationDiff >= LENGTH_DISQUALIFYING_MS;
+            if (aLengthWrong != bLengthWrong) return aLengthWrong ? 1 : -1;
+            return aWord ? -1 : 1;
+        }
         if (aDurationDiff != bDurationDiff) {
             if (aDurationDiff < 0) return 1;
             if (bDurationDiff < 0) return -1;
@@ -236,6 +279,16 @@ public final class TrackMatchScorer {
             return Tier.HIGH;
         }
         if (sameStemBeforeBracket(name, target)) return Tier.MEDIUM;
+        // The same rule for the dash form.
+        //
+        // Spotify writes a theme-song edit as "<stem> - <credit>" - 孤勇者 with the whole
+        // 雙城之戰 credit after a spaced dash - and the catalogues index the stem alone. Every
+        // other title rule misses that pairing: the dash-to-bracket unification keeps the dash,
+        // the bracket rule looks for "(" while this qualifier's brackets are the Chinese
+        // book-title pair, the positional rule needs equal lengths, and similarity scores three
+        // characters against twenty-eight at about eleven percent. The stem agreeing exactly is
+        // the same evidence the bracket form already counts, so it earns the same tier.
+        if (sameStemBeforeDash(name, target)) return Tier.MEDIUM;
 
         // Same length: catches variant CJK characters (異體字) differing in a few glyphs only.
         if (name.length() == target.length()) {
@@ -373,6 +426,30 @@ public final class TrackMatchScorer {
         return a.contains(needleB) && b.contains(needleA)
                 && a.substring(0, a.indexOf(needleB)).trim()
                         .equals(b.substring(0, b.indexOf(needleA)).trim());
+    }
+
+    /**
+     * One side is the other's stem before a trailing qualifier.
+     *
+     * <p>The qualifier is written {@code " - <credit>"} in Spotify's metadata, but by the time a
+     * comparison runs it is a bare hyphen: {@link #normalizeName} collapses every dash's surrounding
+     * space first. Testing for the spaced form - which this did at first - matches nothing and is
+     * silently inert, so the hyphen is what is looked for here.
+     *
+     * <p>The other side must contain no hyphen at all and the stem must match exactly, which is the
+     * same evidence {@link #sameStemBeforeBracket} accepts for the bracketed form of the same
+     * qualifier, and worth the same tier.
+     */
+    private static boolean sameStemBeforeDash(String a, String b) {
+        int cut = a.indexOf('-');
+        if (cut > 0 && b.indexOf('-') < 0) {
+            return a.substring(0, cut).trim().equals(b);
+        }
+        cut = b.indexOf('-');
+        if (cut > 0 && a.indexOf('-') < 0) {
+            return b.substring(0, cut).trim().equals(a);
+        }
+        return false;
     }
 
     private static boolean sameStemBeforeBracket(String a, String b) {

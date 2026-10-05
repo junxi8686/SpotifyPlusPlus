@@ -261,6 +261,16 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
     private void store(LyricsDocument doc) {
         dbg("store", "doc=" + (doc == null ? "null" : doc.trackId + "/" + doc.type + "/" + doc.lines.size()));
         if (doc == null || doc.lines.isEmpty()) return;
+        // Everything the capture hooks find ends up here, whatever path found it, so this is
+        // the one place to refuse a capture that is not text anyone could sing. Without it a
+        // mis-shaped probe resolved a field of layout identifiers and the panel displayed them
+        // as the lyrics of the track being played.
+        if (!looksLikeLyrics(doc.lines)) {
+            XpLog.log(TAG + " rejected captured text that is not lyrics track="
+                    + safe(doc.trackId) + " source=" + safe(doc.fetchSource)
+                    + " first=" + firstLineForLog(doc.lines));
+            return;
+        }
         String trackId = safe(doc.trackId).trim();
         if (trackId.isEmpty()) return;
         synchronized (lock) {
@@ -279,6 +289,53 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
                 + " lines=" + doc.lines.size()
                 + " source=" + doc.fetchSource);
         notifyNativeListeners(trackId, doc);
+    }
+
+    /**
+     * Whether a captured candidate is text a human could sing, rather than whatever else happened
+     * to sit in the field the hook reached.
+     *
+     * <p>Lyrics are arbitrary prose in any language and any script, so the test cannot describe
+     * what they are. It describes the one shape they cannot be: a whitespace-free run of
+     * snake_case identifiers, which is what a resource or view id list looks like. A single line
+     * of that shape disqualifies the whole document - a real document never contains one - and
+     * ordinary prose, including a single word or a line of CJK, always passes.
+     */
+    static boolean looksLikeLyrics(java.util.List<LyricsLine> lines) {
+        if (lines == null || lines.isEmpty()) return false;
+        int usable = 0;
+        for (LyricsLine entry : lines) {
+            if (entry == null) continue;
+            String line = safe(entry.text).trim();
+            if (line.isEmpty()) continue;
+            if (isIdentifierRun(line)) return false;
+            usable++;
+        }
+        return usable > 0;
+    }
+
+    /** A token list such as {@code now_playing_view_container,navigation_bar}. */
+    private static boolean isIdentifierRun(String line) {
+        if (line.indexOf(' ') >= 0 || line.indexOf('\t') >= 0) return false;
+        if (line.indexOf('_') < 0) return false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            boolean allowed = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '_' || c == ',' || c == '.' || c == '-';
+            if (!allowed) return false;
+        }
+        return true;
+    }
+
+    private static String firstLineForLog(java.util.List<LyricsLine> lines) {
+        for (LyricsLine entry : lines) {
+            if (entry == null) continue;
+            String trimmed = safe(entry.text).trim();
+            if (!trimmed.isEmpty()) {
+                return trimmed.length() > 80 ? trimmed.substring(0, 80) : trimmed;
+            }
+        }
+        return "";
     }
 
     private void notifyNativeListeners(String trackId, LyricsDocument doc) {

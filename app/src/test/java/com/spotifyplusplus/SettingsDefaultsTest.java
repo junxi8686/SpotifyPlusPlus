@@ -68,7 +68,7 @@ public class SettingsDefaultsTest {
         assertEquals(Settings.INTERNAL, Settings.FOLLOW_CHIP_POSITION.section);
         assertEquals(Settings.INTERNAL, Settings.FOLLOW_CHIP_STYLE.section);
         assertFalse(Settings.HYPERGLOW_ENABLED.defaultValue);
-        assertEquals("en", Settings.UI_LANGUAGE.defaultValue);
+        assertEquals("zh-CN", Settings.UI_LANGUAGE.defaultValue);
         // Default stays Google draft until device comparison proves another flow better; adding
         // the preview experiment must not migrate either existing stored choice.
         assertEquals("Google draft", Settings.AI_TRANSLATION_PIPELINE.defaultValue);

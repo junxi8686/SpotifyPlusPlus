@@ -150,7 +150,15 @@ public class SearchQueryVariantsTest {
     @Test
     public void titleQueriesOnlyCoverTitles() {
         List<String> queries = SearchQueryVariants.titleQueries("離開地球表面 (Live)");
-        assertEquals("離開地球表面 (Live)", queries.get(0));
+        // Simplified leads, as it does on the title+artist plan.
+        //
+        // It used to lead with the reported spelling, which meant a Traditional report asked for the
+        // Traditional edition first. CompareName folds the script before it compares, so that
+        // edition came back scoring a perfect match and settled the walk - the owner got the
+        // Traditional edition and its lyrics while a Simplified one existed. The reported spelling
+        // is still asked, second, so a track that only has a Traditional edition still resolves.
+        assertEquals("离开地球表面 (Live)", queries.get(0));
+        assertTrue(queries.toString(), queries.contains("離開地球表面 (Live)"));
         assertTrue(queries.toString(), queries.contains("离开地球表面 (Live)"));
         assertTrue(queries.toString(), queries.contains("離開地球表面"));
         assertTrue(queries.toString(), queries.contains("离开地球表面"));

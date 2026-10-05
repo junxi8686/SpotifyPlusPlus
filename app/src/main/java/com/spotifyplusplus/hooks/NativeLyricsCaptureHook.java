@@ -118,6 +118,14 @@ final class NativeLyricsCaptureHook {
         // table stays empty, the response body never reaches a named HTTP client, and the
         // endpoint string is annotation-only. The response classes are hooked by name above.
         NativeLyricsNetworkHook.install(classLoader, nativeLyricsSource, trackProvider);
+        // The Now Playing section remover is deliberately not armed.
+        //
+        // It worked - removeView took the Compose section out of its parent - but the section
+        // could not be identified: Compose publishes its semantics only over a live
+        // accessibility connection, so an app reading its own tree gets the host node and
+        // nothing under it. The fallback was to take the tallest section, which is not the
+        // lyrics card, and that removed the wrong things on every tick. Nothing here starts it
+        // any more; see SpotifyLyricsCardHider for the full account.
         installExplicitSpotifyRequest();
     }
 
@@ -127,9 +135,22 @@ final class NativeLyricsCaptureHook {
             Class<?> service = XpReflect.findClass("p.kqb0", classLoader);
             Class<?> retrofit = XpReflect.findClass("p.hqb0", classLoader);
             Class<?> single = XpReflect.findClass("io.reactivex.rxjava3.core.Single", classLoader);
-            Method endpoint = retrofit.getMethod("b", String.class, boolean.class,
-                    String.class, boolean.class);
-            if (!single.isAssignableFrom(endpoint.getReturnType())) return;
+            // Found by shape, never by name.
+            //
+            // This was retrofit.getMethod("b", String, boolean, String, boolean), and an
+            // obfuscated name is not a contract: on Spotify 9.1.88 that lookup throws
+            // NoSuchMethodException, which abandoned this whole path and left the module able to
+            // read Spotify's lyrics only by catching Spotify in the act of loading them. With
+            // Spotify's own lyrics switched off there is nothing to catch, so the source read
+            // empty for tracks that have lyrics. The shape is what is stable - a Single
+            // returning, taking (String, boolean, String, boolean), carrying the lyrics route in
+            // its annotation - so that is what is matched.
+            Method endpoint = findLyricsEndpoint(retrofit, single);
+            if (endpoint == null) {
+                XpLog.log(NativeSpicyLyricsHook.TAG
+                        + " explicit Spotify request unavailable: no lyrics endpoint");
+                return;
+            }
             Field client = service.getDeclaredField("a");
             client.setAccessible(true);
             Field language = service.getDeclaredField("c");
@@ -186,10 +207,10 @@ final class NativeLyricsCaptureHook {
         try {
             Object client = clientField.get(owner);
             Object languageOwner = languageField.get(owner);
-            Method languageMethod = languageOwner.getClass().getMethod("j");
-            String language = (String) languageMethod.invoke(languageOwner);
-            Object request = endpoint.invoke(client, id, false,
-                    language == null ? "" : language, false);
+            String language = readLocale(languageOwner);
+            Object request = endpoint.invoke(client,
+                    endpointArgs(endpoint.getParameterTypes(), id,
+                            language == null ? "" : language));
             Class<?> consumer = XpReflect.findClass(
                     "io.reactivex.rxjava3.functions.Consumer", classLoader);
             Object success = Proxy.newProxyInstance(classLoader, new Class<?>[]{consumer},
@@ -231,6 +252,85 @@ final class NativeLyricsCaptureHook {
         }
     }
 
+    /**
+     * The lyrics endpoint on Spotify's Retrofit interface, located by shape rather than by name.
+     *
+     * <p>A Single returning, taking ({@code String, boolean, String, boolean}), annotated with the
+     * route that mentions lyrics. Obfuscation renames the method; it does not change the return type,
+     * the parameter shape or the annotation value, which is why those are what this matches on.
+     */
+    private static Method findLyricsEndpoint(Class<?> retrofit, Class<?> single) {
+        if (retrofit == null || single == null) return null;
+        for (Method candidate : retrofit.getDeclaredMethods()) {
+            if (!single.isAssignableFrom(candidate.getReturnType())) continue;
+            Class<?>[] types = candidate.getParameterTypes();
+            // Only what actually identifies it: it is a single-shot request, it starts from the track
+            // id, and its route says lyrics. The full signature is deliberately not required - an
+            // earlier version demanded (String, boolean, String, boolean) and matched nothing on
+            // Spotify 9.1.88, which is what "no lyrics endpoint" in the log was reporting.
+            if (types.length < 2 || types[0] != String.class) continue;
+            if (!annotationMentionsLyrics(candidate)) continue;
+            return candidate;
+        }
+        return null;
+    }
+
+    /**
+     * Arguments for the lyrics endpoint, placed by the parameter types it actually declares.
+     *
+     * <p>The first String is the track id and the second is the locale, which is the order Spotify's
+     * own request used; booleans are false, matching the previous call. Anything else gets a zero or
+     * null, so a signature that has grown a parameter still resolves rather than throwing.
+     */
+    private static Object[] endpointArgs(Class<?>[] types, String id, String language) {
+        Object[] args = new Object[types.length];
+        int stringsSeen = 0;
+        for (int i = 0; i < types.length; i++) {
+            Class<?> type = types[i];
+            if (type == String.class) {
+                args[i] = stringsSeen++ == 0 ? id : language;
+            } else if (type == boolean.class || type == Boolean.class) {
+                args[i] = Boolean.FALSE;
+            } else if (type == int.class || type == Integer.class) {
+                args[i] = 0;
+            } else if (type == long.class || type == Long.class) {
+                args[i] = 0L;
+            } else {
+                args[i] = null;
+            }
+        }
+        return args;
+    }
+
+    /** Retrofit annotations render their route in {@code toString}, which is enough to spot it. */
+    private static boolean annotationMentionsLyrics(Method method) {
+        for (java.lang.annotation.Annotation annotation : method.getAnnotations()) {
+            if (String.valueOf(annotation).toLowerCase(java.util.Locale.ROOT).contains("lyric")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The locale Spotify would send, read by shape: a no-argument accessor returning a String. Its
+     * name is obfuscated here too, so the name is not used.
+     */
+    private static String readLocale(Object languageOwner) {
+        if (languageOwner == null) return "";
+        try {
+            for (Method method : languageOwner.getClass().getMethods()) {
+                if (method.getParameterTypes().length != 0) continue;
+                if (method.getReturnType() != String.class) continue;
+                Object value = method.invoke(languageOwner);
+                if (value instanceof String) return (String) value;
+            }
+        } catch (Throwable ignored) {
+            // No locale is sent, which the request already tolerates.
+        }
+        return "";
+    }
+
     private Object resolveSpotifyLyricsService(Class<?> service) {
         Object component = spotifyComponent;
         if (component == null) return null;
@@ -267,6 +367,16 @@ final class NativeLyricsCaptureHook {
             disposable.getClass().getMethod("dispose").invoke(disposable);
         } catch (Throwable ignored) {
         }
+    }
+
+    /**
+     * True when a class was reached through Spotify's lyrics table rather than the wire response.
+     *
+     * <p>Read from the discovery tag, which records the probe that found the class: the DAO and
+     * entity probes name {@code lyrics_entities} in their SQL, the response protos never do.
+     */
+    private static boolean persistedEntity(String sourceTag) {
+        return sourceTag != null && sourceTag.contains("lyrics_entities");
     }
 
     private void hookDeferredNativeLyricsClassLoading() {
@@ -373,16 +483,11 @@ final class NativeLyricsCaptureHook {
         try {
             XpHooks.hookAllConstructors(cls, "lyrics:" + className + "#ctor", (XpHooks.After) param -> {
                 captureNativeLyricsCandidate(param.thisObject, param.args, sourceTag + ":ctor:" + className);
-                // Read first, empty second. The owner asked for Spotify's own lyrics card to go
-                // away while keeping the module able to use those lyrics as a source - and both
-                // read from this one object, so the order is what makes both true. Blanking it
-                // after the capture above leaves the module's copy intact and gives Spotify a
-                // object with nothing in it, which is how its Compose card decides to hide itself.
-                //
-                // Spotify's Now Playing surface is Compose, so there is no View to hide: no
-                // resource id, no child to collapse, and hiding the container would take the rest
-                // of the screen with it. This is the only place the card's content can be reached.
-                hideSpotifyLyrics(param.thisObject, className);
+                // Read only. Nothing is emptied afterwards any more - see hideSpotifyLyrics for why
+                // that attempt was retired: it never removed the Compose card, it broke this very
+                // capture by clearing the fields the document is built from, and it wrote the
+                // empty strings into Spotify's own cache through the entity hook.
+                hideSpotifyLyrics(param.thisObject, className, sourceTag);
             });
         } catch (Throwable t) {
             XpLog.log(NativeSpicyLyricsHook.TAG
@@ -407,13 +512,10 @@ final class NativeLyricsCaptureHook {
                                 sourceTag + ":method:" + className + "#" + method.getName()
                         );
                     }
-                    // Also on the method path, not only the constructor.
-                    //
-                    // The constructors of these protos are not what runs: the capture log shows
-                    // every sighting arriving through a method, so a blank installed only on the
-                    // constructor never executed at all and the card kept its lyrics. Blanking the
-                    // receiver here reaches the same model by the route it is actually built on.
-                    hideSpotifyLyrics(param.thisObject, className);
+                    // The same call on the method path, because that is the route these protos
+                    // actually travel. It reads nothing now; it is kept so both routes stay
+                    // symmetrical and the capture above is not the only place that sees them.
+                    hideSpotifyLyrics(param.thisObject, className, sourceTag);
                 });
                 methodHooks++;
             } catch (Throwable ignored) {
@@ -447,37 +549,34 @@ final class NativeLyricsCaptureHook {
      * blanked is logged: a zero there means the name match missed and the approach needs a
      * different handle, and it is the only way to tell without a debugger attached.
      */
-    private void hideSpotifyLyrics(Object model, String className) {
-        if (model == null) return;
-        try {
-            if (!spotifyLyricsShouldBeHidden()) return;
-        } catch (Throwable ignored) {
-            return;
-        }
-        // The model is only half of it: emptying the lyrics left the section's own bar behind, and
-        // that bar is a row in the page's RecyclerView. This runs on the same trigger that already
-        // knows lyrics are being served, so the view-side hider is installed from here rather than
-        // waiting for the owner to open the settings panel.
-        SpotifyLyricsCardHider.ensureInstalled(currentApplication(), model.getClass().getClassLoader());
-        int blanked = 0;
-        int scanned = 0;
-        try {
-            int[] counts = blankTextFields(model, 0, new java.util.HashSet<Integer>());
-            blanked = counts[0];
-            scanned = counts[1];
-        } catch (Throwable ignored) {
-            return;
-        }
-        if (blanked == 0) return;
-        try {
-            synchronized (seenCounts) {
-                if (blinkLogged.add(className)) {
-                    XpLog.log(NativeSpicyLyricsHook.TAG + " hid Spotify lyrics class="
-                            + safe(className) + " fields=" + blanked + "/" + scanned);
-                }
-            }
-        } catch (Throwable ignored) {
-        }
+    /**
+     * Retired. Deliberately does nothing.
+     *
+     * <p>This used to empty the text fields of whichever lyrics object the hooks reached, in an
+     * attempt to take Spotify's own Now Playing card away. Three things came out of that, and all
+     * three are established rather than suspected:
+     *
+     * <p>It never removed the card. That surface is Compose, so there is no View to hide and nothing
+     * in the model that decides whether the section exists; emptying the lyrics produced an empty
+     * bar and nothing better.
+     *
+     * <p>It broke the capture. The hooks read the same object they then emptied - the capture runs
+     * first in each callback, but the parsed document is built from fields this then cleared - and
+     * the log is full of "native candidate unparsed" for ColorLyricsResponse while this ran. With the
+     * setting off, this method returns before doing anything and the capture succeeds, which is
+     * precisely the difference the owner reports.
+     *
+     * <p>It poisoned Spotify's cache. One of the hooked classes is the Room entity written to
+     * lyrics_entities, so the empty strings were saved with the row and Spotify kept showing no
+     * lyrics for those tracks even after the setting was switched back off.
+     *
+     * <p>The useful half of the setting is unaffected: "Ignore Spotify's own lyrics" still takes
+     * Spotify out of this module's sources, which is {@code LyricsSourcePreferences.sourceEnabled}'s
+     * job. What stops here is the module writing into Spotify's own objects.
+     */
+    private void hideSpotifyLyrics(Object model, String className, String sourceTag) {
+        // No-op by design - see above. Kept as a method so both call sites keep their shape and the
+        // ordering they document (read first, then this), which is now simply "read".
     }
 
     /**

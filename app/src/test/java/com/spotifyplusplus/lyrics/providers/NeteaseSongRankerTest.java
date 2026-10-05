@@ -28,7 +28,11 @@ public class NeteaseSongRankerTest {
     public void correctSongWinsOverACloserRuntime() {
         JsonArray list = new JsonArray();
         list.add(song("Talking to the Moon", "Bruno Mars", "Doo-Wops", 217_000, 11));
-        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 320_000, 22));
+        // Two seconds off, not a hundred: a runtime difference this size is an ordinary
+        // catalogue disagreement, so the hit stays eligible and the test still shows that
+        // identity outranks a matching runtime. A gap past LENGTH_REJECT_MS is now refused
+        // instead of ranked - see refusesADifferentRecordingOutright.
+        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 219_000, 22));
         NeteaseSongRanker.Candidate best = NeteaseSongRanker.best(
                 list, "That's What I Like", "Bruno Mars", "24K Magic", 217_000);
         assertNotNull(best);
@@ -169,5 +173,24 @@ public class NeteaseSongRankerTest {
         albumObject.addProperty("name", album);
         song.add("album", albumObject);
         return song;
+    }
+    @Test
+    public void refusesADifferentRecordingOutright() {
+        // A hit this far from the playing length is not the same recording however exactly its
+        // title and artist agree, so it is refused rather than ranked. Ranking it lower is not
+        // enough: with only wrong-length hits in the response, the best of them was still fetched
+        // and its lyrics read. The owner's report was exactly this - one source's hit was minutes
+        // off and it was used anyway.
+        JsonArray list = new JsonArray();
+        list.add(song("That's What I Like", "Bruno Mars", "24K Magic", 337_000, 1));
+        assertTrue(NeteaseSongRanker.rank(
+                list, "That's What I Like", "Bruno Mars", "24K Magic", 217_000).isEmpty());
+
+        // And a gap just inside the threshold stays eligible, so ordinary catalogue disagreement
+        // does not turn into a missing track.
+        JsonArray ok = new JsonArray();
+        ok.add(song("That's What I Like", "Bruno Mars", "24K Magic", 214_000, 2));
+        assertEquals(1, NeteaseSongRanker.rank(
+                ok, "That's What I Like", "Bruno Mars", "24K Magic", 217_000).size());
     }
 }

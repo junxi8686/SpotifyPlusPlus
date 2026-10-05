@@ -37,9 +37,12 @@ public class LyricsSourceRankingTest {
         assertFalse(LyricsSourcePreferences.enabledByDefault(null));
         assertFalse(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.SPICY));
-        assertFalse(LyricsSourcePreferences.enabledByDefault(
+        // Both on by default now. They were opt-in while network search sources were treated as
+        // expensive, which meant a fresh install never resolved from either - and they are the
+        // two that carry Chinese catalogue text.
+        assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.QQ));
-        assertFalse(LyricsSourcePreferences.enabledByDefault(
+        assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.NETEASE));
         assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.APPLE_MUSIC));

@@ -58,11 +58,13 @@ public final class SmartSearch {
      * model call can still change the outcome.
      */
     private static List<String> aliasesFor(Context context, String title, String artist) {
-        if (context == null) return Collections.emptyList();
-        List<String> cached = AiTrackAliases.cached(title, artist);
-        if (cached.isEmpty()) {
-            AiTrackAliases.prefetch(context, title, artist);
-        }
-        return cached;
+        // Empty by design: the plan is now purely the local spellings, as Lyricify's is.
+        //
+        // This is not only about leaving a model out of the search. The aliases used to be
+        // offered ahead of the locally derived spellings while counting against the same
+        // MAX_QUERIES budget, so a poor model answer spent four of the eight requests on names
+        // no catalogue indexes and then truncated the bare-title query and the whole
+        // titleVariants tail off the end - the widening that does work never ran.
+        return Collections.emptyList();
     }
 }

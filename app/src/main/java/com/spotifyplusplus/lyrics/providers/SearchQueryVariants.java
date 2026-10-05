@@ -31,7 +31,7 @@ public final class SearchQueryVariants {
      * the tail of the plan is worth strictly less than the head: past a handful of spellings a miss
      * is a miss.
      */
-    public static final int MAX_QUERIES = 8;
+    public static final int MAX_QUERIES = 12;
 
     /** Aliases spent per plan. One query each, and the model already ordered them by usefulness. */
     static final int MAX_ALIAS_QUERIES = 4;
@@ -61,6 +61,7 @@ public final class SearchQueryVariants {
         if (track == null) return Collections.emptyList();
         String title = text(track.title);
         String artist = text(track.artist);
+        String album = text(track.album);
         if (title.isEmpty() && artist.isEmpty()) return Collections.emptyList();
 
         LinkedHashSet<String> out = new LinkedHashSet<>();
@@ -83,6 +84,15 @@ public final class SearchQueryVariants {
         }
 
         offer(out, join(title, artist));
+
+        // The reference implementation opens with title + artist + album, and this is that
+        // query. It is the one handle on a release whose title is spelled unusually: album
+        // names vary less across catalogues than track names do, so adding it can locate an
+        // edition that neither the title nor the title+artist pairing finds. It sits after the
+        // Simplified spelling rather than first, because the script of the edition read is the
+        // owner's first requirement and this query does not affect it. Being more specific than
+        // the others it can only miss, never match wrongly, and a miss costs one request.
+        offer(out, join(title, artist, album));
 
         // A model's names come next, and can only ever be present from the second visit onwards -
         // the cache is filled by the very miss that made this plan worth widening. That ordering
@@ -110,6 +120,19 @@ public final class SearchQueryVariants {
         // is the query that still works. Asking it before the variants costs nothing when the
         // first query already hit, and saves a round of doomed requests when it did not.
         offer(out, join(title, ""));
+
+        // And the plainest form of the title, on its own.
+        //
+        // A Spotify title can carry a long qualifier no catalogue indexes - 孤勇者 with the
+        // whole theme-song credit in brackets is the case the owner gave - while the same
+        // track is filed under the three characters alone. titleVariants already derives that
+        // form, but every variant was only ever asked with the artist attached, and artist
+        // strings differ across catalogues just as often as titles do, so the pairing misses
+        // even when the bare title would hit. The bare-title query above exists but uses the
+        // reported title, suffix and all.
+        for (String bare : titleVariants(title)) {
+            offer(out, join(bare, ""));
+        }
 
         offer(out, join(ChineseScriptVariants.toTraditional(title),
                 ChineseScriptVariants.toTraditional(artist)));
@@ -164,6 +187,14 @@ public final class SearchQueryVariants {
     /** Title-only plan, with names an AI pass resolved for the same recording appended last. */
     public static List<String> titleQueries(String title, List<String> extraTitles) {
         List<String> out = new ArrayList<>(4);
+        // Simplified first, exactly as the title+artist plan does it.
+        //
+        // This used to lead with the reported spelling, so a Traditional report asked for the
+        // Traditional edition first. CompareName folds the script before it compares, so that
+        // edition came back scoring a perfect match, settled the walk, and was read - a track
+        // that has a Simplified edition was served the Traditional one, lyrics included. The
+        // reported spelling still answers when no Simplified edition exists: it is offered next.
+        addUnique(out, ChineseScriptVariants.toSimplified(text(title)));
         addUnique(out, text(title));
         if (extraTitles != null) {
             int used = 0;
@@ -203,11 +234,24 @@ public final class SearchQueryVariants {
     }
 
     private static String join(String title, String artist) {
+        return join(title, artist, "");
+    }
+
+    /** Title, artist and album, each omitted when blank. Used for the most specific query. */
+    private static String join(String title, String artist, String album) {
         String left = text(title);
         String right = text(artist);
-        if (left.isEmpty()) return right;
-        if (right.isEmpty()) return left;
-        return left + " " + right;
+        String third = text(album);
+        StringBuilder out = new StringBuilder(left);
+        if (!right.isEmpty()) {
+            if (out.length() > 0) out.append(' ');
+            out.append(right);
+        }
+        if (!third.isEmpty()) {
+            if (out.length() > 0) out.append(' ');
+            out.append(third);
+        }
+        return out.toString();
     }
 
     private static void addUnique(List<String> out, String value) {

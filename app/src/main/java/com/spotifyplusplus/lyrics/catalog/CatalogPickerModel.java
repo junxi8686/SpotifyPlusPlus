@@ -175,13 +175,10 @@ public final class CatalogPickerModel {
                 enabled.append(displaySource(source, t));
             }
         }
-        rows.add(new Row(RowKind.ACTION_CHECK_ALL,
-                t.get("picker_row_check_all", "Check all sources in order"),
-                enabled.length() == 0
-                        ? t.get("picker_row_check_all_none", "Check every enabled source")
-                        : t.get("picker_row_check_all_prefix", "Check all: %1$s")
-                                .replace("%1$s", enabled.toString()),
-                false, false, false, DataMark.NONE, "", null));
+        // The "check all sources in order" row is gone. Its command walks every enabled
+        // source in sequence, and when one of them never calls back the row sits on
+        // "checking" and nothing on screen can clear it. Per-source rows do the same job
+        // one at a time and cannot wedge the whole panel.
         rows.add(new Row(RowKind.ACTION_MANUAL_SEARCH,
                 t.get("picker_row_manual_search", "Search by name…"),
                 t.get("picker_row_manual_search_detail",
