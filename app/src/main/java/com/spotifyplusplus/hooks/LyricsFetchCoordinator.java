@@ -230,6 +230,11 @@ final class LyricsFetchCoordinator {
         switch (source) {
             case APPLE:
                 return com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source.APPLE_MUSIC;
+            case SPICY_ORG:
+                // The fork's primary source. This case was missing, so every request for it fell
+                // through to null and the coordinator answered "Unknown lyrics source" - which the
+                // surface renders as 未知的歌词来源 - whether or not a client key was stored.
+                return com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source.SPICY_ORG;
             case SPOTIFY_NATIVE:
                 return com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source.SPOTIFY;
             case AMLL:
