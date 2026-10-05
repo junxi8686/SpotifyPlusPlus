@@ -209,8 +209,7 @@ public final class LyricsFrameRenderer {
             if (config.appleDimPassed && lineState.active) lineGlowTarget = Math.max(lineGlowTarget, 0.28f);
             float lineGlow = LyricsAnimationApplier.stepLineGlow(line, lineGlowTarget, deltaSeconds);
 
-            boolean appleLineDocument = config.appleStyle
-                    && "Line".equalsIgnoreCase(document.type);
+            boolean appleLineDocument = lightsAppleLineAsWhole(config, document);
             // Line-synced Apple rows light as a whole; see LyricsLineViewState#stepLineLit.
             float litBrightness = appleLineDocument
                     ? lineState.brightnessTarget * LyricsLineViewState.stepLineLit(
@@ -397,6 +396,12 @@ public final class LyricsFrameRenderer {
         lastActiveIndex = activeIndex;
         lastUserScrollHeld = userScrollHeld;
         styleBatcher.flush();
+    }
+
+    static boolean lightsAppleLineAsWhole(LyricsRenderConfig config, LyricsDocument document) {
+        // An explicit sentence sweep owns the fill geometry, including in Apple style.
+        return config.appleStyle && "Line".equalsIgnoreCase(document.type)
+                && !(config.lineSyncFillSentence() && config.lineGradientEnabled && !config.spotlight);
     }
 
     private boolean hasRealTimedWords(AppliedLine line) {

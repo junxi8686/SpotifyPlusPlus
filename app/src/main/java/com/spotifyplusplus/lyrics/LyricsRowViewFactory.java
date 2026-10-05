@@ -483,7 +483,7 @@ public final class LyricsRowViewFactory {
         String text = LyricUtils.safe(line == null ? "" : line.text);
         List<DisplayLayoutGroup> groups = line == null || text.isEmpty()
                 ? Collections.<DisplayLayoutGroup>emptyList()
-                : DisplayLayoutGroup.forLine(adaptiveLayoutLanguage(line), text, line.japaneseReading);
+                : DisplayLayoutGroup.forLine(line);
         flex.setAdaptiveSectioning(true,
                 adaptiveForbiddenBreaks(groups, childRanges),
                 adaptiveKeepTogetherGroups(groups, childRanges));
@@ -626,8 +626,7 @@ public final class LyricsRowViewFactory {
         if (adaptiveRomanRanges != null && !adaptiveRomanRanges.isEmpty()) {
             GlowFlexbox flex = (GlowFlexbox) romanWords;
             String source = LyricUtils.safe(line == null ? "" : line.text);
-            List<DisplayLayoutGroup> groups = DisplayLayoutGroup.forLine(
-                    adaptiveLayoutLanguage(line), source, line == null ? null : line.japaneseReading);
+            List<DisplayLayoutGroup> groups = DisplayLayoutGroup.forLine(line);
             flex.setAdaptiveSectioning(true,
                     adaptiveForbiddenBreaks(groups, adaptiveRomanRanges),
                     adaptiveKeepTogetherGroups(groups, adaptiveRomanRanges));
@@ -835,6 +834,9 @@ public final class LyricsRowViewFactory {
         int color = line.bgLine ? Color.rgb(170, 170, 170) : Color.WHITE;
         SpicyAnimatedTextView main = new SpicyAnimatedTextView(activity);
         CharSequence mainText = showJapaneseFurigana ? FuriganaText.build(line) : line.text;
+        if (!showJapaneseFurigana && adaptiveSectioningEnabled && line.displayLayoutGroups != null) {
+            mainText = KeepTogetherText.build(line.text, line.displayLayoutGroups);
+        }
         applyTextDirection(main, line.text);
         main.setTextSize(LyricsLineViewState.baseTextSp(line));
         main.setTextColor(color);
