@@ -968,9 +968,9 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
     // --- Diagnostics card ---
 
     private void renderActions(LinearLayout content) {
-        rows.actionRow(content, Kind.BUG,
-                DiagnosticReportingDialog.reportProblemLabel(context, store),
-                v -> DiagnosticReportingDialog.show(context, store));
+        // The "Report a problem" row is deliberately absent. Its drafts were addressed to the
+        // upstream project's tracker rather than this fork's, so a report filed from here went
+        // somewhere the owner of this build does not read.
         rows.actionRow(content, null,
                 uiStrings.get("settings_action_resync_timing", "Reset lyrics sync"),
                 v -> {
@@ -1154,8 +1154,11 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
 
     private void openGithub() {
         try {
+            // The fork's own repository, not github.com. The bare "https://github.com" was left
+            // over from the upstream port, so this action landed on the site home page instead of
+            // the project the owner actually maintains.
             Intent intent = new Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://github.com"));
+                    Uri.parse(BuildStamp.PROJECT_URL));
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
         } catch (Throwable ignored) {

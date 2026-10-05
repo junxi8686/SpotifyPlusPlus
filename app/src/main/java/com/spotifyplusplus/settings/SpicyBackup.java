@@ -48,7 +48,35 @@ public final class SpicyBackup {
     public static final int FORMAT_VERSION = 1;
 
     private static final String AI_PREFS = "SpotifyPlusAiCredentials";
-    private static final String[] STORES = {SpotifyPlusConfig.PREFS_NAME, AI_PREFS};
+    /** Source order, per-track override and ranking mode. */
+    private static final String SOURCE_SELECTION_PREFS = "SpotifyPlusLyricsSourceSelection";
+    /** The catalogue: which sources each track has candidates from, and how they matched. */
+    private static final String CATALOG_PREFS = "SpotifyPlusCanonicalSourceCache";
+    /** SpicyLyrics.org client-key revision, so a restored key invalidates its old results. */
+    private static final String SPICY_KEY_STATE_PREFS = "SpotifyPlusSpicyOrgKeyState";
+    /** SpicyLyrics.org access loss/restore record. */
+    private static final String SPICY_ACCESS_STATE_PREFS = "SpotifyPlusSpicyOrgAccessState";
+
+    /**
+     * Every preference file a backup carries.
+     *
+     * <p>Two were covered and that was not enough to restore an install: the source order and the
+     * per-track override live in their own file, and the catalogue - which sources a track has and
+     * which were already checked - lives in another. Restoring only the settings brought back a
+     * configured app with an empty catalogue and no source selection, so everything had to be
+     * searched and chosen again.
+     *
+     * <p>Diagnostic drafts and capture buffers are deliberately absent: they are transient state
+     * about a report in progress, not something to move between installs.
+     */
+    private static final String[] STORES = {
+            SpotifyPlusConfig.PREFS_NAME,
+            AI_PREFS,
+            SOURCE_SELECTION_PREFS,
+            CATALOG_PREFS,
+            SPICY_KEY_STATE_PREFS,
+            SPICY_ACCESS_STATE_PREFS,
+    };
 
     private SpicyBackup() {
     }
@@ -65,8 +93,53 @@ public final class SpicyBackup {
         return root.toString();
     }
 
-    private static JsonObject encodeStore(Map<String, ?> values) {
-        JsonObject store = new JsonObject();
+    /** Every store this module owns, as one document. */
+    public static String encodeAll(Context context) {
+        JsonObject stores = new JsonObject();
+        for (String name : STORES) {
+            stores.add(name, encodeStore(context == null ? null : prefs(context, name).getAll()));
+        }
+        JsonObject root = new JsonObject();
+        root.addProperty("version", FORMAT_VERSION);
+        root.addProperty("exportedAt", System.currentTimeMillis());
+        root.add("stores", stores);
+        return root.toString();
+    }
+
+    /**
+     * Restores every store the document carries.
+     *
+     * <p>A store the file omits is left untouched rather than cleared, so a backup written before
+     * the catalogue was covered still restores everything it does contain.
+     *
+     * @return how many entries were written, or -1 when the text is not a usable backup
+     */
+    public static int decodeAll(Context context, String json) {
+        JsonObject root;
+        try {
+            JsonElement parsed = JsonParser.parseString(json);
+            if (parsed == null || !parsed.isJsonObject()) return -1;
+            root = parsed.getAsJsonObject();
+        } catch (Throwable t) {
+            return -1;
+        }
+        try {
+            JsonElement version = root.get("version");
+            if (version == null || version.getAsInt() < 1
+                    || version.getAsInt() > FORMAT_VERSION) return -1;
+        } catch (Throwable t) {
+            return -1;
+        }
+        JsonElement stores = root.get("stores");
+        if (stores == null || !stores.isJsonObject() || context == null) return -1;
+        int written = 0;
+        for (String name : STORES) {
+            written += decodeStore(stores.getAsJsonObject().get(name), prefs(context, name));
+        }
+        return written;
+    }
+
+    private static JsonObject encodeStore(Map<String, ?> values) {        JsonObject store = new JsonObject();
         if (values == null) return store;
         for (Map.Entry<String, ?> entry : values.entrySet()) {
             Object value = entry.getValue();
@@ -190,8 +263,7 @@ public final class SpicyBackup {
     /** Snapshots this install and writes it to {@code Downloads/Spicy EX}. Null on failure. */
     public static String exportToDownloads(Context context) {
         if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null;
-        String json = encode(prefs(context, SpotifyPlusConfig.PREFS_NAME).getAll(),
-                prefs(context, AI_PREFS).getAll());
+        String json = encodeAll(context);
         Uri uri = null;
         boolean saved = false;
         try {
@@ -229,8 +301,7 @@ public final class SpicyBackup {
     /** Writes the snapshot to a document the owner picked. -1 when the write fails. */
     public static int writeTo(Context context, Uri target) {
         if (context == null || target == null) return -1;
-        String json = encode(prefs(context, SpotifyPlusConfig.PREFS_NAME).getAll(),
-                prefs(context, AI_PREFS).getAll());
+        String json = encodeAll(context);
         try (OutputStreamWriter writer = new OutputStreamWriter(
                 context.getContentResolver().openOutputStream(target, "wt"),
                 StandardCharsets.UTF_8)) {
@@ -255,14 +326,15 @@ public final class SpicyBackup {
         } catch (Throwable ignored) {
             return -1;
         }
-        return decodeInto(json, prefs(context, SpotifyPlusConfig.PREFS_NAME), prefs(context, AI_PREFS));
+        return decodeAll(context, json);
     }
 
     /** How many entries the export carried, used only for the confirmation message. */
     public static int settingsCount(Context context) {
         if (context == null) return 0;
-        return prefs(context, SpotifyPlusConfig.PREFS_NAME).getAll().size()
-                + prefs(context, AI_PREFS).getAll().size();
+        int total = 0;
+        for (String name : STORES) total += prefs(context, name).getAll().size();
+        return total;
     }
 
     /**

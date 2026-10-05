@@ -71,8 +71,16 @@ public final class CatalogPolicy {
         for (LyricsSourcePreferences.Source source
                 : LyricsSourcePreferences.enabledSourceOrder(context)) {
             SourceId mapped = sourceId(source);
-            if (mapped == SourceId.SPICY_ORG
-                    && !com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.canAcquire(context)) continue;
+            // SpicyLyrics.org is listed whenever the owner enabled it and a key is stored, even
+            // after a recorded access loss.
+            //
+            // This used to skip it while SpicyOrgAccessState.canAcquire() was false, and that gate
+            // takes the non-recovery path: it stays shut until a *manual* check clears the flag. So
+            // one rejection silenced the source for automatic acquisition for good, which is
+            // exactly the reported "SPICY never searches on its own, but tapping it in the picker
+            // works". Automatic acquisition is a fresh request, not a cached replay, so it is
+            // allowed to try and let the response decide; cached results stay hidden by
+            // eligibleForDisplay() until the server confirms access again.
             if (mapped != null && !order.contains(mapped)) order.add(mapped);
         }
         return new CatalogPolicy(order, LyricsSourcePreferences.rankingMode(context)

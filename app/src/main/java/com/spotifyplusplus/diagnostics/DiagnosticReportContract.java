@@ -22,7 +22,7 @@ public final class DiagnosticReportContract {
     public static final int LYRIC_LINE_BYTES = 8 * 1024;
     public static final long DRAFT_TTL_MS = 30L * 60L * 1000L;
     public static final String DATA_POLICY_URL =
-            "https://github.com/blob/main/DIAGNOSTIC_DATA_POLICY.md";
+            com.spotifyplusplus.BuildStamp.POLICY_URL;
     private static final String ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Set<String> CATEGORIES = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(

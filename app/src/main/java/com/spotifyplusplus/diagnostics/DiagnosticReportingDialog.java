@@ -494,7 +494,9 @@ public final class DiagnosticReportingDialog {
     private static void openIssue(Context context, SettingsUiStrings strings,
                                   SpicyDiagnosticReportFactory.Draft draft) {
         try {
-            Uri uri = Uri.parse("https://github.com/issues/new").buildUpon()
+            // The fork's issue tracker. "https://github.com/issues/new" has no repository in it,
+            // so it opened the site home page and the draft was never addressed to anyone.
+            Uri uri = Uri.parse(com.spotifyplusplus.BuildStamp.ISSUES_URL).buildUpon()
                     .appendQueryParameter("title", draft.issueTitle)
                     .appendQueryParameter("body", draft.issueBody)
                     .build();

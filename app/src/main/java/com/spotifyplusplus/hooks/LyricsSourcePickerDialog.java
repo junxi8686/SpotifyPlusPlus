@@ -91,6 +91,15 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
     private LyricsHost.CatalogActionCallback opening;
     /** The last session tick seen; ticks arrive every 200 ms, so only a change reloads. */
     private boolean tickPrimed;
+    /** One bounded row reload while waiting for the opening walk's rows; see autoCheckWhenReady. */
+    private boolean autoCheckReloaded;
+    /**
+     * Track whose opening check already ran, shared across panel instances.
+     *
+     * <p>Static on purpose: the panel is built fresh on every open, so an instance field would
+     * forget and re-check all six providers each time.
+     */
+    private static volatile String checkedTrackUri = "";
     private String tickTrackUri = "";
     private int tickGeneration;
     private String tickStatus = "";
@@ -295,6 +304,20 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
         }
     }
 
+    /** True once the projected rows actually carry at least one identifiable source. */
+    private boolean hasSourceRows() {
+        try {
+            for (CatalogPickerState.Shown row : state.project(checkingLabel(), confirmLabel())) {
+                if (row.source != null && row.source.kind == CatalogPickerModel.RowKind.SOURCE
+                        && row.source.sourceId != null) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     /**
      * Starts the opening walk once the track is actually known.
      *
@@ -309,6 +332,30 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             String uri = host.catalogTrackUri();
             boolean known = uri != null && !uri.isEmpty() && uri.equals(state.trackUri);
             if (known) {
+                // Each track is checked once. Opening the panel again for the same track shows the
+                // stored outcomes instead of re-asking every provider: the answers do not change
+                // within a track, and re-checking all six on every open burned the providers'
+                // rate limits for nothing. A different track re-checks, and the per-row taps
+                // still force a single source whenever the owner wants one.
+                if (uri.equals(checkedTrackUri)) {
+                    XpLog.log(TAG + " picker auto check skipped, already checked track="
+                            + uri);
+                    return;
+                }
+                // The rows have to exist before a walk can check anything. trackChanged() empties
+                // them, and this very method is what sets the uri - so treating "uri known" as
+                // ready made the walk run against an empty list. That is the "started for 0
+                // sources" line in the log, and why no source was ever checked on open.
+                if (!hasSourceRows()) {
+                    if (!autoCheckReloaded) {
+                        // Reload once, not every tick: reload() completing re-enters this path, and
+                        // an unconditional reload here looped poll -> reload -> poll.
+                        autoCheckReloaded = true;
+                        reload();
+                    }
+                    handler.postDelayed(() -> autoCheckWhenReady(attemptsLeft - 1), AUTO_CHECK_POLL_MS);
+                    return;
+                }
                 checkEverySource();
                 return;
             }
@@ -364,8 +411,9 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             }
             final com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId sourceId =
                     row.source.sourceId;
-            run(row.key, callback -> host.refreshCatalogSource(sourceId, callback),
-                    text(strings, "source_picker_checked", "Source checked"));
+            // Empty success message on purpose: this walk covers every source at once, and the
+            // rows report themselves, so a message each was six lines of noise per open.
+            run(row.key, callback -> host.refreshCatalogSource(sourceId, callback), "");
             started++;
         }
         // The counts matter: "started for 0 sources" with rows on screen means the rows were all
@@ -375,6 +423,9 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
                 + " rows=" + shown.size() + " sourceRows=" + sourceRows
                 + " skippedBusy=" + skippedBusy + " skippedNoId=" + skippedNoId
                 + " climb=" + state.climb);
+        // Remember only when the walk actually covered sources; a panel that opened before its
+        // rows existed must not mark the track as done and suppress the real check.
+        if (started > 0) checkedTrackUri = state.trackUri == null ? "" : state.trackUri;
     }
 
     /**
@@ -850,8 +901,13 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             String failure = detail == null || detail.isEmpty()
                     ? text(strings, "source_picker_failed", "Could not update source")
                     : com.spotifyplusplus.ui.LyricsErrorText.localize(detail);
-            // The outcome is reported even after the picker closed; only the rows stop updating.
-            status(success ? successMessage : failure);
+            // Success is already on screen: the row carries its own tick, its subtitle and its
+            // match status. Announcing each one again put six messages on the panel every time it
+            // opened, one per source, which is noise rather than information. Failures still speak,
+            // because a row that failed has nothing else to say.
+            if (!success || (successMessage != null && !successMessage.isEmpty())) {
+                status(success ? successMessage : failure);
+            }
             if (closed) return;
             dispatch(state.finished(key, success));
             load();
