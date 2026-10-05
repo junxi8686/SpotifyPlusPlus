@@ -667,6 +667,36 @@ public final class LyricsSyllableViewState {
         if (letter.glowSpring != null) letter.glowSpring.snap(glow);
     }
 
+    /**
+     * Sentence-level gradient wash: applies one gradient across a whole syllable segment rather
+     * than per letter, so a GlowFlexbox parent can sweep the row as a single unit.
+     */
+    public static void applySentenceGradient(SyllableSegment segment, float gradient, float glow,
+                                            float brightness) {
+        if (segment == null) return;
+        applySentenceGradientView(state(segment).textView, gradient, glow, brightness);
+        applySentenceGradientView(state(segment).romanizedTextView, gradient, glow, brightness);
+        for (AnimatedLetterState letter : state(segment).letters) {
+            if (letter != null) applySentenceGradientView(letter.view, gradient, glow, brightness);
+        }
+    }
+
+    private static void applySentenceGradientView(SpicyAnimatedTextView view, float gradient,
+                                                  float glow, float brightness) {
+        if (view == null) return;
+        view.setBrightnessMultiplier(brightness);
+        view.setSoftSweep(true);
+        for (View parent = parentView(view); parent != null; parent = parentView(parent)) {
+            if (parent instanceof GlowFlexbox) {
+                ((GlowFlexbox) parent).applySentenceGradient(view, gradient, glow);
+                return;
+            }
+        }
+        View parent = parentView(view);
+        applyContainerGradient(view, parent, parent == null ? 0 : parent.getWidth(),
+                gradient, glow, brightness);
+    }
+
     private static void applyTextGradient(SpicyAnimatedTextView view, float gradient, float glow, float brightness) {
         if (view == null) return;
         view.setBrightnessMultiplier(brightness);

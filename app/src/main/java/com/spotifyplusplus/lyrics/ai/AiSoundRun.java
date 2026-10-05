@@ -75,8 +75,10 @@ public final class AiSoundRun {
             return new Result(null, AiRunOutcome.nothingToDo());
         }
 
-        List<AiLine> rows = AiRows.forSound(base, document, existing, orthography, layered,
-                opts);
+        // This tree's AiRows still exposes the five-argument row builder; the reading-options
+        // parameter upstream added alongside the Sound lane's per-language Off switch is not part
+        // of it yet, so the call keeps the local arity.
+        List<AiLine> rows = AiRows.forSound(base, document, existing, orthography, layered);
         // Every row covered locally: the engines did their job and this costs nothing.
         if (!AiRows.hasWork(rows)) return new Result(null, AiRunOutcome.nothingToDo());
 

@@ -17,6 +17,23 @@ public class LyricsDocument {
     public String type = "Unknown";
     public String language = "";
     public String fetchSource = "unknown";
+    /**
+     * Attribution and provenance for the SpicyLyrics.org source. Kept on the document because the
+     * response is subject to origin rules (refresh deadline and hard retention) that are evaluated
+     * long after the fetch, including for documents restored from cache.
+     */
+    public String spicyOrgSource = "";
+    public String spicyOrgUploader = "";
+    public String spicyOrgUploaderUrl = "";
+    public String spicyOrgMaker = "";
+    public String spicyOrgMakerUrl = "";
+    public String spicyOrgRawPayload = "";
+    public long spicyOrgFetchedAtMs;
+    /**
+     * Set when this delivery's timing was derived in memory from a donor timeline. Null for a
+     * document that is exactly what its source returned.
+     */
+    public com.spotifyplusplus.lyrics.blend.SyncUpgradeProvenance syncUpgradeProvenance;
     /** Source-selection metadata shared by fullscreen and now-playing surfaces. */
     public String selectedSource = "";
     public String selectionMode = "smart";
@@ -80,6 +97,14 @@ public class LyricsDocument {
         copy.type = safe(source.type);
         copy.language = safe(source.language);
         copy.fetchSource = safe(source.fetchSource);
+        copy.spicyOrgSource = safe(source.spicyOrgSource);
+        copy.spicyOrgUploader = safe(source.spicyOrgUploader);
+        copy.spicyOrgUploaderUrl = safe(source.spicyOrgUploaderUrl);
+        copy.spicyOrgMaker = safe(source.spicyOrgMaker);
+        copy.spicyOrgMakerUrl = safe(source.spicyOrgMakerUrl);
+        copy.spicyOrgRawPayload = safe(source.spicyOrgRawPayload);
+        copy.spicyOrgFetchedAtMs = source.spicyOrgFetchedAtMs;
+        copy.syncUpgradeProvenance = source.syncUpgradeProvenance;
         copy.selectedSource = safe(source.selectedSource);
         copy.selectionMode = safe(source.selectionMode);
         copy.selectionOverride = safe(source.selectionOverride);

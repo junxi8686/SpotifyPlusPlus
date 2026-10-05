@@ -58,6 +58,9 @@ public final class SettingsUiSchema {
             // Lyrics sources
             Settings.LYRICS_SOURCE_MODE,
             Settings.LYRICS_SOURCE_OVERRIDE,
+            // This tree still carries the legacy desktop-captured token row; upstream retired it
+            // in favour of the SpicyLyrics.org client key, which is listed after it.
+            Settings.SPICY_MANUAL_TOKEN,
             Settings.SPICY_ORG_CLIENT_KEY,
             Settings.LYRICS_SOURCE_ORDER,
             Settings.KARAOKE_ORIGINAL_LYRICS,

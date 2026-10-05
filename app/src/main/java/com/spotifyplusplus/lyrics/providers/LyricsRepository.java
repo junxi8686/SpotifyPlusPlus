@@ -1587,6 +1587,14 @@ public final class LyricsRepository {
 
     public interface Parser {
         LyricsDocument parseSpicyLyrics(Context context, SpotifyTrack track, String raw, boolean fromCache);
+        /**
+         * SpicyLyrics.org delivers the same envelope as Apple Music. Implementations that know the
+         * origin-specific metadata override this; the default keeps a plain Apple-shaped parse so
+         * other parsers stay usable without change.
+         */
+        default LyricsDocument parseSpicyOrgLyrics(Context context, SpotifyTrack track, String raw) {
+            return parseSpicyLyrics(context, track, raw, false);
+        }
         LyricsDocument parseLrclibLyrics(Context context, SpotifyTrack track, String body);
         LyricsDocument parseAmllTtml(Context context, SpotifyTrack track, String ttml);
         LyricsDocument parseNeteaseLyrics(Context context, SpotifyTrack track, String body);

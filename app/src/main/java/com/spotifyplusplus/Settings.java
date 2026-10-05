@@ -31,6 +31,7 @@ public final class Settings {
     public static final Section BACKGROUND = LYRICS_SCREEN;
     public static final Section AI = new Section("AI", "ai");
     public static final Section PIP = new Section("Picture-in-picture", "pip");
+    public static final Section ANDROID_AUTO = new Section("Android Auto", "android_auto");
     public static final Section DEBUG = new Section("About & Diagnostics", "debug");
 
     // Its own top-level entry rather than rows inside About & Diagnostics. A backup is something
@@ -41,6 +42,18 @@ public final class Settings {
     public static final Section INTERNAL = new Section("Internal", "internal");
 
     // ===================== USER-FACING =====================
+
+    // --- Android Auto ---
+    // Requires root + LSPosed and Android Auto added to the module scope; the host app has no
+    // way to detect that for the user, so both rows are simply offered and default to off.
+    public static final Setting<Boolean> AUTO_ENABLED = boolSetting(
+            "auto_enabled", ANDROID_AUTO, "Enable Android Auto lyrics", false
+    );
+
+    public static final Setting<String> AUTO_SECONDARY_TEXT = enumSetting(
+            "auto_secondary_text", ANDROID_AUTO, "Secondary text", "Main only",
+            "Main only", "Transliteration", "Translation", "Both"
+    );
 
     // NOTE: panel section order = order sections first appear here (SettingsPanel.renderSections
     // groups by declaration order in ALL). Keep each section's settings contiguous.
@@ -187,6 +200,19 @@ public final class Settings {
     public static final Setting<Boolean> KARAOKE_ORIGINAL_LYRICS = boolSetting(
             "lyrics_karaoke_original_lyrics", LYRICS_SOURCES,
             "Show original lyrics for karaoke versions", false
+    );
+
+    /**
+     * Personal SpicyLyrics.org client key. Obtained by the user from the Spicy Lyrics catalogue;
+     * the SpicyLyrics.org source cannot be queried at all without it.
+     */
+    public static final Setting<String> SPICY_ORG_CLIENT_KEY = stringSetting(
+            "lyrics_spicy_org_client_key", LYRICS_SOURCES, "SpicyLyrics.org client key", ""
+    );
+
+    /** Upgrade low-confidence sync from the SpicyLyrics.org source against a better timeline. */
+    public static final Setting<Boolean> SYNC_UPGRADE = boolSetting(
+            "lyrics_sync_upgrade", LYRICS_SOURCES, "Upgrade lyric sync", false
     );
 
     /** Bounded JSON map of spotify track URI to source id; auto is represented by omission. */
@@ -784,6 +810,13 @@ public final class Settings {
     public static final Setting<String> PIP_SHAPE = enumSetting(
             "lyrics_pip_shape", PIP, "Window shape", "Portrait",
             "Portrait", "Square", "Tall", "Landscape", "Wide"
+    );
+
+    // Album artwork in PiP. Off by default: every PiP shape is lyrics-only, with no metadata
+    // and no blank column. On restores the former landscape artwork + metadata column only;
+    // portrait stays lyrics-only per the existing PiP layout contract.
+    public static final Setting<Boolean> PIP_ALBUM_ART = boolSetting(
+            "lyrics_pip_album_art", PIP, "Show album art", false
     );
 
     /** Width and height of a PIP_SHAPE value (the window and its layout share them). */

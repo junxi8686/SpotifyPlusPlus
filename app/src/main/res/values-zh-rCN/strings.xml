@@ -320,6 +320,12 @@
     <string name="settings_label_lyrics_source_order">歌词来源顺序</string>
     <string name="settings_label_lyrics_source_overrides">按曲目指定歌词来源</string>
     <string name="settings_label_lyrics_spicy_manual_token">Spicy 手动令牌</string>
+    <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org 客户端密钥</string>
+    <string name="settings_label_lyrics_sync_upgrade">升级歌词同步</string>
+    <string name="settings_section_android_auto">Android Auto</string>
+    <string name="settings_label_auto_enabled">启用 Android Auto 歌词</string>
+    <string name="settings_label_auto_secondary_text">副标题文本</string>
+    <string name="settings_label_lyrics_pip_album_art">显示专辑封面</string>
     <string name="settings_label_lyrics_karaoke_original_lyrics">卡拉 OK 版本显示原版歌词</string>
     <string name="settings_option_lyrics_source_selection_mode_auto">自动</string>
     <string name="settings_option_lyrics_source_selection_mode_source_order">按来源顺序</string>

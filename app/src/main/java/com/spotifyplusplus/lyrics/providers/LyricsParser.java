@@ -94,6 +94,54 @@ public final class LyricsParser implements LyricsRepository.Parser {
         return doc;
     }
 
+    /**
+     * SpicyLyrics.org responses share the Apple Music envelope, so the base parse is reused and the
+     * origin-specific metadata, provider label, and contributor credit are layered on afterwards.
+     * The credit requirement is deliberate: SpicyLyrics.org content is contributor-uploaded, and a
+     * response that names the source as {@code spicy_lyrics} without usable attribution is rejected
+     * rather than displayed without credit.
+     */
+    @Override
+    public LyricsDocument parseSpicyOrgLyrics(Context context, SpotifyTrack track, String raw) {
+        SpicyOrgProtocol.body(raw, trackIdFromUri(track == null ? "" : track.uri));
+        LyricsDocument doc = parseSpicyLyrics(context, track, raw, false);
+        doc.fetchSource = "spicy_org";
+        doc.spicyOrgFetchedAtMs = System.currentTimeMillis();
+        doc.spicyOrgRawPayload = raw;
+
+        JsonElement parsed = JsonParser.parseString(raw);
+        JsonObject data = findLyricsData(parsed);
+        if (data == null) return doc;
+        String source = safe(Json.optString(data, "source"));
+        doc.spicyOrgSource = source;
+        switch (source) {
+            case "spicy_lyrics": doc.provider = "Spicy Lyrics"; break;
+            case "apple_music": doc.provider = "Apple Music"; break;
+            case "spotify": doc.provider = "Spotify (Musixmatch)"; break;
+            default: doc.provider = "Unknown"; break;
+        }
+        JsonObject credit = Json.optObject(data, "UploadAttribution");
+        JsonObject uploader = Json.optObject(credit, "Uploader");
+        JsonObject maker = Json.optObject(credit, "Maker");
+        doc.spicyOrgUploader = safe(Json.optString(uploader, "username"));
+        doc.spicyOrgUploaderUrl = safe(Json.optString(uploader, "url"));
+        doc.spicyOrgMaker = safe(Json.optString(maker, "username"));
+        doc.spicyOrgMakerUrl = safe(Json.optString(maker, "url"));
+        if ("spicy_lyrics".equals(source)
+                && (isBlank(doc.spicyOrgUploader) || !validCreditUrl(doc.spicyOrgUploaderUrl)
+                || (!isBlank(doc.spicyOrgMaker) && !validCreditUrl(doc.spicyOrgMakerUrl)))) {
+            throw new IllegalArgumentException("Missing Spicy Lyrics contributor credit");
+        }
+        return doc;
+    }
+
+    /** Attribution links are rendered as spans, so only absolute http(s) URLs are accepted. */
+    private static boolean validCreditUrl(String url) {
+        if (isBlank(url)) return false;
+        String v = url.trim().toLowerCase(java.util.Locale.ROOT);
+        return v.startsWith("https://") || v.startsWith("http://");
+    }
+
     @Override
     public LyricsDocument parseLrclibLyrics(Context context, SpotifyTrack track, String body) {
         JsonElement root = JsonParser.parseString(body);

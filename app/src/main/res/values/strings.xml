@@ -39,6 +39,8 @@
     <string name="settings_label_lyrics_source_selection_mode">Lyrics source ranking</string>
     <string name="settings_label_lyrics_source_override">Lyrics source</string>
     <string name="settings_label_lyrics_spicy_manual_token">Spicy manual token</string>
+    <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org client key</string>
+    <string name="settings_label_lyrics_sync_upgrade">Upgrade lyric sync</string>
     <string name="settings_label_lyrics_source_order">Lyrics source order</string>
     <string name="settings_label_lyrics_source_overrides">Per-track lyric sources</string>
     <string name="settings_label_lyrics_karaoke_original_lyrics">Show original lyrics for karaoke versions</string>
@@ -183,6 +185,10 @@
     <string name="settings_option_transliteration">Transliteration</string>
     <string name="settings_option_translation">Translation</string>
     <string name="settings_option_both">Both</string>
+    <!-- Android Auto -->
+    <string name="settings_section_android_auto">Android Auto</string>
+    <string name="settings_label_auto_enabled">Enable Android Auto lyrics</string>
+    <string name="settings_label_auto_secondary_text">Secondary text</string>
     <string name="settings_option_minimal">Minimal</string>
     <string name="settings_option_karaoke_fill">Karaoke fill</string>
     <string name="settings_option_spotlight_word">Spotlight word</string>
@@ -577,6 +583,7 @@
     <string name="settings_option_lyrics_pip_shape_landscape">Landscape (4:3)</string>
     <string name="settings_option_lyrics_pip_shape_wide">Wide (16:9)</string>
     <string name="settings_label_lyrics_pip_enabled">Show picture-in-picture button</string>
+    <string name="settings_label_lyrics_pip_album_art">Show album art</string>
     <string name="settings_search_lyrics_pip_enabled">pip button, minimize lyrics, floating lyrics</string>
 
     <!-- New in the zh-CN pass: names the Java sources used to inline. -->

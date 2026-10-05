@@ -315,6 +315,75 @@ public final class CatalogStore {
 
     // --- Derived artifacts -------------------------------------------------------------------
 
+    /**
+     * The alarm and the diagnostic command channel use the same bounded cleanup as normal catalog
+     * reads. Returns the number of rows removed, or -1 when storage could not be read.
+     */
+    public static int pruneExpiredOrg(Context context) {
+        if (context == null) return -1;
+        try {
+            SQLiteDatabase db = helper(context).getWritableDatabase();
+            int removed = purgeExpiredSpicy(db, System.currentTimeMillis());
+            try (Cursor ignored = db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null)) {
+                // Active readers may postpone truncation; later maintenance retries it.
+                ignored.moveToFirst();
+            }
+            return removed;
+        } catch (Throwable error) {
+            Diagnostics.warn("CatalogStore", "orgMaintenance", error);
+            return -1;
+        }
+    }
+
+    /** Zero means no SpicyLyrics.org rows. Minus one means storage could not be read. */
+    public static long nextOrgExpiryAt(Context context) {
+        if (context == null) return -1;
+        try (Cursor cursor = helper(context).getReadableDatabase().rawQuery(
+                "SELECT MIN(fetched_at_ms), MAX(fetched_at_ms) FROM " + CatalogSchema.TABLE_CANDIDATES
+                        + " WHERE source_id = ?", new String[]{CatalogSource.SourceId.SPICY_ORG.id})) {
+            if (!cursor.moveToFirst()) return -1;
+            return com.spotifyplusplus.lyrics.providers.SpicyOrgRetentionPlan.deadline(
+                    !cursor.isNull(0), cursor.getLong(0), cursor.getLong(1), System.currentTimeMillis());
+        } catch (Throwable error) {
+            Diagnostics.warn("CatalogStore", "orgDeadline", error);
+            return -1;
+        }
+    }
+
+    /** Deletes all expired SpicyLyrics.org responses and their unshared derived data in one transaction. */
+    private static int purgeExpiredSpicy(SQLiteDatabase db, long nowMs) {
+        db.beginTransaction();
+        try {
+            String expired = "source_id = ? AND (fetched_at_ms <= 0 OR fetched_at_ms <= ? OR fetched_at_ms > ?)";
+            String[] args = {CatalogSource.SourceId.SPICY_ORG.id,
+                    String.valueOf(nowMs - com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy.RETENTION_MS),
+                    String.valueOf(nowMs)};
+            Set<String> digests = new LinkedHashSet<>();
+            Set<String> tracks = new LinkedHashSet<>();
+            try (Cursor cursor = db.query(CatalogSchema.TABLE_CANDIDATES,
+                    new String[]{"canonical_digest", "track_id"}, expired, args,
+                    null, null, null)) {
+                while (cursor.moveToNext()) {
+                    digests.add(cursor.getString(0));
+                    tracks.add(cursor.getString(1));
+                }
+            }
+            int removed = db.delete(CatalogSchema.TABLE_CANDIDATES, expired, args);
+            for (String track : tracks) {
+                ContentValues status = new ContentValues();
+                status.put("status", CatalogSource.ProviderStatus.NEEDS_REFRESH.name());
+                db.update(CatalogSchema.TABLE_PROVIDER_STATES, status,
+                        "track_id = ? AND source_id = ?",
+                        new String[]{track, CatalogSource.SourceId.SPICY_ORG.id});
+            }
+            deleteOrphanArtifacts(db, digests);
+            db.setTransactionSuccessful();
+            return removed;
+        } finally {
+            db.endTransaction();
+        }
+    }
+
     /** Stored artifact payload for a content key, or null. Reads never mutate. */
     public static String artifact(Context context, String key) {
         if (context == null || key == null || key.isEmpty()) return null;
