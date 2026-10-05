@@ -93,6 +93,10 @@ public final class CatalogStore {
             } finally {
                 db.endTransaction();
             }
+            // A committed write may have moved the oldest SpicyLyrics.org row, which is what the
+            // retention deadline is derived from. Re-arming here keeps the alarm honest even if
+            // the prune itself could not run.
+            com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.reschedule(context);
             return new Committed(true, before, change);
         } catch (Throwable t) {
             Diagnostics.warn("CatalogStore", "transact", t);
@@ -104,7 +108,11 @@ public final class CatalogStore {
     public static CatalogState state(Context context, String trackId) {
         if (context == null || trackId == null || trackId.isEmpty()) return CatalogState.empty(trackId);
         try {
-            SQLiteDatabase db = helper(context).getReadableDatabase();
+            SQLiteDatabase db = helper(context).getWritableDatabase();
+            // Expired SpicyLyrics.org rows are dropped on read as well as by the retention alarm:
+            // the alarm can be killed by the system, and a read that returned an expired row
+            // would hand the renderer lyrics the source rules say are out of date.
+            purgeExpiredSpicy(db, System.currentTimeMillis());
             // F10: one read transaction across every table. In WAL mode this snapshot cannot
             // interleave with a concurrent commit, so a selection always references
             // candidates from the same snapshot instead of a mix that never existed.
@@ -458,10 +466,16 @@ public final class CatalogStore {
 
     public static CatalogCandidate candidateById(Context context, String candidateId) {
         if (context == null || candidateId == null || candidateId.isEmpty()) return null;
-        try (Cursor cursor = helper(context).getReadableDatabase().query(
-                CatalogSchema.TABLE_CANDIDATES, CANDIDATE_COLUMNS, "candidate_id = ?",
-                new String[]{candidateId}, null, null, null)) {
-            return cursor.moveToFirst() ? candidate(cursor) : null;
+        try {
+            // Same read-path sweep as state(): a pin resolved by id must not return an
+            // expired SpicyLyrics.org row the retention rules have already retired.
+            SQLiteDatabase db = helper(context).getWritableDatabase();
+            purgeExpiredSpicy(db, System.currentTimeMillis());
+            try (Cursor cursor = db.query(
+                    CatalogSchema.TABLE_CANDIDATES, CANDIDATE_COLUMNS, "candidate_id = ?",
+                    new String[]{candidateId}, null, null, null)) {
+                return cursor.moveToFirst() ? candidate(cursor) : null;
+            }
         } catch (Throwable t) {
             Diagnostics.warn("CatalogStore", "candidateById", t);
             return null;
@@ -613,14 +627,27 @@ public final class CatalogStore {
     }
 
     private static final class Helper extends SQLiteOpenHelper {
+        /** Kept so the open hook can re-arm the SpicyLyrics.org retention alarm. */
+        private final Context owner;
+
         Helper(Context context) {
             super(context, CatalogSchema.DATABASE, null, CatalogSchema.VERSION);
+            this.owner = context.getApplicationContext() == null ? context : context.getApplicationContext();
             setWriteAheadLoggingEnabled(true);
         }
 
         @Override
         public void onCreate(SQLiteDatabase db) {
             for (String sql : CatalogSchema.createAll()) db.execSQL(sql);
+        }
+
+        @Override
+        public void onOpen(SQLiteDatabase db) {
+            super.onOpen(db);
+            // Every open is a chance to drop rows the source rules have already retired and to
+            // make sure the deadline the alarm will use reflects what is left.
+            purgeExpiredSpicy(db, System.currentTimeMillis());
+            com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.reschedule(owner);
         }
 
         @Override
