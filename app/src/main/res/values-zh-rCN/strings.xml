@@ -340,7 +340,7 @@
     <string name="settings_spicy_token_rejected">令牌未保存</string>
     <string name="settings_source_pinned_hint">固定某一个来源，或在所有已启用来源之间使用自动排序。</string>
     <string name="settings_source_ranking_title">排序</string>
-    <string name="settings_source_ranking_auto_desc"></string>
+    <string name="settings_source_ranking_auto_desc">SpicyLyrics.org → Spotify → AMLL，然后是后备来源</string>
     <string name="settings_source_ranking_order_desc">按下方顺序</string>
     <string name="settings_source_order_hint"></string>
     <string name="settings_source_drag">拖动调整顺序</string>

@@ -198,7 +198,8 @@ public final class SourceOrderEditor {
         // same options the settings panel exposes for the same setting, so their labels resolve
         // through the same resource names rather than being authored twice, once in English.
         final String[][] rankingOptions = new String[][]{
-                {MODE_AUTO, strings.option(modeSetting(), MODE_AUTO)},
+                {MODE_AUTO, strings.option(modeSetting(), MODE_AUTO) + " — "
+                        + strings.get("settings_source_ranking_auto_desc", "the default source order")},
                 {MODE_SOURCE_ORDER, strings.option(modeSetting(), MODE_SOURCE_ORDER) + " — "
                         + strings.get("settings_source_ranking_order_desc", "follow the order below")}
         };

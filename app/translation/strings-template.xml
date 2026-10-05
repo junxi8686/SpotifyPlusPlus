@@ -67,7 +67,7 @@
     <string name="settings_source_none_enabled">None enabled</string>
     <string name="settings_source_pinned_hint">Pin one source, or use Auto ranking across every enabled source.</string>
     <string name="settings_source_ranking_title">Ranking</string>
-    <string name="settings_source_ranking_auto_desc"></string>
+    <string name="settings_source_ranking_auto_desc">SpicyLyrics.org → Spotify → AMLL, then backup sources</string>
     <string name="settings_source_ranking_order_desc">follow the order below</string>
     <string name="settings_source_order_title">Order</string>
     <string name="settings_source_order_hint"></string>
