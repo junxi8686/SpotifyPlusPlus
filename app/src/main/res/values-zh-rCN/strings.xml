@@ -322,6 +322,8 @@
     <string name="settings_label_lyrics_spicy_manual_token">Spicy 手动令牌</string>
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org 客户端密钥</string>
     <string name="settings_label_lyrics_sync_upgrade">升级歌词同步</string>
+    <string name="settings_sync_upgrade_summary">开启后，当歌词匹配时，会使用已启用的 QQ 音乐或网易云来源的时间轴。歌词文本本身不会改变。</string>
+    <string name="settings_auto_root_requirement">需要 root 与 LSPosed/Vector，并在作用域中勾选 Spotify 和 Android Auto。</string>
     <string name="settings_section_android_auto">Android Auto</string>
     <string name="settings_label_auto_enabled">启用 Android Auto 歌词</string>
     <string name="settings_label_auto_secondary_text">副标题文本</string>

@@ -41,6 +41,8 @@
     <string name="settings_label_lyrics_spicy_manual_token">Spicy manual token</string>
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org client key</string>
     <string name="settings_label_lyrics_sync_upgrade">Upgrade lyric sync</string>
+    <string name="settings_sync_upgrade_summary">This option uses timing from enabled QQ Music or NetEase sources when the lyrics match. The lyric text does not change.</string>
+    <string name="settings_auto_root_requirement">Requires root and LSPosed/Vector. Scope Spotify and Android Auto.</string>
     <string name="settings_label_lyrics_source_order">Lyrics source order</string>
     <string name="settings_label_lyrics_source_overrides">Per-track lyric sources</string>
     <string name="settings_label_lyrics_karaoke_original_lyrics">Show original lyrics for karaoke versions</string>
