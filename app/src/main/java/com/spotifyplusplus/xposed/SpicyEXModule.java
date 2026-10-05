@@ -12,6 +12,7 @@ import com.spotifyplusplus.Diagnostics;
 import com.spotifyplusplus.References;
 import com.spotifyplusplus.SpotifyPlusConfig;
 import com.spotifyplusplus.hooks.NativeSpicyLyricsHook;
+import com.spotifyplusplus.hooks.SpicyOrgRetentionHook;
 import com.spotifyplusplus.lyrics.session.LyricsMemoryPressure;
 
 import io.github.libxposed.api.XposedModule;
@@ -112,6 +113,12 @@ public final class SpicyEXModule extends XposedModule {
                     Diagnostics.initialize(context);
                     LyricsMemoryPressure.install(context);
                     com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor.attachContext(context);
+                    // Retention for SpicyLyrics.org catalogue rows. This rides an existing inert
+                    // receiver in Spotify's own manifest, so it installs against the host's
+                    // class loader rather than a component of ours. Failure here only means the
+                    // expired-row sweep never runs - the source itself still works - so the hook
+                    // logs and gives up instead of aborting the rest of bootstrap.
+                    SpicyOrgRetentionHook.install(context, xpPackage.classLoader());
                     Diagnostics.event("bootstrap", "application_attach",
                             Diagnostics.context("process", Application.getProcessName()));
                     cleanUpCache(context);
