@@ -744,4 +744,12 @@
     <string name="settings_language_model_retry">点按重试</string>
     <string name="settings_language_model_idle">点按下载</string>
     <string name="settings_language_model_size">可选语言包</string>
+
+    <!-- SpicyLyrics.org 客户端密钥行 -->
+    <string name="settings_spicy_key_help">在 https://developers.spicylyrics.org/catalog/spicy-ex 申请你的个人客户端密钥</string>
+    <string name="settings_spicy_key_absent">未设置</string>
+    <string name="settings_spicy_key_edit">填入密钥</string>
+    <string name="settings_spicy_key_reveal">查看密钥</string>
+    <string name="settings_spicy_key_delete">删除密钥</string>
+    <string name="settings_spicy_key_rejected">密钥未保存：需要 sl_pk_ 开头的值</string>
 </resources>

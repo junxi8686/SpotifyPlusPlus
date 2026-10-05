@@ -805,4 +805,11 @@
     <string name="settings_language_model_retry">Tap to retry</string>
     <string name="settings_language_model_idle">Tap to download</string>
     <string name="settings_language_model_size">Optional language pack</string>
+
+    <string name="settings_spicy_key_help">Get a personal client key at https://developers.spicylyrics.org/catalog/spicy-ex</string>
+    <string name="settings_spicy_key_absent">Not set</string>
+    <string name="settings_spicy_key_edit">Enter key</string>
+    <string name="settings_spicy_key_reveal">Reveal key</string>
+    <string name="settings_spicy_key_delete">Delete key</string>
+    <string name="settings_spicy_key_rejected">Key not saved: expected a sl_pk_ value</string>
 </resources>

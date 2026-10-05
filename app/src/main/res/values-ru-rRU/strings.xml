@@ -272,4 +272,24 @@
     <string name="settings_option_slight">Лёгкое</string>
     <string name="settings_option_heavy">Тяжёлое</string>
     <string name="lyrics_follow_chip_label">Следовать за текстом</string>
+
+    <!-- SpicyLyrics.org -->
+    <string name="settings_label_lyrics_spicy_org_client_key">Клиентский ключ SpicyLyrics.org</string>
+    <string name="settings_label_lyrics_sync_upgrade">Улучшить синхронизацию текста</string>
+    <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
+    <string name="source_picker_spicy_key_required">Укажите свой личный клиентский ключ в настройках</string>
+    <string name="settings_spicy_key_help">Получите личный клиентский ключ на https://developers.spicylyrics.org/catalog/spicy-ex</string>
+    <string name="settings_spicy_key_absent">Не задан</string>
+    <string name="settings_spicy_key_edit">Ввести ключ</string>
+    <string name="settings_spicy_key_reveal">Показать ключ</string>
+    <string name="settings_spicy_key_delete">Удалить ключ</string>
+    <string name="settings_spicy_key_rejected">Ключ не сохранён: ожидается значение вида sl_pk_</string>
+
+    <!-- Android Auto -->
+    <string name="settings_section_android_auto">Android Auto</string>
+    <string name="settings_label_auto_enabled">Включить текст в Android Auto</string>
+    <string name="settings_label_auto_secondary_text">Дополнительный текст</string>
+
+    <!-- Picture-in-picture -->
+    <string name="settings_label_lyrics_pip_album_art">Показывать обложку</string>
 </resources>

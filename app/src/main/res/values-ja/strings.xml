@@ -462,4 +462,24 @@
     <string name="settings_option_lyrics_pip_shape_wide">ワイド (16:9)</string>
     <string name="settings_label_lyrics_pip_enabled">PiPボタンを表示</string>
     <string name="settings_search_lyrics_pip_enabled">pip ボタン, 歌詞を小窓で表示</string>
+
+    <!-- SpicyLyrics.org -->
+    <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org クライアントキー</string>
+    <string name="settings_label_lyrics_sync_upgrade">歌詞の同期をアップグレード</string>
+    <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
+    <string name="source_picker_spicy_key_required">設定で個人クライアントキーを入力してください</string>
+    <string name="settings_spicy_key_help">https://developers.spicylyrics.org/catalog/spicy-ex で個人クライアントキーを取得してください</string>
+    <string name="settings_spicy_key_absent">未設定</string>
+    <string name="settings_spicy_key_edit">キーを入力</string>
+    <string name="settings_spicy_key_reveal">キーを表示</string>
+    <string name="settings_spicy_key_delete">キーを削除</string>
+    <string name="settings_spicy_key_rejected">キーを保存できません: sl_pk_ で始まる値が必要です</string>
+
+    <!-- Android Auto -->
+    <string name="settings_section_android_auto">Android Auto</string>
+    <string name="settings_label_auto_enabled">Android Auto の歌詞を有効にする</string>
+    <string name="settings_label_auto_secondary_text">副次テキスト</string>
+
+    <!-- Picture-in-picture -->
+    <string name="settings_label_lyrics_pip_album_art">アルバムアートを表示</string>
 </resources>

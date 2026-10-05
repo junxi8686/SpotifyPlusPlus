@@ -481,4 +481,24 @@
     <string name="settings_option_lyrics_pip_shape_wide">와이드 (16:9)</string>
     <string name="settings_label_lyrics_pip_enabled">PiP 버튼 표시</string>
     <string name="settings_search_lyrics_pip_enabled">pip 버튼, 가사 작은 창</string>
+
+    <!-- SpicyLyrics.org -->
+    <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org 클라이언트 키</string>
+    <string name="settings_label_lyrics_sync_upgrade">가사 동기화 업그레이드</string>
+    <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
+    <string name="source_picker_spicy_key_required">설정에서 개인 클라이언트 키를 입력하세요</string>
+    <string name="settings_spicy_key_help">https://developers.spicylyrics.org/catalog/spicy-ex 에서 개인 클라이언트 키를 발급받으세요</string>
+    <string name="settings_spicy_key_absent">설정 안 됨</string>
+    <string name="settings_spicy_key_edit">키 입력</string>
+    <string name="settings_spicy_key_reveal">키 보기</string>
+    <string name="settings_spicy_key_delete">키 삭제</string>
+    <string name="settings_spicy_key_rejected">키가 저장되지 않았습니다: sl_pk_ 로 시작해야 합니다</string>
+
+    <!-- Android Auto -->
+    <string name="settings_section_android_auto">Android Auto</string>
+    <string name="settings_label_auto_enabled">Android Auto 가사 사용</string>
+    <string name="settings_label_auto_secondary_text">보조 텍스트</string>
+
+    <!-- Picture-in-picture -->
+    <string name="settings_label_lyrics_pip_album_art">앨범 아트 표시</string>
 </resources>
