@@ -143,6 +143,9 @@ final class LyricsSessionManager {
     private CatalogPolicy loadedPolicy;
     /** This visit's next automatic fetch; null once the catalog plan settled the visit. */
     private AcquisitionPlanner.Plan pendingPlan;
+    /** Demand lease kept alive while any surface waits on lyrics; see {@link #retainPoll}. */
+    private PollingDemandLease pollLease;
+    private int pollLeases;
     private boolean replanning;
     /** Spotify native (local, free) was already tried during this visit. */
     private boolean localTried;
@@ -255,10 +258,25 @@ final class LyricsSessionManager {
             callback.onError("Missing Spotify track");
             return () -> {};
         }
+        // A surface is asking for lyrics, so the session's poll has a reason to run.
+        //
+        // Automatic acquisition is driven by that poll, and the poll only runs while something
+        // holds a demand lease. The only holders were the source picker, HyperGlow and Android
+        // Auto - both of the latter default to false - so requesting lyrics never started the poll,
+        // maybeFetch() was never reached, and the search across QQ Music, NetEase, LRCLIB and AMLL
+        // never ran. The surface was left showing Spotify's own captured lyrics, which arrive
+        // through the capture hooks and need no poll at all.
         adoptTrack(requestedTrack);
         if (document != null) {
             callback.onSuccess(publishedProjection(document));
-            return () -> {};
+            // Serving what is on screen is not a reason to stop looking. Spotify's own captured
+            // lyrics land here first, and returning without arming the fetch is what left a
+            // line-timed Traditional document on screen while QQ Music and NetEase held word-timed
+            // Simplified ones. The surface keeps a lease while it is up, so it is taken here and
+            // handed back by the returned handle.
+            retainPoll();
+            maybeFetch();
+            return this::releasePollIfIdle;
         }
         if ("no_lyrics".equals(status) && canonicalLoadingUri.isEmpty()
                 && !policy.trackUri().equals(loadingUri)
@@ -269,6 +287,8 @@ final class LyricsSessionManager {
         }
         RequestRecord request = new RequestRecord(policy.generation(), callback);
         requests.add(request);
+        // Balanced by RequestRecord.close(), which releases once the last request is gone.
+        retainPoll();
         maybeFetch();
         return request;
     }
@@ -1605,6 +1625,26 @@ final class LyricsSessionManager {
         @Override public void close() {
             if (!lifetime.close()) return;
             requests.remove(this);
+            releasePollIfIdle();
         }
+    }
+
+    /**
+     * One demand lease held for as long as any surface is waiting on lyrics. Reference counted
+     * because a surface can be rebuilt while an older request is still settling.
+     */
+    private synchronized void retainPoll() {
+        if (pollLeases++ == 0) pollLease = acquirePollingDemand();
+    }
+
+    private void releasePollIfIdle() {
+        PollingDemandLease closing = null;
+        synchronized (this) {
+            if (pollLeases == 0 || !requests.isEmpty()) return;
+            pollLeases = 0;
+            closing = pollLease;
+            pollLease = null;
+        }
+        if (closing != null) closing.close();
     }
 }
