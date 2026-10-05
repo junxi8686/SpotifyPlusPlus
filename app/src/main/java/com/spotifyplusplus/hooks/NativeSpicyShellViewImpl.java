@@ -2438,6 +2438,13 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         handler.post(() -> {
             SpotifyTrack current = host.getCurrentTrackSafely();
             String currentId = current == null ? "" : trackIdFromUri(current.uri);
+            // The live track read is version-fragile and can return nothing while the track this
+            // fetch was requested for is still playing. Treating that as a different track
+            // discarded every document the automatic search produced, leaving only Spotify's own
+            // captured lyrics on screen. Fall back to the identity this fetch was requested for,
+            // which is the same value the candidate was stamped with - a genuine track change
+            // still differs and is still rejected.
+            if (currentId.isEmpty()) currentId = id;
             if (!running || !documentGate.accepts(candidate, currentId)) {
                 if (running && !id.equals(currentId)) {
                     XpLog.log(TAG + " stale lyrics ignored id=" + id + " current=" + currentId);

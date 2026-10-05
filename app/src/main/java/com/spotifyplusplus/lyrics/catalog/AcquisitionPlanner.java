@@ -5,6 +5,7 @@ import com.spotifyplusplus.lyrics.catalog.CatalogSource.SelectionMode;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.Collections;
@@ -60,6 +61,85 @@ public final class AcquisitionPlanner {
         public boolean fetches() {
             return action == Action.FETCH;
         }
+    }
+
+    /**
+     * Ask every source that is due right now, all at once.
+     *
+     * <p>{@link #plan} deliberately proposes one source per round so each provider's outcome is
+     * recorded before the next is tried. That keeps the retry bookkeeping tidy but makes the owner
+     * wait for the sum of every provider, and it meant a word-timed answer from QQ Music only
+     * arrived after Spotify's and NetEase's line-timed answers had each taken a turn - tens of
+     * seconds apart.
+     *
+     * <p>This applies the same eligibility rules as {@link #plan} - same hard filters, same
+     * retry horizons, same "earlier than the seat" ordering - and then hands the whole due set to
+     * one racing scope. The repository consults them concurrently, shows the first usable answer,
+     * and upgrades it only for a strictly better one, so quality is unchanged while the wait drops
+     * to the fastest source.
+     */
+    public static Plan racePlan(CatalogState state, CatalogPolicy policy, Resolution rendered,
+                                long nowMs, boolean includeLocal, Set<SourceId> attemptedThisVisit) {
+        Set<SourceId> attempted = attemptedThisVisit == null
+                ? Collections.emptySet() : attemptedThisVisit;
+        CatalogPolicy p = policy == null ? new CatalogPolicy(null, false) : policy;
+        if (p.enabledOrder.isEmpty()) return none(0L, "all-sources-disabled");
+        CatalogCandidate seat = rendered == null ? null : rendered.winner;
+        boolean pinned = seat != null && !rendered.temporary
+                && state.selection.mode == SelectionMode.MANUAL;
+        boolean orgSeat = seat != null && seat.sourceId == SourceId.SPICY_ORG
+                && p.enabled(SourceId.SPICY_ORG);
+        if (pinned && !orgSeat) return none(0L, "manual-pin");
+
+        // Same eligible set and order as plan(); only the number asked per round differs.
+        List<SourceId> order = autoSources(p);
+        int seatIndex = seat == null ? order.size() : order.indexOf(seat.sourceId);
+        if (seatIndex < 0) seatIndex = order.size();
+        boolean supplement = seat != null && CatalogPolicy.primary(seat.sourceId)
+                && p.syncUpgradeEnabled;
+
+        List<SourceId> due = new ArrayList<>();
+        long nextDue = 0L;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int index = 0; index < order.size(); index++) {
+                SourceId source = order.get(index);
+                if (attempted.contains(source) != (pass == 1)) continue;
+                boolean earlier = index < seatIndex;
+                boolean donor = supplement && CatalogPolicy.syncDonor(source)
+                        && source != seat.sourceId;
+                boolean orgRefresh = source == SourceId.SPICY_ORG && orgSeat;
+                if (pinned && !orgRefresh) continue;
+                if (seat != null && !earlier && !donor && !orgRefresh) continue;
+                if (source == SourceId.SPOTIFY_NATIVE && !includeLocal) continue;
+                ProviderRecord record = state.provider(source);
+                long at = dueAt(record, state, p, source);
+                if (orgRefresh) {
+                    long refreshAt = seat.fetchedAtMs + SpicyOrgPolicy.REFRESH_AFTER_MS;
+                    at = record.status == CatalogSource.ProviderStatus.AVAILABLE ? refreshAt
+                            : Math.max(refreshAt, at);
+                }
+                if (at <= nowMs) {
+                    if (!due.contains(source)) due.add(source);
+                } else if (at != Long.MAX_VALUE && (nextDue == 0L || at < nextDue)) {
+                    nextDue = at;
+                }
+            }
+        }
+        if (due.isEmpty()) {
+            return none(nextDue, pinned ? "manual-pin"
+                    : seat != null ? "anchor-satisfied" : "no-seat-suppressed");
+        }
+        return new Plan(Action.FETCH,
+                new AcquisitionScope(due, p.sourceOrderMode, p.karaokeOriginalLyrics, true),
+                nextDue, "race-due-sources");
+    }
+
+    /** Inclusion guard and due-check shared by {@link #racePlan}'s loop. */
+    private static long dueAt(ProviderRecord record, CatalogState state, CatalogPolicy p,
+                              SourceId source) {
+        return record.status == CatalogSource.ProviderStatus.AVAILABLE
+                && hasOnlyPolicyIneligibleCandidates(state, p, source)
+                ? 0L : dueAtMs(record, false);
     }
 
     /**

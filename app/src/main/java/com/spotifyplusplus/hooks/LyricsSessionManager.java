@@ -488,7 +488,16 @@ final class LyricsSessionManager {
         }
         AcquisitionPlanner.Plan plan = view.plan;
         if (plan.fetches()) {
-            pendingPlan = plan;
+            // The planner proposes one source per round, which made the owner wait for the sum of
+            // every provider and let a slow Spotify/NetEase turn hold back the word-timed answer
+            // from QQ Music. Re-plan the same state as a race over every source that is due right
+            // now - same eligibility rules, same retry horizons - so one round asks them all and
+            // the fastest answer lands first. Falls back to the single-source plan when only one
+            // source is due, which keeps the walking behaviour for retries.
+            AcquisitionPlanner.Plan racing = AcquisitionPlanner.racePlan(
+                    view.state, view.policy, CatalogDecisions.render(view.state, view.policy),
+                    System.currentTimeMillis(), !localTried, java.util.Collections.emptySet());
+            pendingPlan = racing != null && racing.fetches() ? racing : plan;
             nextFetchAtMs = afterAttempt ? now + AcquisitionPlanner.TRANSIENT_BASE_RETRY_MS : now;
         } else if (plan.retryAtMs > 0L) {
             // Nothing is due yet: re-plan from stored state once the earliest source is.

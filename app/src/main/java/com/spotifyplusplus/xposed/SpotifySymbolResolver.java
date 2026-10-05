@@ -90,6 +90,15 @@ public final class SpotifySymbolResolver implements AutoCloseable {
                 () -> findTrackMethod(wrapper, returnType));
     }
 
+    /**
+     * The accessor that hands back the current track, discovered by shape rather than by declared
+     * return type. See {@link #findTrackAccessor}.
+     */
+    public Method trackAccessor(Class<?> wrapper) throws Exception {
+        return cache.method("trackAccessor." + wrapper.getName(),
+                () -> findTrackAccessor(wrapper));
+    }
+
     static Method findTrackMethod(Class<?> wrapper, Class<?> returnType) throws NoSuchMethodException {
         int required = Modifier.PUBLIC | Modifier.FINAL;
         for (Method method : wrapper.getDeclaredMethods()) {
@@ -99,6 +108,37 @@ public final class SpotifySymbolResolver implements AutoCloseable {
             }
         }
         throw new NoSuchMethodException(wrapper.getName() + " track accessor " + returnType.getName());
+    }
+
+    /**
+     * The accessor that hands back the current track.
+     *
+     * <p>Spotify 9.1.88 declares it with the concrete track type rather than {@code Object}, so
+     * asking for a method whose return type is exactly {@code Object} finds nothing and every
+     * track lookup fails - which is what stops automatic lyric search from having a track to
+     * search for. The caller already validates the result with {@code ContextTrack.isInstance},
+     * so any reference-typed no-argument accessor will do; that check is what identifies the
+     * right one, not the declared return type.
+     */
+    static Method findTrackAccessor(Class<?> wrapper) throws NoSuchMethodException {
+        int required = Modifier.PUBLIC | Modifier.FINAL;
+        Method best = null;
+        for (Method method : wrapper.getDeclaredMethods()) {
+            if ((method.getModifiers() & required) != required) continue;
+            if (method.getParameterTypes().length != 0) continue;
+            Class<?> type = method.getReturnType();
+            // Primitives, String and the void marker cannot be a track; the map-shaped metadata
+            // accessor is excluded because the caller reads fields off the returned object.
+            if (type.isPrimitive() || type == void.class || type == String.class) continue;
+            if (java.util.Map.class.isAssignableFrom(type)) continue;
+            if (type == boolean.class) continue;
+            // Prefer the most specific declared type: several accessors can qualify.
+            if (best == null || best.getReturnType().isAssignableFrom(type)) best = method;
+        }
+        if (best == null) {
+            throw new NoSuchMethodException(wrapper.getName() + " has no track accessor");
+        }
+        return best;
     }
 
     @Override public synchronized void close() {

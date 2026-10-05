@@ -49,6 +49,16 @@ public class References {
     private static volatile Method hasTrackMethod;
     private static volatile Method getContextTrack;
 
+    /**
+     * Wrapper classes already known to have no "is there a track" boolean accessor.
+     *
+     * <p>The absence is discovered by throwing, and the symbol cache deliberately does not store
+     * failures, so without this the scan and its log line repeated on every single lyric capture -
+     * dozens of times per track. Concurrent because capture hooks fire on several threads.
+     */
+    private static final java.util.Set<Class<?>> TRACKLESS_WRAPPERS =
+            java.util.Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+
     public static Activity currentActivity() {
         return currentActivity.get();
     }
@@ -74,76 +84,117 @@ public class References {
 
         try {
             Object wrapper = XpReflect.callMethod(state, "track");
+            if (wrapper == null) return null;
+            Class<?> contextClass = XpReflect.findClass(
+                    "com.spotify.player.model.ContextTrack", classLoader);
 
-            Method hasTrackAccessor = hasTrackMethod;
-            if(hasTrackAccessor == null || hasTrackAccessor.getDeclaringClass() != wrapper.getClass()) {
-                hasTrackAccessor = symbols.trackMethod(wrapper.getClass(), boolean.class);
-                hasTrackMethod = hasTrackAccessor;
+            Object ct = null;
+            if (contextClass != null && contextClass.isInstance(wrapper)) {
+                // Current Spotify returns the track itself from state.track(). Treating it as a
+                // container and asking it for a track accessor found nothing on any build, which
+                // is what the 553 "has no track accessor" failures were.
+                ct = wrapper;
+            } else {
+                // Older builds wrap it: the container's "is there a track" boolean is only an
+                // early-out, and Spotify 9.1.88 no longer declares it, so its absence falls back
+                // to the null-ness of the track the accessor returns.
+                Boolean hasTrack = null;
+                if (!TRACKLESS_WRAPPERS.contains(wrapper.getClass())) {
+                    try {
+                        Method hasTrackAccessor = hasTrackMethod;
+                        if (hasTrackAccessor == null
+                                || hasTrackAccessor.getDeclaringClass() != wrapper.getClass()) {
+                            hasTrackAccessor = symbols.trackMethod(wrapper.getClass(), boolean.class);
+                            hasTrackMethod = hasTrackAccessor;
+                        }
+                        hasTrack = (Boolean) XpReflect.callMethod(wrapper, hasTrackAccessor.getName());
+                    } catch (NoSuchMethodException absent) {
+                        // Remember it: without this the scan repeats and re-logs on every lyric
+                        // capture, which is dozens of times per track.
+                        TRACKLESS_WRAPPERS.add(wrapper.getClass());
+                        XpLog.log("[SpotifyPlus] " + wrapper.getClass().getName()
+                                + " has no track-accessor boolean, reading the track directly");
+                    }
+                }
+
+                if (hasTrack == null || hasTrack) {
+                    try {
+                        Method contextTrackAccessor = getContextTrack;
+                        if (contextTrackAccessor == null
+                                || contextTrackAccessor.getDeclaringClass() != wrapper.getClass()) {
+                            // Discovered by shape and validated by ContextTrack.isInstance below,
+                            // because the declared type is the concrete track in current builds.
+                            contextTrackAccessor = symbols.trackAccessor(wrapper.getClass());
+                            getContextTrack = contextTrackAccessor;
+                        }
+                        ct = XpReflect.callMethod(wrapper, contextTrackAccessor.getName());
+                    } catch (NoSuchMethodException noAccessor) {
+                        // One diagnostic dump per wrapper class: the obfuscated shape is the only
+                        // way to learn what this build actually exposes, and guessing at it has
+                        // already cost several rounds. Printed once so it cannot flood the log.
+                        if (TRACKLESS_WRAPPERS.add(wrapper.getClass())) {
+                            XpLog.log("[SpotifyPlus] track accessor missing on "
+                                    + wrapper.getClass().getName()
+                                    + " state=" + state.getClass().getName()
+                                    + " trackType=" + XpReflect.callMethod(state, "track").getClass().getName()
+                                    + " methods=" + describeMethods(wrapper.getClass()));
+                        }
+                    }
+                }
             }
 
-            boolean hasTrack = (Boolean) XpReflect.callMethod(wrapper, hasTrackAccessor.getName());
-            if(hasTrack) {
-                Method contextTrackAccessor = getContextTrack;
-                if(contextTrackAccessor == null || contextTrackAccessor.getDeclaringClass() != wrapper.getClass()) {
-                    contextTrackAccessor = symbols.trackMethod(wrapper.getClass(), Object.class);
-                    getContextTrack = contextTrackAccessor;
+            // Without the boolean, "no track" is exactly "the accessor returned nothing".
+            if (ct == null) return null;
+            if (contextClass != null && contextClass.isInstance(ct)) {
+                Object track = contextClass.cast(ct);
+
+                String uri = (String) XpReflect.callMethod(track, "uri");
+
+                @SuppressWarnings("unchecked")
+                Map<String, String> md = (Map<String, String>) XpReflect.callMethod(track, "metadata");
+
+                String title = md.get("title");
+                String artist = joinArtistNames(md.get("artist_name"), md);
+                String album = md.get("album_title");
+                String color = md.get("extracted_color");
+                String imageId = md.get("image_large_url");
+                long duration = 0;
+                try {
+                    String durationValue = md.get("duration_ms");
+                    if (durationValue == null) durationValue = md.get("duration");
+                    if (durationValue != null && !durationValue.isEmpty()) {
+                        duration = Long.parseLong(durationValue.replaceAll("[^0-9]", ""));
+                        if (duration > 0 && duration < 10000) duration *= 1000;
+                    }
+                } catch (Throwable ignored) {
+                }
+                try {
+                    if (duration <= 0) duration = (Long) XpReflect.callMethod(state, "duration");
+                } catch (Throwable ignored) {
+                }
+                long position = 0;
+                long timestamp = 0;
+
+                Object posOpt = XpReflect.callMethod(state, "positionAsOfTimestamp");
+                Matcher m = DIGITS.matcher(posOpt.toString());
+                if(m.find()) {
+                    long basePos = Long.parseLong(m.group());
+                    timestamp = (Long) XpReflect.callMethod(state, "timestamp");
+                    position = basePos + (System.currentTimeMillis() - timestamp);
                 }
 
-                Object ct = XpReflect.callMethod(wrapper, contextTrackAccessor.getName());
-                Class<?> contextClass = XpReflect.findClass("com.spotify.player.model.ContextTrack", classLoader);
-                if(contextClass.isInstance(ct)) {
-                    Object track = contextClass.cast(ct);
+                Map<?, ?> metadata = (Map<?, ?>) XpReflect.getObjectField(track, "metadata");
+                boolean saved = false;
 
-                    String uri = (String) XpReflect.callMethod(track, "uri");
-
-                    @SuppressWarnings("unchecked")
-                    Map<String, String> md = (Map<String, String>) XpReflect.callMethod(track, "metadata");
-
-                    String title = md.get("title");
-                    String artist = joinArtistNames(md.get("artist_name"), md);
-                    String album = md.get("album_title");
-                    String color = md.get("extracted_color");
-                    String imageId = md.get("image_large_url");
-                    long duration = 0;
-                    try {
-                        String durationValue = md.get("duration_ms");
-                        if (durationValue == null) durationValue = md.get("duration");
-                        if (durationValue != null && !durationValue.isEmpty()) {
-                            duration = Long.parseLong(durationValue.replaceAll("[^0-9]", ""));
-                            if (duration > 0 && duration < 10000) duration *= 1000;
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                    try {
-                        if (duration <= 0) duration = (Long) XpReflect.callMethod(state, "duration");
-                    } catch (Throwable ignored) {
-                    }
-                    long position = 0;
-                    long timestamp = 0;
-
-                    Object posOpt = XpReflect.callMethod(state, "positionAsOfTimestamp");
-                    Matcher m = DIGITS.matcher(posOpt.toString());
-                    if(m.find()) {
-                        long basePos = Long.parseLong(m.group());
-                        timestamp = (Long) XpReflect.callMethod(state, "timestamp");
-                        position = basePos + (System.currentTimeMillis() - timestamp);
-                    }
-
-                    Map<?, ?> metadata = (Map<?, ?>) XpReflect.getObjectField(track, "metadata");
-                    boolean saved = false;
-
-                    if(metadata.containsKey("collection.in_collection")) {
-                        String savedValue = (String) metadata.get("collection.in_collection");
-                        saved = Boolean.parseBoolean(savedValue);
-                    }
-
-                    return new SpotifyTrack(title, artist, album, uri, position, color, timestamp, imageId, duration, saved);
-                } else {
-                    XpLog.log("[SpotifyPlus] ContextTrack not found!");
-                    return null;
+                if(metadata.containsKey("collection.in_collection")) {
+                    String savedValue = (String) metadata.get("collection.in_collection");
+                    saved = Boolean.parseBoolean(savedValue);
                 }
+
+                return new SpotifyTrack(title, artist, album, uri, position, color, timestamp, imageId, duration, saved);
             } else {
-                XpLog.log("[SpotifyPlus] No track found");
+                // Reached only when state.track() handed back something that is not a ContextTrack.
+                XpLog.log("[SpotifyPlus] ContextTrack not found!");
                 return null;
             }
         } catch(Exception e) {
@@ -153,6 +204,30 @@ public class References {
     }
 
     private static long previousMs;
+
+    /**
+     * Zero-argument methods of an obfuscated class, as "name:ReturnType:modifiers".
+     *
+     * <p>Diagnostic only. The track resolver is version-fragile by nature, and when it fails the
+     * only way to correct it is to see the shape the current build actually exposes rather than
+     * guessing at it. Bounded so a pathological class cannot flood the log.
+     */
+    private static String describeMethods(Class<?> type) {
+        java.util.TreeSet<String> out = new java.util.TreeSet<>();
+        int total = 0;
+        try {
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getParameterTypes().length != 0) continue;
+                total++;
+                if (out.size() >= 25) continue;
+                out.add(method.getName() + ":" + method.getReturnType().getSimpleName()
+                        + ":" + java.lang.reflect.Modifier.toString(method.getModifiers()));
+            }
+        } catch (Throwable t) {
+            return "unreadable(" + t.getClass().getSimpleName() + ")";
+        }
+        return total + " no-arg [" + android.text.TextUtils.join(", ", out) + "]";
+    }
     /**
      * Full artist credit line. Spotify's player metadata carries the main artist in
      * "artist_name" and any further credited artists in 1-based indexed keys

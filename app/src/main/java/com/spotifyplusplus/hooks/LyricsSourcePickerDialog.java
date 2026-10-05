@@ -348,16 +348,33 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             return;
         }
         int started = 0;
+        int sourceRows = 0;
+        int skippedBusy = 0;
+        int skippedNoId = 0;
         for (CatalogPickerState.Shown row : shown) {
             if (row.source == null || row.source.kind != CatalogPickerModel.RowKind.SOURCE) continue;
-            if (row.source.sourceId == null || row.pending) continue;
+            sourceRows++;
+            if (row.source.sourceId == null) {
+                skippedNoId++;
+                continue;
+            }
+            if (row.pending) {
+                skippedBusy++;
+                continue;
+            }
             final com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId sourceId =
                     row.source.sourceId;
             run(row.key, callback -> host.refreshCatalogSource(sourceId, callback),
                     text(strings, "source_picker_checked", "Source checked"));
             started++;
         }
-        XpLog.log(TAG + " picker auto check started for " + started + " sources");
+        // The counts matter: "started for 0 sources" with rows on screen means the rows were all
+        // reported busy or unidentified, which is a different fault from the panel opening before
+        // its catalog state arrived. Without the split the two look identical in the log.
+        XpLog.log(TAG + " picker auto check started for " + started + " sources"
+                + " rows=" + shown.size() + " sourceRows=" + sourceRows
+                + " skippedBusy=" + skippedBusy + " skippedNoId=" + skippedNoId
+                + " climb=" + state.climb);
     }
 
     /**
