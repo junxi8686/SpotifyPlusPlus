@@ -44,7 +44,19 @@ public class LyricsSourceRankingTest {
                 LyricsSourcePreferences.Source.QQ));
         assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.NETEASE));
-        assertTrue(LyricsSourcePreferences.enabledByDefault(
+        // Apple Music and the retired desktop remote are withdrawn: neither may report itself
+        // enabled, and neither may appear in the selectable list, whatever a stored preference says.
+        assertFalse(LyricsSourcePreferences.enabledByDefault(
+                LyricsSourcePreferences.Source.APPLE_MUSIC));
+        assertTrue(LyricsSourcePreferences.isRetired(
+                LyricsSourcePreferences.Source.APPLE_MUSIC));
+        assertTrue(LyricsSourcePreferences.isRetired(
+                LyricsSourcePreferences.Source.SPICY));
+        assertFalse(LyricsSourcePreferences.selectableSources().contains(
+                LyricsSourcePreferences.Source.APPLE_MUSIC));
+        assertFalse(LyricsSourcePreferences.selectableSources().contains(
+                LyricsSourcePreferences.Source.SPICY));
+        assertFalse(LyricsSourcePreferences.defaultOrder().contains(
                 LyricsSourcePreferences.Source.APPLE_MUSIC));
         assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.SPOTIFY));

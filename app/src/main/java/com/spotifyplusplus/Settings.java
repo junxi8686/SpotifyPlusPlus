@@ -180,10 +180,14 @@ public final class Settings {
             "Auto", "Source order"
     );
 
-    /** Experimental strict source switch. "Spicy" is a retired legacy alias for Apple Music. */
+    /**
+     * Experimental strict source switch. Apple Music and the retired "Spicy" desktop-token remote
+     * are deliberately absent: neither can deliver usable lyrics any more, so offering them here
+     * only produced a pin that never resolved. Their stored labels still read back as "Auto".
+     */
     public static final Setting<String> LYRICS_SOURCE_OVERRIDE = enumSetting(
             "lyrics_source_override", LYRICS_SOURCES, "Lyrics source", "Auto",
-            "Auto", "Apple Music", "Spicy", "Spotify", "LRCLIB"
+            "Auto", "Spotify", "LRCLIB"
     );
 
     /** Optional desktop-captured Spotify token (legacy; the retired Spicy remote is no longer queried). */

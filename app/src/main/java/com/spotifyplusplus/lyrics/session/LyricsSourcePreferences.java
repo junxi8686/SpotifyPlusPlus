@@ -51,8 +51,13 @@ public final class LyricsSourcePreferences {
     private static final String OVERRIDE_PREFIX = "override_";
     private static final String OVERRIDE_ORDER = "override_order";
     private static final int MAX_OVERRIDES = 200;
+    /**
+     * Fresh-install order. Retired sources are deliberately absent rather than filtered later, so
+     * the "no stored order yet" path cannot hand a withdrawn source to a caller that forgot to
+     * normalise.
+     */
     private static final List<Source> DEFAULT_ORDER = Collections.unmodifiableList(
-            java.util.Arrays.asList(Source.APPLE_MUSIC, Source.SPICY, Source.SPOTIFY, Source.AMLL,
+            java.util.Arrays.asList(Source.SPOTIFY, Source.AMLL,
                     Source.LRCLIB, Source.QQ, Source.NETEASE));
 
     private LyricsSourcePreferences() {}
@@ -81,8 +86,39 @@ public final class LyricsSourcePreferences {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(ORDER, out.toString()).apply();
     }
 
+    /**
+     * Sources that can never be turned on or offered.
+     *
+     * <p>{@code SPICY} is the retired desktop-token remote. {@code APPLE_MUSIC} is retired here
+     * because its anonymous endpoint no longer returns usable lyrics: selecting it produced a
+     * source that could never deliver, so it is withdrawn from every picker, order list and
+     * diagnostics enumeration rather than left visible as a trap. The enum constants and the
+     * persisted ids stay in place so existing stored orders and recent-source history keep
+     * parsing; they are simply filtered out of everything the owner can see or toggle.
+     */
+    private static final List<Source> RETIRED =
+            Collections.unmodifiableList(java.util.Arrays.asList(Source.APPLE_MUSIC, Source.SPICY));
+
+    /**
+     * Every source the owner may choose from, in declaration order. This is the single list all
+     * pickers, order editors and enumerations must build from, so a retired source cannot leak
+     * back into one surface while staying hidden in another.
+     */
+    public static List<Source> selectableSources() {
+        List<Source> out = new ArrayList<>();
+        for (Source source : Source.values()) {
+            if (!RETIRED.contains(source)) out.add(source);
+        }
+        return Collections.unmodifiableList(out);
+    }
+
+    /** True for a source that is withdrawn from the UI and can never report itself enabled. */
+    public static boolean isRetired(Source source) {
+        return source == null || RETIRED.contains(source);
+    }
+
     public static boolean sourceEnabled(Context context, Source source) {
-        if (source == null || source == Source.SPICY) return false;
+        if (isRetired(source)) return false;
         if (context == null) return enabledByDefault(source);
         // Deliberately NOT forced off here when the blanking setting is on.
         //
@@ -113,13 +149,13 @@ public final class LyricsSourcePreferences {
     }
     /** Network search sources are opt-in; established ID-based sources retain their defaults. */
     public static boolean enabledByDefault(Source source) {
-        // Only the retired remote path stays off.
+        // Only the retired sources stay off.
         //
         // QQ Music and NetEase were opt-in - network search sources were treated as expensive
         // and left for the owner to switch on - but they are the two the owner actually wants
         // and the two that carry Chinese catalogue text, so leaving them off meant every fresh
-        // install resolved from Apple, Spotify, AMLL and LRCLIB and never from either.
-        return source != null && source != Source.SPICY;
+        // install resolved from Spotify, AMLL and LRCLIB and never from either.
+        return !isRetired(source);
     }
 
     /**
@@ -195,8 +231,14 @@ public final class LyricsSourcePreferences {
     }
     private static List<Source> normalizeOrder(List<Source> order) {
         List<Source> result = new ArrayList<>();
-        if (order != null) for (Source source : order) if (source != null && !result.contains(source)) result.add(source);
-        for (Source source : DEFAULT_ORDER) if (!result.contains(source)) result.add(source);
+        // Retired sources are dropped from a stored order on the way in, so a preference saved
+        // before they were withdrawn cannot keep re-introducing them.
+        if (order != null) for (Source source : order) {
+            if (source != null && !RETIRED.contains(source) && !result.contains(source)) result.add(source);
+        }
+        for (Source source : DEFAULT_ORDER) {
+            if (!RETIRED.contains(source) && !result.contains(source)) result.add(source);
+        }
         return Collections.unmodifiableList(result);
     }
     private static LinkedHashMap<String, Long> parseRecency(String raw) {

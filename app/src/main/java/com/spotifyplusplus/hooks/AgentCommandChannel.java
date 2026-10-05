@@ -553,7 +553,7 @@ final class AgentCommandChannel {
             java.util.Map<Source, Boolean> enabled =
                     new java.util.EnumMap<>(Source.class);
             for (Source source
-                    : Source.values()) {
+                    : LyricsSourcePreferences.selectableSources()) {
                 enabled.put(source,
                         LyricsSourcePreferences.sourceEnabled(activity, source));
             }
