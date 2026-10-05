@@ -182,6 +182,15 @@ final class LyricsSessionManager {
                 "[SpotifyPlusSession]");
         detectionSession = new LyricsDetectionSession(this.context, NativeRuntime.LYRICS_IO);
         LyricsMemoryPressure.addReclaimer(level -> detectionSession.trimMemory());
+        // Start polling here rather than waiting for a demand lease.
+        //
+        // The poll is what adopts the track and arms the automatic search, and driving it from
+        // demand meant acquisition only happened when HyperGlow, Android Auto or the source picker
+        // asked - the first two default to false - so no source was ever consulted and the surface
+        // showed Spotify's own captured lyrics indefinitely. Polling is cheap: one reflective track
+        // read per tick, and maybeFetch() returns immediately unless the planner has a source that
+        // is actually due, which its retry horizons already pace.
+        handler.post(poll);
     }
 
     /** Injects runtime dependencies for JVM tests of session transitions and publication. */
@@ -295,7 +304,14 @@ final class LyricsSessionManager {
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
-            if (!policy.hasPollingDemand()) return;
+            // Deliberately not gated on polling demand.
+            //
+            // The poll is what adopts the track and arms the automatic search, and demand used to
+            // gate it - but demand is only taken by HyperGlow, Android Auto and the source picker,
+            // and the first two default to false. So watching lyrics never drove acquisition at
+            // all: no source was ever asked, and the surface was left showing Spotify's own
+            // captured lyrics, which arrive through the capture hooks and need no poll.
+            // State notifications still follow demand; the acquisition does not.
             try {
                 SpotifyTrack current = hook.getCurrentTrackSafely();
                 if (current == null || current.uri == null || current.uri.isEmpty()) {
@@ -308,15 +324,18 @@ final class LyricsSessionManager {
                     missingTrackSinceMs = 0L;
                     adoptTrack(current);
                     boolean playing = hook.isPlayerActuallyPlaying();
-                    long position = hook.readBestMeasuredProgressMs(current, playing);
-                    notifyState(new Snapshot(current, policy.trackUri(), policy.generation(), status, playing,
-                            position, SystemClock.elapsedRealtime(), hook.readEffectivePlaybackRate(playing)));
+                    if (policy.hasPollingDemand()) {
+                        long position = hook.readBestMeasuredProgressMs(current, playing);
+                        notifyState(new Snapshot(current, policy.trackUri(), policy.generation(),
+                                status, playing, position, SystemClock.elapsedRealtime(),
+                                hook.readEffectivePlaybackRate(playing)));
+                    }
                     maybeFetch();
                 }
             } catch (Throwable ignored) {
                 // Spotify player internals are version-fragile. Keep session polling alive.
             } finally {
-                if (policy.hasPollingDemand()) handler.postDelayed(this, POLL_MS);
+                handler.postDelayed(this, POLL_MS);
             }
         }
     };
