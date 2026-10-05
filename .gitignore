@@ -5,6 +5,10 @@ build/
 .idea/
 captures/
 
+# Version-stamped debug APKs the build copies out of build/ for convenient installs.
+# They are build output, not source, so they stay out of history.
+artifacts/
+
 # Machine-specific SDK location
 local.properties
 
