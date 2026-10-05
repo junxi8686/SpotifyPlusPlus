@@ -7,6 +7,7 @@ import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 
+import java.util.List;
 import java.util.Set;
 
 /** Applies one fullscreen lyric animation frame to the currently mounted row window. */
@@ -381,6 +382,16 @@ public final class LyricsFrameRenderer {
                     }
                 }
             }
+            // A surface that asked for a continuous sentence fill paints the row from provider
+            // timing across the whole sentence rather than from its coalesced display words. This
+            // is additive: the branch only runs when a row was explicitly opted in, so no existing
+            // fullscreen or live-card row changes its fill.
+            if (!line.dotLine && config.lineGradientEnabled && !config.spotlight
+                    && LyricsLineViewState.continuousSentenceFill(line)) {
+                LyricsLineViewState.applySentenceGradient(line,
+                        SentenceGradientPlanner.gradientPosition(line, positionMs), lineGlow,
+                        lineState.brightnessTarget);
+            }
             LyricsLineViewState.markFrameApplied(line, targetClass);
         }
         lastActiveIndex = activeIndex;
@@ -497,11 +508,16 @@ public final class LyricsFrameRenderer {
     static boolean hasDegenerateWordTiming(AppliedLine line) {
         if (line == null || line.words == null || line.words.isEmpty()) return false;
         if (line.syntheticWords) return true;
+        return hasDegenerateWordTiming(line.words, LyricTimeline.fillEndMs(line) - line.startMs);
+    }
+
+    /** Timing-only form, so a render adapter can ask about a cropped page's own span. */
+    static boolean hasDegenerateWordTiming(List<SyllableSegment> words, long lineSpan) {
         long firstStart = Long.MAX_VALUE;
         long lastEnd = Long.MIN_VALUE;
         int counted = 0;
         int collapsed = 0;
-        for (SyllableSegment seg : line.words) {
+        for (SyllableSegment seg : words) {
             if (seg == null) continue;
             counted++;
             // A single zero-length span is normal provider noise, not a broken line: QQ's QRC in
@@ -525,7 +541,6 @@ public final class LyricsFrameRenderer {
         // line. Measuring against that made a short, fast line followed by a ~3s instrumental gap
         // look as though its words covered a tiny fraction of it, and word-by-word fill was dropped
         // for the sentence sweep on exactly the lines that most needed it.
-        long lineSpan = LyricTimeline.fillEndMs(line) - line.startMs;
         return lineSpan > 0 && wordSpan * 100L < lineSpan * 15L;
     }
 

@@ -27,6 +27,10 @@ public class AppliedLine {
     // per-word transliteration — not real word-level timing. Lets us drop them if the setting is off.
     public boolean syntheticWords;
     public LyricsLine sourceLine;
+    /** Source timing and code-point range for a cropped display page. Timestamps stay authored. */
+    public AppliedLine gradientSource;
+    public int gradientStartCp;
+    public int gradientEndCp;
     public long startMs;
     public long endMs;
     public long totalMs;

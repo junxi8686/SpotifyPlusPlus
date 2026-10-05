@@ -123,6 +123,7 @@ public final class LyricsRowViewFactory {
         String weight = options == null ? "Medium" : options.lyricWeight;
         String font = options == null ? "spotify" : options.lyricsFont;
         LyricsLineViewState.clearMainView(line);
+        LyricsLineViewState.setContinuousSentenceFill(line, options.continuousSentenceFill);
         boolean hasSyllableWords = line.words != null && !line.words.isEmpty();
         boolean hasRealTimedWords = hasSyllableWords && !line.syntheticWords;
         boolean indicLine = SpicyTextDetection.hasIndicScript(line.text);
@@ -151,9 +152,17 @@ public final class LyricsRowViewFactory {
         } else {
             buildLineLevelMain(row, line, showJapaneseFurigana, lineLevelFillTopDown,
                     options.lineLevelFillSentence, weight, font, wrapLongLines,
-                    options.adaptiveSectioningEnabled);
+                    options.adaptiveSectioningEnabled, options.sequentialLineFill);
         }
 
+        if (options.staticSecondaryText) {
+            // A projected row cannot animate a secondary sweep, and its host draws the row once:
+            // plain untimed text keeps the reading and translation legible without shader work.
+            if (!line.bgLine && (showJapaneseRomaji || showChineseRomaji || showGenericRomaji))
+                addStaticSecondary(row, readingText, options, wrapLongLines);
+            if (!line.bgLine && options.showTranslation && !isBlank(line.translatedText))
+                addStaticSecondary(row, line.translatedText, options, wrapLongLines);
+        } else {
         boolean showTimedRomanRow = !line.bgLine
                 && !showAlignedRomaji
                 && (showJapaneseRomaji || showChineseRomaji || showGenericRomaji)
@@ -195,9 +204,24 @@ public final class LyricsRowViewFactory {
             LyricsLineViewState.setTranslationView(line, translated);
         }
 
+        }
         attachHeightListener(row, line, heightListener);
         LyricsLineViewState.setRowView(line, row);
         return row;
+    }
+
+    private void addStaticSecondary(LinearLayout row, String text, Options options, boolean wrap) {
+        // Plain text has no timing registration, shader, glow, or word animation.
+        TextView view = textFactory.createText(activity, text, 20, Color.WHITE,
+                textFactory.resolveTypefaceForText(text, false));
+        view.setLineSpacing(0f, 1.04f);
+        view.setMaxLines(wrap ? 3 : 1);
+        applyAdaptiveWrapping(view, wrap && options.adaptiveSectioningEnabled, false);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                wrap ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(2);
+        row.addView(view, lp);
     }
 
     static boolean canBuildTimedRomanRow(AppliedLine line, boolean useSyllableWords,
@@ -807,7 +831,7 @@ public final class LyricsRowViewFactory {
     private void buildLineLevelMain(LinearLayout row, AppliedLine line, boolean showJapaneseFurigana,
                                     boolean lineLevelFillTopDown, boolean lineLevelFillSentence,
                                     String weight, String font, boolean wrapLongLines,
-                                    boolean adaptiveSectioningEnabled) {
+                                    boolean adaptiveSectioningEnabled, boolean sequentialLineFill) {
         int color = line.bgLine ? Color.rgb(170, 170, 170) : Color.WHITE;
         SpicyAnimatedTextView main = new SpicyAnimatedTextView(activity);
         CharSequence mainText = showJapaneseFurigana ? FuriganaText.build(line) : line.text;
@@ -827,6 +851,7 @@ public final class LyricsRowViewFactory {
                 isCjkPhraseLine(line));
         main.setVerticalGradient(lineLevelFillTopDown);
         main.setContentGradient(lineLevelFillSentence);
+        main.setSequentialLineFill(lineLevelFillSentence && sequentialLineFill);
         main.setGradientPosition(LyricAnimations.GRADIENT_UNSUNG, 0f);
         row.addView(main, new LinearLayout.LayoutParams(
                 wrapLongLines ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -940,11 +965,14 @@ public final class LyricsRowViewFactory {
         public float lineSpacingMultiplier = 1f;
         public boolean showRomanization;
         public boolean showTranslation;
+        public boolean staticSecondaryText;
         public boolean showJapaneseFurigana;
         public boolean showJapaneseRomaji;
         public boolean attachTransliterationToWords;
         public boolean lineLevelFillTopDown;
         public boolean lineLevelFillSentence;
+        public boolean sequentialLineFill;
+        public boolean continuousSentenceFill;
         public boolean wordLevelFill;
         public boolean interludeNoteIcon;
         public String lyricWeight = "Medium";
