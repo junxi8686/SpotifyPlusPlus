@@ -55,7 +55,7 @@ public final class CatalogPickerModel {
 
     /** Source display order matches the automatic tie-break. */
     static final SourceId[] SOURCE_ORDER = {
-            SourceId.APPLE, SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB,
+            SourceId.SPICY_ORG, SourceId.APPLE, SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB,
             SourceId.QQ, SourceId.NETEASE,
     };
 
@@ -239,6 +239,7 @@ public final class CatalogPickerModel {
         final Text t = text == null ? Text.RAW : text;
         if (source == null) return t.get("picker_source_unknown", "Unknown");
         switch (source) {
+            case SPICY_ORG: return t.get("lyrics_source_name_spicy_org", "SpicyLyrics.org");
             case APPLE: return t.get("lyrics_source_name_apple", "Apple Music");
             case SPOTIFY_NATIVE: return t.get("lyrics_source_name_spotify", "Spotify");
             case AMLL: return t.get("lyrics_source_name_amll", "AMLL");

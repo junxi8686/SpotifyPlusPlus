@@ -122,7 +122,8 @@ public final class LyricsCatalog {
 
     /** Decodes a stored candidate into a render document stamped with its catalog identity. */
     public static CanonicalSourceCodec.Record decode(CatalogCandidate candidate) {
-        if (candidate == null || candidate.normalizedDocument.isEmpty()) return null;
+        if (candidate == null || candidate.normalizedDocument.isEmpty()
+                || !candidate.hasValidProviderTiming()) return null;
         try {
             CanonicalSourceCodec.Record record =
                     CanonicalSourceCodec.decode(candidate.normalizedDocument);
@@ -150,6 +151,7 @@ public final class LyricsCatalog {
     private static View view(String trackId, CatalogState state, CatalogPolicy policy,
                              long now, boolean includeLocal, boolean durable, long sequence,
                              String outcome) {
+        state = readableState(state);
         Resolution resolution = CatalogDecisions.render(state, policy);
         CanonicalSourceCodec.Record record = decode(resolution.winner);
         AcquisitionPlanner.Plan plan = AcquisitionPlanner.plan(state, policy,
@@ -158,6 +160,34 @@ public final class LyricsCatalog {
                 record == null ? null : record.document,
                 record == null ? 1 : Math.max(1, record.sourceRevision), durable, sequence,
                 outcome);
+    }
+
+    /** Corrupt payloads remain stored, but cannot mask a usable fallback or prevent refresh. */
+    static CatalogState readableState(CatalogState state) {
+        java.util.List<CatalogCandidate> readable = new java.util.ArrayList<>();
+        java.util.Map<CatalogSource.SourceId, ProviderRecord> providers =
+                new java.util.EnumMap<>(CatalogSource.SourceId.class);
+        providers.putAll(state.providers);
+        for (CatalogCandidate candidate : state.candidates) {
+            if (decode(candidate) != null) readable.add(candidate);
+        }
+        for (CatalogSource.SourceId source : CatalogSource.SourceId.values()) {
+            boolean available = false;
+            boolean stored = false;
+            for (CatalogCandidate candidate : state.candidates) {
+                if (candidate.sourceId == source) stored = true;
+            }
+            for (CatalogCandidate candidate : readable) {
+                if (candidate.sourceId == source) available = true;
+            }
+            ProviderRecord record = state.provider(source);
+            if (stored && !available && record.status == CatalogSource.ProviderStatus.AVAILABLE) {
+                providers.put(source, new ProviderRecord(source, CatalogSource.ProviderStatus.NEEDS_REFRESH,
+                        record.updatedAtMs, record.lastAttemptMs, record.lastSuccessMs, record.attemptCount));
+            }
+        }
+        return new CatalogState(state.trackId, readable, providers, state.selection,
+                state.rejections, state.known);
     }
 
     /**
