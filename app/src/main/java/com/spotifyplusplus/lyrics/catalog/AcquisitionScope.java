@@ -20,6 +20,16 @@ public final class AcquisitionScope {
     public final List<SourceId> sources;
     public final boolean sourceOrderMode;
     public final boolean karaokeOriginalLyrics;
+    /**
+     * Ask every source in {@link #sources} at the same time instead of one at a time.
+     *
+     * <p>The planner deliberately proposes a single source per round so each provider's outcome is
+     * recorded before the next is tried. That is right for retry bookkeeping and wrong for the wait:
+     * asked in sequence, the wait is the sum of every provider's latency, and a slow first provider
+     * hides a fast second one. When this is set the repository races them instead, shows the first
+     * usable answer, and upgrades it only for a strictly better one.
+     */
+    public final boolean raceAll;
 
     public AcquisitionScope(List<SourceId> sources, boolean sourceOrderMode) {
         this(sources, sourceOrderMode, false);
@@ -27,6 +37,11 @@ public final class AcquisitionScope {
 
     public AcquisitionScope(List<SourceId> sources, boolean sourceOrderMode,
                             boolean karaokeOriginalLyrics) {
+        this(sources, sourceOrderMode, karaokeOriginalLyrics, false);
+    }
+
+    public AcquisitionScope(List<SourceId> sources, boolean sourceOrderMode,
+                            boolean karaokeOriginalLyrics, boolean raceAll) {
         List<SourceId> copy = new ArrayList<>();
         if (sources != null) {
             for (SourceId source : sources) {
@@ -36,6 +51,12 @@ public final class AcquisitionScope {
         this.sources = Collections.unmodifiableList(copy);
         this.sourceOrderMode = sourceOrderMode;
         this.karaokeOriginalLyrics = karaokeOriginalLyrics;
+        this.raceAll = raceAll;
+    }
+
+    /** Same scope, flagged to ask every listed source at once. */
+    public AcquisitionScope racing() {
+        return new AcquisitionScope(sources, sourceOrderMode, karaokeOriginalLyrics, true);
     }
 
     public boolean allows(SourceId source) {

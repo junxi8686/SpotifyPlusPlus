@@ -88,6 +88,41 @@ public final class LyricsRepository {
             callback.onError("All lyric sources disabled");
             return;
         }
+        if (scope.sourceOrderMode || scope.sources.size() > 1) {
+            // Two or more sources to consult means they can be consulted at once. The planner
+            // normally proposes them one per round; that keeps the retry bookkeeping tidy but makes
+            // the wait the sum of every provider's latency, and lets a slow first provider hide a
+            // fast later one. Racing them costs nothing extra - each attempt still records its own
+            // outcome - and the chain still decides which document is actually shown.
+            java.util.List<com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source> order =
+                    new java.util.ArrayList<>();
+            for (CatalogSource.SourceId source : scope.sources) {
+                com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source mapped =
+                        CatalogPolicy.preferenceSource(source);
+                if (mapped != null) order.add(mapped);
+            }
+            if (order.size() > 1) {
+                fetchOrderedSources(context, track, generation, order, accessToken,
+                        scope.karaokeOriginalLyrics, callback);
+                return;
+            }
+            // The planner picked exactly one source for this round. In Auto that is a bookkeeping
+            // choice, not a statement that the other sources are ineligible, so the whole enabled
+            // set is raced instead: the owner gets the fastest answer and the quality comparison
+            // still decides whether a later, better one replaces it. Source-order mode is left
+            // alone above because there the order is the owner's explicit preference, and a manual
+            // pin never reaches here at all - the planner emits no plan for a pinned track.
+            if (!scope.sourceOrderMode) {
+                java.util.List<com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source>
+                        enabled = com.spotifyplusplus.lyrics.session.LyricsSourcePreferences
+                        .enabledSourceOrder(context);
+                if (enabled != null && enabled.size() > 1) {
+                    fetchOrderedSources(context, track, generation, enabled, accessToken,
+                            scope.karaokeOriginalLyrics, callback);
+                    return;
+                }
+            }
+        }
         if (scope.sourceOrderMode) {
             java.util.List<com.spotifyplusplus.lyrics.session.LyricsSourcePreferences.Source> order =
                     new java.util.ArrayList<>();
