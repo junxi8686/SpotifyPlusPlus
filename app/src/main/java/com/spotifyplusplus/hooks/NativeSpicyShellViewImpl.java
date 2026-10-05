@@ -1356,7 +1356,17 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     /** PiP window of a landscape shape: the landscape layout (two columns when that is on),
      *  scaled down - a portrait layout stretched to a wide window made every line tiny. */
     static final int PIP_LAYOUT_LANDSCAPE = 2;
+    /**
+     * The landscape PiP window is a wide layout scaled down hard, so its lyrics - and the
+     * translation under them - come out tiny unless they are set larger than the phone default.
+     */
+    private static final float PIP_LANDSCAPE_TEXT_BOOST = 1.2f;
     private final int pipLayout;
+
+    /** Lyrics size multiplier the current PiP layout needs; 1 outside a landscape PiP window. */
+    private float pipTextBoost() {
+        return pipLayout == PIP_LAYOUT_LANDSCAPE ? PIP_LANDSCAPE_TEXT_BOOST : 1f;
+    }
 
     NativeSpicyShellViewImpl(LyricsHost host, Activity activity) {
         this(host, activity, PIP_LAYOUT_NONE);
@@ -1392,6 +1402,10 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 MEANING_WORKERS, AI_WORKERS, handler, GOOGLE_PROCESSING_VERSION);
         this.localReprocessController = new LyricsLocalReprocessController(secondaryProcessor);
         this.ambientController = new LyricsAmbientController(activity, HTTP, config);
+        // A PiP window is a fraction of the screen, so the ambient background is rendered at half
+        // resolution there: the same visual at a quarter of the fill cost, which is what keeps the
+        // frame budget in a window that small.
+        if (pipLayout != PIP_LAYOUT_NONE) ambientController.setRenderScaleFactor(0.5f);
         this.settingsDialogController = new LyricsSettingsDialogController(
                 activity, frameScheduler, ambientController, host, this::onSettingsClosed,
                 mode -> enterLayoutEditMode(mode == com.spotifyplusplus.settings.SettingsPanel.EDITOR_CARD),
@@ -1404,7 +1418,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         });
         SharedPreferences prefs = activity.getSharedPreferences(SpotifyPlusConfig.PREFS_NAME, Context.MODE_PRIVATE);
         preferences = prefs;
-        renderConfig = LyricsRenderConfig.read(activity, config);
+        renderConfig = LyricsRenderConfig.read(activity, config, pipTextBoost());
         // SettingsStore normally attaches this context when the settings panel is opened, but
         // lyrics can be mounted first (or restored from a warm Spotify process). Attach it here as
         // well so post-install model packs are visible to the tokenizer/detector on every entry
@@ -2211,7 +2225,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             // the handle and the real position never visibly disagree.
             if (anchorChanged) rescrollActiveRowToAnchor();
         }
-        LyricsRenderConfig next = LyricsRenderConfig.read(activity, config);
+        LyricsRenderConfig next = LyricsRenderConfig.read(activity, config, pipTextBoost());
         LyricsRenderConfig.Diff diff = renderConfig == null ? null : renderConfig.diff(next);
         if (diff == null || !diff.hasChanges) {
             renderConfig = next;
