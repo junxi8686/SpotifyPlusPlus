@@ -18,11 +18,21 @@ import java.util.List;
  * One pure automatic ranking rule for catalog candidates, replacing the competing heuristics in
  * {@code LyricQualityRanker}, {@code LyricsProviderChain}, and canonical-base adoption.
  *
- * <p>Configured Auto first chooses the primary source: Spicy.org, direct Apple, then native
- * Spotify. Enabled fallbacks follow their configured order. Timing quality chooses variants
- * only within that source, so a richer fallback cannot replace the primary text or credit.
- * Source order mode honors the user's full source order. The unconfigured ranking helpers
- * compare timing, completeness, identity, capabilities, and health for same-source variants.
+ * <p>Comparison is ordered, never a blended score. Auto ranks lyric quality first: actual
+ * timing class, then completeness, and only then match identity. A word-timed candidate from
+ * any fetched source therefore outranks a line-timed one, and Source order mode instead
+ * follows the configured priority strictly, falling back only when a higher source has no
+ * data at all:
+ *
+ * <ol>
+ *   <li>Actual timing: syllable, word, line, unsynced.</li>
+ *   <li>Completeness: complete candidates outrank incomplete ones.</li>
+ *   <li>Identity: exact Spotify ID, exact provider mapping, karaoke substitution, strong
+ *       search. Weak matches are rejected, never ranked.</li>
+ *   <li>Provider tie-break: Apple, Spotify native, AMLL, LRCLIB, QQ, NetEase.</li>
+ *   <li>Capabilities: provider translation/transliteration, background vocals, duet, credits.</li>
+ *   <li>Health: timing-healthy first, then confidence, duration fit, stable ID order.</li>
+ * </ol>
  *
  * <p>Upgrade stability: the incumbent keeps its seat on ties and on equal digests, so callback
  * order and restarts cannot flip a persisted winner. A challenger needs a strictly better rank.
@@ -78,7 +88,7 @@ public final class CatalogResolver {
                                                   CatalogSelection selection,
                                                   CatalogCandidate incumbent) {
         Resolution fresh = resolve(candidates, selection);
-        if (fresh.winner == null || incumbent == null || !incumbent.hasValidProviderTiming()) return fresh;
+        if (fresh.winner == null || incumbent == null) return fresh;
         if (selection != null && selection.mode == SelectionMode.MANUAL && !fresh.temporary) {
             return fresh;
         }
@@ -96,8 +106,8 @@ public final class CatalogResolver {
 
     /**
      * Applies the runtime source policy before resolving Auto. Manual picks remain readable even
-     * when their provider is disabled. Auto uses the primary stack before configured fallbacks;
-     * Source order honors the full user order. Quality ranks variants within the selected source.
+     * when their provider is disabled. In Source order mode, the first enabled source with a valid
+     * candidate wins; quality ranking is used only between variants from that source.
      */
     public static Resolution resolveConfigured(List<CatalogCandidate> candidates,
                                                CatalogSelection selection,
@@ -105,11 +115,7 @@ public final class CatalogResolver {
                                                List<SourceId> enabledOrder,
                                                boolean sourceOrderMode) {
         if (selection != null && selection.mode == SelectionMode.MANUAL) {
-            CatalogCandidate pinned = byId(ranked(candidates), selection.candidateId);
-            if (pinned != null) return new Resolution(pinned, describe("manual", pinned), false);
-            Resolution fallback = resolveConfigured(candidates, CatalogSelection.auto(selection.trackId),
-                    incumbent, enabledOrder, sourceOrderMode);
-            return new Resolution(fallback.winner, "manual-missing-temporary:" + fallback.reason, true);
+            return resolve(candidates, selection);
         }
         List<CatalogCandidate> enabled = new ArrayList<>();
         if (candidates != null && enabledOrder != null) {
@@ -119,39 +125,39 @@ public final class CatalogResolver {
                 }
             }
         }
-        // A primary response owns the text and credit even when a fallback has richer timing.
-        // Compare quality only between variants of the same acquisition source.
-        List<SourceId> order = new CatalogPolicy(enabledOrder, sourceOrderMode).automaticOrder();
-        for (SourceId source : order) {
-            List<CatalogCandidate> fromSource = new ArrayList<>();
-            boolean incumbentPresent = false;
-            for (CatalogCandidate candidate : enabled) {
-                if (candidate.sourceId != source) continue;
-                fromSource.add(candidate);
-                if (incumbent != null && candidate.candidateId.equals(incumbent.candidateId)) {
-                    incumbentPresent = true;
+        if (sourceOrderMode) {
+            for (SourceId source : enabledOrder == null
+                    ? Collections.<SourceId>emptyList() : enabledOrder) {
+                List<CatalogCandidate> fromSource = new ArrayList<>();
+                for (CatalogCandidate candidate : enabled) {
+                    if (candidate.sourceId == source) fromSource.add(candidate);
+                }
+                List<CatalogCandidate> ranked = ranked(fromSource);
+                if (!ranked.isEmpty()) {
+                    CatalogCandidate winner = ranked.get(0);
+                    if (incumbent != null && incumbent.sourceId == source
+                            && !strictlyBetterRank(winner, incumbent)) {
+                        winner = incumbent;
+                    }
+                    return new Resolution(winner, describe("source-order", winner), false);
                 }
             }
-            List<CatalogCandidate> ranked = ranked(fromSource);
-            if (ranked.isEmpty()) continue;
-            CatalogCandidate winner = ranked.get(0);
-            if (incumbentPresent && incumbent.hasValidProviderTiming()
-                    && !strictlyBetterRank(winner, incumbent)) winner = incumbent;
-            return new Resolution(winner, describe(sourceOrderMode ? "source-order" : "auto-anchor",
-                    winner), false);
+            return new Resolution(null, "source-order-empty", false);
         }
-        return new Resolution(null, sourceOrderMode ? "source-order-empty" : "auto-empty", false);
+        CatalogCandidate enabledIncumbent = null;
+        if (incumbent != null) {
+            for (CatalogCandidate candidate : enabled) {
+                if (candidate.candidateId.equals(incumbent.candidateId)) {
+                    enabledIncumbent = incumbent;
+                    break;
+                }
+            }
+        }
+        return resolveWithIncumbent(enabled, CatalogSelection.auto(
+                selection == null ? "" : selection.trackId), enabledIncumbent);
     }
 
-    /**
-     * Ranked best-first; weak matches excluded, never null.
-     *
-     * <p>Provider-timing validity is deliberately NOT filtered here. Upstream added that filter,
-     * but this fork's ranking contract is that every non-weak candidate is ranked: the resolver
-     * tests build candidates whose stored payload is a placeholder, and a candidate that cannot be
-     * decoded is already refused where it would be rendered ({@link LyricsCatalog#decode}) and is
-     * dropped from the rendered state ({@link LyricsCatalog#readableState}).
-     */
+    /** Ranked best-first; weak matches excluded, never null. */
     static List<CatalogCandidate> ranked(List<CatalogCandidate> candidates) {
         List<CatalogCandidate> out = new ArrayList<>();
         if (candidates != null) {

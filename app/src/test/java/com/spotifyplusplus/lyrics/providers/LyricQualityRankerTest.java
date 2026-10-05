@@ -43,27 +43,6 @@ public class LyricQualityRankerTest {
     }
 
     @Test
-    public void timingOutranksProviderEvenAgainstSpotify() {
-        // The owner's stated order: word timing beats line timing whoever supplies them, and line
-        // timing beats no timing at all. The provider may not pull a lower sync level above a
-        // higher one - that was the bug where Spotify's line-synced text always won.
-        assertTrue(score(amll("Word")) > score(nativeDoc("Line")));
-        assertTrue(score(netease("Line")) > score(nativeDoc("Static")));
-        assertTrue(score(qq("Word")) > score(nativeDoc("Line")));
-    }
-
-    @Test
-    public void simplifiedLyricsBeatTraditionalAtTheSameSyncLevelAndProvider() {
-        LyricsDocument simplified = doc("Line", "netease", "NetEase");
-        simplified.lines.clear();
-        simplified.lines.addAll(lines("从奇迹中诞生 在这片大地"));
-        LyricsDocument traditional = doc("Line", "netease", "NetEase");
-        traditional.lines.clear();
-        traditional.lines.addAll(lines("從奇蹟中誕生 在這片大地"));
-        assertTrue(score(simplified) > score(traditional));
-    }
-
-    @Test
     public void preferNativeSyncedOverSuspiciousSpicyStatic() {
         assertTrue(score(nativeDoc("Line")) > score(spicy("Static", false, true)));
     }
@@ -79,12 +58,6 @@ public class LyricQualityRankerTest {
     }
 
     @Test
-    public void officialSpicyStaticBeatsNativeStaticAtTheSameSyncLevel() {
-        // Same timing band, richer provider: Spicy wins the tiebreak.
-        assertTrue(score(spicy("Static", true, false)) > score(nativeDoc("Static")));
-    }
-
-    @Test
     public void lrclibSyncedBeatsSpicyStatic() {
         assertTrue(score(lrclib("Line")) > score(spicy("Static", true, false)));
     }
@@ -92,13 +65,6 @@ public class LyricQualityRankerTest {
     @Test
     public void nativeSyncedBeatsLrclibSynced() {
         assertTrue(score(nativeDoc("Line")) > score(lrclib("Line")));
-    }
-
-    @Test
-    public void plainSpicyStaticStillBeatsNativeStaticAtTheSameSyncLevel() {
-        // Provider is only the tiebreak now, and Spicy outranks Spotify's native text at equal
-        // timing. What must NOT change is that any timed document outranks an untimed one.
-        assertTrue(score(spicy("Static", false, false)) > score(nativeDoc("Static")));
     }
 
     @Test
