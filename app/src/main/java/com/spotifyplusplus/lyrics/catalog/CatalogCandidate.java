@@ -1,5 +1,7 @@
 package com.spotifyplusplus.lyrics.catalog;
 
+import com.spotifyplusplus.lyrics.ProviderTimingPolicy;
+import com.spotifyplusplus.lyrics.session.CanonicalSourceCodec;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.MatchMethod;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.TimingLevel;
@@ -43,6 +45,24 @@ public final class CatalogCandidate {
     public final int parserRevision;
     public final int adapterRevision;
     public final long fetchedAtMs;
+
+    private volatile Boolean providerTimingValid;
+
+    /** Rechecks old provider candidates once without deleting their stored payload or manual pin. */
+    public boolean hasValidProviderTiming() {
+        if (sourceId == SourceId.SPICY_ORG) return !com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy
+                .expiredAt(fetchedAtMs, System.currentTimeMillis());
+        if (sourceId != SourceId.QQ && sourceId != SourceId.NETEASE) return true;
+        if (normalizedDocument.isEmpty()) return true;
+        Boolean valid = providerTimingValid;
+        if (valid == null) {
+            CanonicalSourceCodec.Record record = CanonicalSourceCodec.decode(normalizedDocument);
+            valid = record != null && (ProviderTimingPolicy.appliesTo(record.document)
+                    || ProviderTimingPolicy.normalizeAndValidate(record.document));
+            providerTimingValid = valid;
+        }
+        return valid;
+    }
 
     public CatalogCandidate(String candidateId, String trackId, SourceId sourceId,
                             String providerItemId, MatchMethod matchMethod, double matchConfidence,
