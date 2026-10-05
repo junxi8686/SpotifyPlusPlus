@@ -60,7 +60,7 @@ import java.util.function.Consumer;
  * <ul>
  *   <li>{@code status} — ack with the current track and whether a document is loaded</li>
  *   <li>{@code fullscreen open|close|back|status} — use the native takeover and exit owners</li>
- *   <li>{@code settings open|close|status} — use the settings dialog lifecycle</li>
+ *   <li>{@code settings open|close|status|section ID} — use the settings dialog lifecycle</li>
  *   <li>{@code layer refresh|restore|ai SOUND|MEANING} — use the shared layer scheduler</li>
  *   <li>{@code sources} — commit ranking, order, and enabled flags through the settings adapter</li>
  *   <li>{@code playback} — use the captured Spotify transport</li>
@@ -72,8 +72,11 @@ import java.util.function.Consumer;
  *   <li>{@code restore-selection <uri> <mode> [id]} — restore a gate's previous seat</li>
  *   <li>{@code footer} — read the source footer currently rendered by the lyrics surface</li>
  *   <li>{@code picker open|close|status} — open or inspect the source picker</li>
+ *   <li>{@code org-retention status|run|alarm SECONDS} — inspect or force the SpicyLyrics.org
+ *       retention sweep (origin rules: refresh deadline and hard retention)</li>
  *   <li>{@code editor open [lyrics|card]} — open the layout editor, no tap needed</li>
  *   <li>{@code editor close} — close it again</li>
+ *   <li>{@code editor reveal <key>} — scroll one editor option into view without tapping it</li>
  *   <li>{@code editor select <name>} — select one element: {@code artwork},
  *       {@code track_text}, {@code focus}, {@code lyrics}, {@code background}, {@code skip},
  *       {@code follow}, {@code top_bar}, {@code card}</li>
@@ -230,6 +233,21 @@ final class AgentCommandChannel {
                                 + " document=" + (shell != null && shell.hasLyricsDocument()), correlation);
                     });
                     return;
+                case "org-retention":
+                    if ("status".equals(argument)) {
+                        reply("ok", verb, com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.status(context), correlation);
+                    } else if ("run".equals(argument)) {
+                        com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.run(context, () ->
+                                reply(com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.lastRunSucceeded(context) ? "ok" : "error",
+                                        verb, com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.status(context), correlation));
+                    } else if (argument.matches("alarm [0-9]{1,2}")) {
+                        com.spotifyplusplus.lyrics.providers.SpicyOrgRetention.testAlarm(context,
+                                Integer.parseInt(argument.substring(6)));
+                        reply("ok", verb, "alarm requested", correlation);
+                    } else {
+                        reply("error", verb, "expected status, run, or alarm SECONDS", correlation);
+                    }
+                    return;
                 case "fullscreen":
                     fullscreen(argument, correlation);
                     return;
@@ -237,8 +255,9 @@ final class AgentCommandChannel {
                     String settingsAction = argument;
                     onMain(verb, correlation, () -> {
                         if (!"open".equals(settingsAction) && !"close".equals(settingsAction)
-                                && !"status".equals(settingsAction)) {
-                            reply("error", verb, "expected open, close, or status", correlation);
+                                && !"status".equals(settingsAction)
+                                && !settingsAction.startsWith("section ")) {
+                            reply("error", verb, "expected open, close, status, or section ID", correlation);
                             return;
                         }
                         NativeSpicyShellView shell = requireShell(verb, correlation);
@@ -699,6 +718,7 @@ final class AgentCommandChannel {
                     case "back":
                     case "demo":
                     case "tab":
+                    case "reveal":
                     case "reset": {
                         boolean reset = "reset".equals(action);
                         if (reset && (args.length != 3 || !"all".equals(args[1])
@@ -716,7 +736,7 @@ final class AgentCommandChannel {
                         return;
                     }
                     default:
-                        reply("error", "editor", "expected open, close, select, back, demo, tab, or reset", correlation);
+                        reply("error", "editor", "expected open, close, select, back, demo, tab, reveal, or reset", correlation);
                 }
             } catch (Throwable t) {
                 reply("error", "editor", "threw " + t, correlation);
