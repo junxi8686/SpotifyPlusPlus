@@ -23,6 +23,10 @@ final class KeepTogetherText {
     private static final class GroupSpan extends ReplacementSpan {
         @Override public int getSize(Paint paint, CharSequence text, int start, int end,
                                      Paint.FontMetricsInt metrics) {
+            // Fully grouped text has no plain run left to supply the line height, so the line
+            // collapsed and the row rendered empty. That is what hid grouped Japanese lyrics: the
+            // whole line is one group, nothing else reports metrics, and the text never appeared.
+            if (metrics != null) paint.getFontMetricsInt(metrics);
             return (int) Math.ceil(paint.measureText(text, start, end));
         }
 

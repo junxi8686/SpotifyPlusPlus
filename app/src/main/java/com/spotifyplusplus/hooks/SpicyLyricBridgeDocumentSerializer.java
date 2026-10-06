@@ -5,6 +5,10 @@ import com.spotifyplusplus.lyrics.DisplayLayoutGroup;
 import com.spotifyplusplus.lyrics.LyricTimeline;
 import com.spotifyplusplus.lyrics.LyricsDocument;
 import com.spotifyplusplus.lyrics.SyllableSegment;
+import com.spotifyplusplus.lyrics.SpicyOrgAttribution;
+import com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy;
+import com.spotifyplusplus.lyrics.processing.LyricsDocumentProcessor;
+import com.spotifyplusplus.lyrics.session.Digests;
 import com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor;
 import com.spotifyplusplus.lyrics.reading.CodePointRanges;
 import com.spotifyplusplus.lyrics.reading.ReadingModels.CanonicalSpanMapping;
@@ -14,6 +18,7 @@ import com.google.gson.JsonObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.zip.GZIPOutputStream;
 
 final class SpicyLyricBridgeDocumentSerializer {
@@ -34,8 +39,10 @@ final class SpicyLyricBridgeDocumentSerializer {
             String trackUri
     ) throws IOException {
         if (document == null) throw new IOException("missing document");
-        if (com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy.isRestricted(document))
-            throw new IOException("provider does not permit lyric redistribution");
+        // Restricted (SpicyLyrics.org) documents used to be refused here outright, so those lyrics
+        // could not appear in HyperGlow at all. Upstream now publishes them and carries the credit
+        // in the payload instead - the attribution travels with the lyrics, which is what the
+        // restriction is actually about - so the refusal is gone and responseCredit() supplies it.
         JsonObject root = new JsonObject();
         root.addProperty("version", DOCUMENT_VERSION);
         root.addProperty("producerId", bounded(producerId));
@@ -47,6 +54,8 @@ final class SpicyLyricBridgeDocumentSerializer {
         long durationMs = Math.max(0L, document.durationMs);
         root.addProperty("durationMs", durationMs);
         root.addProperty("processingVersion", document.processingVersion);
+        String responseCredit = responseCredit(document);
+        if (!responseCredit.isEmpty()) root.addProperty("responseCredit", responseCredit);
 
         JsonArray rows = new JsonArray();
         int wordCount = 0;
@@ -138,6 +147,38 @@ final class SpicyLyricBridgeDocumentSerializer {
 
     private static long clampTiming(long value, long startMs, long endMs) {
         return Math.max(startMs, Math.min(endMs, value));
+    }
+
+    /**
+     * Identity of what a viewer would actually see, credit included.
+     *
+     * <p>The credit is part of the published payload now, so two documents that differ only in
+     * their attribution are not the same publication and must not be treated as unchanged.
+     */
+    static String publicationFingerprint(LyricsDocument document) {
+        return Digests.sha256(LyricsDocumentProcessor.publicationFingerprint(document)
+                + '\u001f' + responseCredit(document));
+    }
+
+    /**
+     * The attribution line that travels with the lyrics.
+     *
+     * <p>Restricted lyrics are published with their contributors named, which is the condition
+     * that makes publishing them acceptable. Song writers come first when the response carried
+     * them, then the provider's own credits, one per line.
+     */
+    private static String responseCredit(LyricsDocument document) {
+        if (document == null) return "";
+        ArrayList<String> labels = new ArrayList<>();
+        if (SpicyOrgPolicy.isRestricted(document)) {
+            for (SpicyOrgAttribution.Credit credit : SpicyOrgAttribution.credits(document)) {
+                labels.add(credit.label);
+            }
+        }
+        if (document.songWriters != null && !document.songWriters.trim().isEmpty()) {
+            labels.add(0, "Written by: " + document.songWriters.trim());
+        }
+        return bounded(String.join("\n", labels));
     }
 
     private static String bounded(String value) {

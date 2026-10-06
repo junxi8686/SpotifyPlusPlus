@@ -12,7 +12,6 @@ import com.spotifyplusplus.SpotifyPlusConfig;
 import com.spotifyplusplus.SpotifyTrack;
 import com.spotifyplusplus.lyrics.AppliedLine;
 import com.spotifyplusplus.lyrics.LyricTimeline;
-import com.spotifyplusplus.lyrics.processing.LyricsDocumentProcessor;
 import com.spotifyplusplus.lyrics.session.LyricPipelineMetrics;
 import com.spotifyplusplus.lyrics.LyricsDocument;
 
@@ -108,7 +107,10 @@ final class SpicyLyricBridgeCoordinator implements LyricsSessionManager.Listener
     public void onDocumentChanged(LyricsSessionManager.Snapshot snapshot, LyricsDocument nextDocument) {
         if (!enabled || snapshot == null
                 || lastSnapshot == null || snapshot.generation != lastSnapshot.generation) return;
-        if (nextDocument == null || com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy.isRestricted(nextDocument)) {
+        // Restricted documents are no longer dropped. They are published with their credit, which
+        // the serializer now attaches; refusing them here is what kept SpicyLyrics.org lyrics out
+        // of HyperGlow entirely.
+        if (nextDocument == null) {
             document = null;
             documentRevision++;
             publishedFingerprint = "";
@@ -146,7 +148,7 @@ final class SpicyLyricBridgeCoordinator implements LyricsSessionManager.Listener
         // over IPC — so the saving available here is not republishing at all. A track produces
         // several publications while the lanes settle, and a lane that had no work changes nothing
         // a viewer would see.
-        String fingerprint = LyricsDocumentProcessor.publicationFingerprint(source);
+        String fingerprint = SpicyLyricBridgeDocumentSerializer.publicationFingerprint(source);
         if (fingerprint.equals(publishedFingerprint)) {
             LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.LAYER_LOCAL_UPDATE);
             documentSkipped("unchanged_fingerprint");
