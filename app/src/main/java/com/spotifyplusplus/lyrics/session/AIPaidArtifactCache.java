@@ -308,6 +308,25 @@ public final class AIPaidArtifactCache {
         return 0L;
     }
 
+    /**
+     * Releases the cached connection so the ledger database can be replaced by a restore.
+     *
+     * <p>Same reasoning as the catalogue: an open handle keeps the process on the old pages and
+     * can write them back over the restored file.
+     */
+    public static void closeForRestore() {
+        synchronized (LOCK) {
+            AIPaidArtifactDatabase local = database;
+            database = null;
+            if (local != null) {
+                try {
+                    local.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
     private static AIPaidArtifactDatabase database(Context context) {
         AIPaidArtifactDatabase result = database;
         if (result != null) return result;

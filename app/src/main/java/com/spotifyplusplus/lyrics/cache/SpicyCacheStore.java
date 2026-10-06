@@ -53,6 +53,25 @@ public final class SpicyCacheStore {
     private SpicyCacheStore() {
     }
 
+    /**
+     * Releases the cached connection so the database file can be replaced by a restore.
+     *
+     * <p>The same reasoning as {@code CatalogStore.closeForRestore}: an open handle keeps the
+     * process on the old pages and can write them back over the restored file.
+     */
+    public static void closeForRestore() {
+        synchronized (SpicyCacheStore.class) {
+            Helper local = helper;
+            helper = null;
+            if (local != null) {
+                try {
+                    local.close();
+                } catch (Throwable ignored) {
+                }
+            }
+        }
+    }
+
     private static Helper helper(Context context) {
         Helper local = helper;
         if (local != null) return local;

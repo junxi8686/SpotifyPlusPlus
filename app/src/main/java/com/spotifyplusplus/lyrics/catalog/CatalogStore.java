@@ -56,6 +56,27 @@ public final class CatalogStore {
         }
     }
 
+    /**
+     * Releases the cached connection so the database file can be replaced by a restore.
+     *
+     * <p>Writing the file under an open handle leaves the process on the old pages, and SQLite can
+     * write those stale pages back over the restored file. The helper is dropped rather than only
+     * closed, so the next caller builds a fresh one over the restored bytes.
+     */
+    public static void closeForRestore() {
+        synchronized (CatalogStore.class) {
+            Helper local = helper;
+            helper = null;
+            if (local != null) {
+                try {
+                    local.close();
+                } catch (Throwable ignored) {
+                    // A connection that refuses to close is still dropped from the cache above.
+                }
+            }
+        }
+    }
+
     private static Helper helper(Context context) {
         Helper local = helper;
         if (local != null) return local;

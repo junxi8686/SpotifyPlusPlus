@@ -40,8 +40,24 @@ import static com.spotifyplusplus.lyrics.LyricUtils.safe;
  */
 public final class QqMusicAdapter {
     public static final int ADAPTER_REVISION = 1;
-    private static final int SEARCH_RETRY_LIMIT = 2;
-    private static final long SEARCH_RETRY_DELAY_MS = 500;
+    /**
+     * One retry, not two.
+     *
+     * <p>A throttled window outlasts both attempts: the log shows a query refused at 19:44:54,
+     * 19:44:55 and 19:44:57 and then answered correctly at 19:45:02. The second and third attempts
+     * bought nothing and deepened the throttle.
+     */
+    private static final int SEARCH_RETRY_LIMIT = 1;
+    /** Pause before the single retry; long enough to clear the window the log actually shows. */
+    private static final long SEARCH_RETRY_DELAY_MS = 2500L;
+    /**
+     * Gap between spellings.
+     *
+     * <p>The plan holds several spellings and they used to be sent as fast as they could be built -
+     * the log has three of them inside 186 ms. Each spelling is a separate search, so they are
+     * spaced instead of arriving as one burst.
+     */
+    private static final long VARIANT_DELAY_MS = 450L;
 
     /**
      * A realistic browser UA, not the bare {@code "Mozilla/5.0"} this used to send on every call.
@@ -161,30 +177,41 @@ public final class QqMusicAdapter {
                         // A trace must never affect the request it describes.
                     }
                     if (songs.isEmpty()) {
-                        // Nothing cleared the identity gate, and nothing is promoted over that
-                        // refusal any more: the model that used to be asked to override it is
-                        // gone from this path.
-                        // Retry an empty result whatever the reported code.
+                        // The code says which kind of empty this is, and the two want opposite
+                        // treatment. A non-zero code means the endpoint refused the request without
+                        // reading the query - it is throttling, and coming back later is the only
+                        // thing that helps. A zero code means it did read the query and has nothing
+                        // acceptable, which repeating the identical query cannot change.
                         //
-                        // This endpoint answers 200 with an empty list when it throttles, which is
-                        // indistinguishable from "this catalogue does not carry the track" - and
-                        // the owner sees a source that reads "not found" on one tap and resolves on
-                        // the next. Retrying only on a non-zero code is what left the second tap
-                        // doing the work. A query that genuinely has no hits pays two extra
-                        // requests, which is the cheaper mistake by a wide margin.
-                        if (retryCount < SEARCH_RETRY_LIMIT && scheduler != null) {
+                        // Retrying both alike is what made a burst: three attempts per spelling,
+                        // every spelling, all inside a couple of seconds. The log shows the result -
+                        // a two-second window where nothing succeeds, and the same query answering
+                        // correctly five seconds later.
+                        if (searchCode != 0 && retryCount < SEARCH_RETRY_LIMIT
+                                && scheduler != null) {
                             int nextRetry = retryCount + 1;
                             scheduler.schedule(
                                     () -> fetch(context, track, generation,
                                             karaokeOriginalLyrics, callback, nextRetry),
-                                    SEARCH_RETRY_DELAY_MS * (nextRetry + 1L),
+                                    SEARCH_RETRY_DELAY_MS,
                                     TimeUnit.MILLISECONDS);
                             return;
                         }
                         if (index + 1 < queries.size()) {
-                            searchVariant(context, track, queryTrack, substituted, generation,
-                                    karaokeOriginalLyrics, callback, retryCount, queries,
-                                    index + 1, carried);
+                            // Next spelling, after a gap. The delay is dropped only when there is no
+                            // scheduler, which is the synchronous test path.
+                            final int nextIndex = index + 1;
+                            if (scheduler != null) {
+                                scheduler.schedule(
+                                        () -> searchVariant(context, track, queryTrack, substituted,
+                                                generation, karaokeOriginalLyrics, callback,
+                                                retryCount, queries, nextIndex, carried),
+                                        VARIANT_DELAY_MS, TimeUnit.MILLISECONDS);
+                            } else {
+                                searchVariant(context, track, queryTrack, substituted, generation,
+                                        karaokeOriginalLyrics, callback, retryCount, queries,
+                                        nextIndex, carried);
+                            }
                             return;
                         }
                         if (carried != null && !carried.isEmpty()) {

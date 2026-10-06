@@ -4,10 +4,12 @@ import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
 import android.provider.MediaStore;
+import android.util.Base64;
 
 import com.spotifyplusplus.SpotifyPlusConfig;
 import com.google.gson.JsonArray;
@@ -15,6 +17,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
@@ -43,9 +48,16 @@ import java.util.Set;
  * testable off-device.
  */
 public final class SpicyBackup {
-    public static final String FILE_NAME = "SpicyEX-backup.json";
+    public static final String FILE_NAME = "SpotifyPlusPlus-backup.json";
+    /** Where this build writes. */
+    private static final String FOLDER = "Spotify++";
+    /**
+     * The name and folder earlier builds used, still read so an export made before the rename is
+     * not orphaned - the restore-from-Downloads path looks files up by name.
+     */
+    private static final String LEGACY_FILE_NAME = "SpicyEX-backup.json";
     /** Written into every snapshot; a restore from a newer file is refused rather than guessed. */
-    public static final int FORMAT_VERSION = 1;
+    public static final int FORMAT_VERSION = 2;
 
     private static final String AI_PREFS = "SpotifyPlusAiCredentials";
     /** Source order, per-track override and ranking mode. */
@@ -56,18 +68,23 @@ public final class SpicyBackup {
     private static final String SPICY_KEY_STATE_PREFS = "SpotifyPlusSpicyOrgKeyState";
     /** SpicyLyrics.org access loss/restore record. */
     private static final String SPICY_ACCESS_STATE_PREFS = "SpotifyPlusSpicyOrgAccessState";
+    /** Remote lyric responses, so a restore does not re-download every one of them. */
+    private static final String RESPONSE_CACHE_PREFS = "SpotifyPlusLyricsResponseCache";
+    /** How long SpicyLyrics.org results are kept. */
+    private static final String ORG_RETENTION_PREFS = "spicy-org-retention";
+    /** The Android Auto prototype switch. */
+    private static final String AUTO_PROTOTYPE_PREFS = "auto-prototype";
 
     /**
      * Every preference file a backup carries.
      *
      * <p>Two were covered and that was not enough to restore an install: the source order and the
-     * per-track override live in their own file, and the catalogue - which sources a track has and
-     * which were already checked - lives in another. Restoring only the settings brought back a
-     * configured app with an empty catalogue and no source selection, so everything had to be
-     * searched and chosen again.
+     * per-track override live in their own file, and the catalogue's prefs hold a legacy cache.
+     * Restoring only the settings brought back a configured app with no source selection, so
+     * everything had to be searched and chosen again.
      *
-     * <p>Diagnostic drafts and capture buffers are deliberately absent: they are transient state
-     * about a report in progress, not something to move between installs.
+     * <p>Diagnostic drafts, capture buffers and the request breaker are deliberately absent: they
+     * are transient state about something in progress, not something to move between installs.
      */
     private static final String[] STORES = {
             SpotifyPlusConfig.PREFS_NAME,
@@ -76,9 +93,58 @@ public final class SpicyBackup {
             CATALOG_PREFS,
             SPICY_KEY_STATE_PREFS,
             SPICY_ACCESS_STATE_PREFS,
+            RESPONSE_CACHE_PREFS,
+            ORG_RETENTION_PREFS,
+            AUTO_PROTOTYPE_PREFS,
+    };
+
+    /**
+     * Whole databases, copied byte for byte.
+     *
+     * <p>These are application data, not cache, and none of them was covered before. The catalogue
+     * owns the owner's per-track selections, the accepted lyric documents and every provider
+     * outcome - its own documentation says it has no TTL and no eviction. The cache database holds
+     * translations and readings, which cost money to produce through the AI providers. The ledger
+     * records what was spent.
+     *
+     * <p>Copying the file is the only way to carry all of that without a table-by-table
+     * serialiser that would silently drop any column added later.
+     */
+    private static final String[] DATABASES = {
+            "LyricsCatalog.db",
+            "SpicyLyricCaches.db",
+            "SpicyPaidAiLedger.db",
+    };
+
+    /**
+     * Owner data under {@code files/}.
+     *
+     * <p>The language model pack is deliberately absent: it is a re-downloadable asset many
+     * megabytes wide, and the settings that point at it already travel with the backup.
+     */
+    private static final String[] FILE_DIRS = {
+            "spicyex_fonts",
     };
 
     private SpicyBackup() {
+    }
+
+    /** Returned when the owner cancelled; distinct from -1, which means the file was unusable. */
+    public static final int CANCELLED = -2;
+
+    /**
+     * Progress and cancellation for one export or restore.
+     *
+     * <p>Called from whatever thread runs the work, which is never the main thread for a real
+     * export: the catalogue and the caches are copied byte for byte, and doing that on the UI
+     * thread would freeze the panel for as long as it takes.
+     */
+    public interface Progress {
+        /** @param done units finished so far, {@code total} the units expected in all */
+        void onProgress(int done, int total);
+
+        /** Polled between units; a cancelled run stops without writing anything further. */
+        boolean isCancelled();
     }
 
     /** The whole backup as JSON text. Pure given the stores; no file or network involved. */
@@ -95,26 +161,108 @@ public final class SpicyBackup {
 
     /** Every store this module owns, as one document. */
     public static String encodeAll(Context context) {
+        return encodeAll(context, null);
+    }
+
+    /**
+     * Every store this module owns, as one document, reporting progress as it goes.
+     *
+     * @return null when the owner cancelled
+     */
+    public static String encodeAll(Context context, Progress progress) {
         JsonObject stores = new JsonObject();
+        int total = STORES.length + DATABASES.length + countFiles(context);
+        int done = 0;
         for (String name : STORES) {
+            if (cancelled(progress)) return null;
             stores.add(name, encodeStore(context == null ? null : prefs(context, name).getAll()));
+            report(progress, ++done, total);
         }
         JsonObject root = new JsonObject();
         root.addProperty("version", FORMAT_VERSION);
         root.addProperty("exportedAt", System.currentTimeMillis());
         root.add("stores", stores);
+        JsonObject databases = new JsonObject();
+        if (context != null) {
+            for (String name : DATABASES) {
+                if (cancelled(progress)) return null;
+                String encoded = readDatabaseBase64(context, name);
+                if (encoded != null && !encoded.isEmpty()) databases.addProperty(name, encoded);
+                report(progress, ++done, total);
+            }
+        }
+        root.add("databases", databases);
+        JsonObject files = new JsonObject();
+        if (context != null && !encodeFiles(context, files, progress, done, total)) return null;
+        root.add("files", files);
         return root.toString();
+    }
+
+    private static boolean encodeFiles(Context context, JsonObject out, Progress progress,
+                                       int doneBase, int total) {
+        File root = context.getFilesDir();
+        if (root == null) return true;
+        int done = doneBase;
+        for (String dirName : FILE_DIRS) {
+            File[] children = new File(root, dirName).listFiles();
+            if (children == null) continue;
+            for (File child : children) {
+                if (child == null || !child.isFile()) continue;
+                if (cancelled(progress)) return false;
+                byte[] bytes = readAllBytes(child);
+                if (bytes != null && bytes.length > 0) {
+                    out.addProperty(dirName + "/" + child.getName(),
+                            Base64.encodeToString(bytes, Base64.NO_WRAP));
+                }
+                report(progress, ++done, total);
+            }
+        }
+        return true;
+    }
+
+    private static int countFiles(Context context) {
+        File root = context == null ? null : context.getFilesDir();
+        if (root == null) return 0;
+        int count = 0;
+        for (String dirName : FILE_DIRS) {
+            File[] children = new File(root, dirName).listFiles();
+            if (children == null) continue;
+            for (File child : children) if (child != null && child.isFile()) count++;
+        }
+        return count;
+    }
+
+    private static void report(Progress progress, int done, int total) {
+        if (progress == null) return;
+        try {
+            progress.onProgress(done, total);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean cancelled(Progress progress) {
+        if (progress == null) return false;
+        try {
+            return progress.isCancelled();
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /**
      * Restores every store the document carries.
      *
      * <p>A store the file omits is left untouched rather than cleared, so a backup written before
-     * the catalogue was covered still restores everything it does contain.
+     * the catalogue was covered still restores everything it does contain. The same is true of the
+     * databases and files: a version-1 document carries neither and simply restores its stores.
      *
      * @return how many entries were written, or -1 when the text is not a usable backup
      */
     public static int decodeAll(Context context, String json) {
+        return decodeAll(context, json, null);
+    }
+
+    public static int decodeAll(Context context, String json, Progress progress) {
         JsonObject root;
         try {
             JsonElement parsed = JsonParser.parseString(json);
@@ -132,11 +280,165 @@ public final class SpicyBackup {
         }
         JsonElement stores = root.get("stores");
         if (stores == null || !stores.isJsonObject() || context == null) return -1;
+        JsonElement databases = root.get("databases");
+        JsonElement files = root.get("files");
+        int total = STORES.length + DATABASES.length + countFileEntries(files);
+        int done = 0;
         int written = 0;
         for (String name : STORES) {
+            if (cancelled(progress)) return CANCELLED;
             written += decodeStore(stores.getAsJsonObject().get(name), prefs(context, name));
+            report(progress, ++done, total);
+        }
+        if (cancelled(progress)) return CANCELLED;
+        // Handles are released before anything is written: an open connection keeps the process
+        // on the old pages of the file being replaced.
+        closeDatabaseHandles();
+        for (String name : DATABASES) {
+            if (cancelled(progress)) return CANCELLED;
+            if (databases != null && databases.isJsonObject()) {
+                written += decodeOneDatabase(context, name, databases.getAsJsonObject().get(name));
+            }
+            report(progress, ++done, total);
+        }
+        if (files != null && files.isJsonObject()) {
+            for (Map.Entry<String, JsonElement> entry : files.getAsJsonObject().entrySet()) {
+                if (cancelled(progress)) return CANCELLED;
+                written += decodeOneFile(context, entry.getKey(), entry.getValue());
+                report(progress, ++done, total);
+            }
         }
         return written;
+    }
+
+    private static int countFileEntries(JsonElement files) {
+        if (files == null || !files.isJsonObject()) return 0;
+        return files.getAsJsonObject().size();
+    }
+
+    private static int decodeOneDatabase(Context context, String name, JsonElement cell) {
+        if (cell == null || !cell.isJsonPrimitive()) return 0;
+        byte[] bytes;
+        try {
+            bytes = Base64.decode(cell.getAsString(), Base64.NO_WRAP);
+        } catch (Throwable ignored) {
+            return 0;
+        }
+        if (bytes == null || bytes.length == 0) return 0;
+        return writeDatabase(context, name, bytes) ? 1 : 0;
+    }
+
+    private static int decodeOneFile(Context context, String relative, JsonElement cell) {
+        File root = context.getFilesDir();
+        // Only the declared directories, and never a name that climbs out of one.
+        if (root == null || relative == null || relative.contains("..")
+                || cell == null || !cell.isJsonPrimitive()) return 0;
+        int slash = relative.indexOf('/');
+        if (slash <= 0) return 0;
+        String dirName = relative.substring(0, slash);
+        String fileName = relative.substring(slash + 1);
+        if (!declaredFileDir(dirName) || fileName.isEmpty() || fileName.contains("/")) return 0;
+        byte[] bytes;
+        try {
+            bytes = Base64.decode(cell.getAsString(), Base64.NO_WRAP);
+        } catch (Throwable ignored) {
+            return 0;
+        }
+        if (bytes == null || bytes.length == 0) return 0;
+        try {
+            File dir = new File(root, dirName);
+            if (!dir.isDirectory() && !dir.mkdirs()) return 0;
+            try (FileOutputStream out = new FileOutputStream(new File(dir, fileName))) {
+                out.write(bytes);
+            }
+            return 1;
+        } catch (Throwable ignored) {
+            // One unwritable file must not abandon the rest of the restore.
+            return 0;
+        }
+    }
+
+    private static boolean declaredFileDir(String name) {
+        for (String declared : FILE_DIRS) if (declared.equals(name)) return true;
+        return false;
+    }
+
+    /** Releases the cached connections of every database a restore may overwrite. */
+    private static void closeDatabaseHandles() {
+        try {
+            com.spotifyplusplus.lyrics.catalog.CatalogStore.closeForRestore();
+        } catch (Throwable ignored) {
+        }
+        try {
+            com.spotifyplusplus.lyrics.cache.SpicyCacheStore.closeForRestore();
+        } catch (Throwable ignored) {
+        }
+        try {
+            com.spotifyplusplus.lyrics.session.AIPaidArtifactCache.closeForRestore();
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /**
+     * The database file as base64, or null when it does not exist yet.
+     *
+     * <p>The write-ahead log is folded in first: a database copied while it still has a WAL beside
+     * it is missing whatever that log holds.
+     */
+    private static String readDatabaseBase64(Context context, String name) {
+        try {
+            File path = context.getDatabasePath(name);
+            if (path == null || !path.isFile()) return null;
+            try {
+                SQLiteDatabase db = SQLiteDatabase.openDatabase(path.getAbsolutePath(), null,
+                        SQLiteDatabase.OPEN_READWRITE);
+                try {
+                    db.rawQuery("PRAGMA wal_checkpoint(FULL)", null).close();
+                } finally {
+                    db.close();
+                }
+            } catch (Throwable ignored) {
+                // A checkpoint that fails still leaves a readable main file.
+            }
+            byte[] bytes = readAllBytes(path);
+            return bytes == null || bytes.length == 0
+                    ? null : Base64.encodeToString(bytes, Base64.NO_WRAP);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static boolean writeDatabase(Context context, String name, byte[] bytes) {
+        try {
+            File target = context.getDatabasePath(name);
+            if (target == null) return false;
+            File parent = target.getParentFile();
+            if (parent != null && !parent.isDirectory() && !parent.mkdirs()) return false;
+            // The sidecars describe the file being replaced. Left behind, SQLite would replay a
+            // stale log over the restored bytes.
+            new File(target.getPath() + "-wal").delete();
+            new File(target.getPath() + "-shm").delete();
+            new File(target.getPath() + "-journal").delete();
+            try (FileOutputStream out = new FileOutputStream(target)) {
+                out.write(bytes);
+            }
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static byte[] readAllBytes(File file) {
+        try (InputStream in = new FileInputStream(file)) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(
+                    (int) Math.min(file.length(), 1 << 20));
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
+            return out.toByteArray();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private static JsonObject encodeStore(Map<String, ?> values) {        JsonObject store = new JsonObject();
@@ -271,7 +573,7 @@ public final class SpicyBackup {
             values.put(MediaStore.MediaColumns.DISPLAY_NAME, FILE_NAME);
             values.put(MediaStore.MediaColumns.MIME_TYPE, "application/json");
             values.put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS + "/Spicy EX");
+                    Environment.DIRECTORY_DOWNLOADS + "/" + FOLDER);
             values.put(MediaStore.MediaColumns.IS_PENDING, 1);
             uri = context.getContentResolver().insert(
                     MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
@@ -284,7 +586,7 @@ public final class SpicyBackup {
             ready.put(MediaStore.MediaColumns.IS_PENDING, 0);
             context.getContentResolver().update(uri, ready, null, null);
             saved = true;
-            return Environment.DIRECTORY_DOWNLOADS + "/Spicy EX/" + FILE_NAME;
+            return Environment.DIRECTORY_DOWNLOADS + "/" + FOLDER + "/" + FILE_NAME;
         } catch (Throwable ignored) {
             return null;
         } finally {
@@ -300,8 +602,14 @@ public final class SpicyBackup {
 
     /** Writes the snapshot to a document the owner picked. -1 when the write fails. */
     public static int writeTo(Context context, Uri target) {
+        return writeTo(context, target, null);
+    }
+
+    /** As {@link #writeTo(Context, Uri)}, reporting progress; {@link #CANCELLED} if cancelled. */
+    public static int writeTo(Context context, Uri target, Progress progress) {
         if (context == null || target == null) return -1;
-        String json = encodeAll(context);
+        String json = encodeAll(context, progress);
+        if (json == null) return CANCELLED;
         try (OutputStreamWriter writer = new OutputStreamWriter(
                 context.getContentResolver().openOutputStream(target, "wt"),
                 StandardCharsets.UTF_8)) {
@@ -314,6 +622,11 @@ public final class SpicyBackup {
 
     /** Restores from a document the owner picked. -1 when it is not a usable backup. */
     public static int restoreFrom(Context context, Uri source) {
+        return restoreFrom(context, source, null);
+    }
+
+    /** As {@link #restoreFrom(Context, Uri)}, reporting progress; {@link #CANCELLED} if cancelled. */
+    public static int restoreFrom(Context context, Uri source, Progress progress) {
         if (context == null || source == null) return -1;
         String json;
         try (InputStream in = context.getContentResolver().openInputStream(source)) {
@@ -326,14 +639,34 @@ public final class SpicyBackup {
         } catch (Throwable ignored) {
             return -1;
         }
-        return decodeAll(context, json);
+        return decodeAll(context, json, progress);
     }
 
-    /** How many entries the export carried, used only for the confirmation message. */
+    /**
+     * How many entries the export would carry, used only for the confirmation message.
+     *
+     * <p>Counts a database and a stored file as one entry each, so the number the owner sees moves
+     * when the catalogue grows rather than only when a setting changes.
+     */
     public static int settingsCount(Context context) {
         if (context == null) return 0;
         int total = 0;
         for (String name : STORES) total += prefs(context, name).getAll().size();
+        for (String name : DATABASES) {
+            try {
+                File path = context.getDatabasePath(name);
+                if (path != null && path.isFile()) total++;
+            } catch (Throwable ignored) {
+            }
+        }
+        File root = context.getFilesDir();
+        if (root != null) {
+            for (String dirName : FILE_DIRS) {
+                File[] children = new File(root, dirName).listFiles();
+                if (children == null) continue;
+                for (File child : children) if (child != null && child.isFile()) total++;
+            }
+        }
         return total;
     }
 
@@ -372,13 +705,24 @@ public final class SpicyBackup {
         }
     }
 
-    /** Reads back {@link #FILE_NAME} from Downloads. Null when it is absent or unreadable. */    public static String readFromDownloads(Context context) {
+    /**
+     * Reads back {@link #FILE_NAME} from Downloads. Null when it is absent or unreadable.
+     *
+     * <p>The legacy name is tried too: the lookup is by file name, so an export written before the
+     * rename would otherwise become invisible to this path.
+     */
+    public static String readFromDownloads(Context context) {
         if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null;
+        String json = readDownloadByName(context, FILE_NAME);
+        return json != null ? json : readDownloadByName(context, LEGACY_FILE_NAME);
+    }
+
+    private static String readDownloadByName(Context context, String name) {
         Uri collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
         String[] projection = {MediaStore.MediaColumns._ID};
         try (android.database.Cursor cursor = context.getContentResolver().query(collection,
                 projection, MediaStore.MediaColumns.DISPLAY_NAME + "=?",
-                new String[]{FILE_NAME}, null)) {
+                new String[]{name}, null)) {
             if (cursor == null || !cursor.moveToFirst()) return null;
             Uri file = ContentUris.withAppendedId(collection, cursor.getLong(0));
             try (InputStream in = context.getContentResolver().openInputStream(file)) {
@@ -398,7 +742,10 @@ public final class SpicyBackup {
     public static int restoreFromDownloads(Context context) {
         String json = readFromDownloads(context);
         if (json == null || json.isEmpty()) return -1;
-        return decodeInto(json, prefs(context, SpotifyPlusConfig.PREFS_NAME), prefs(context, AI_PREFS));
+        // decodeAll, not decodeInto: this path still wrote into two stores when the export grew to
+        // six, so restoring from Downloads brought back the settings and keys but left the source
+        // order and the catalogue behind, while importing the very same file restored them.
+        return decodeAll(context, json);
     }
 
     private static SharedPreferences prefs(Context context, String name) {
