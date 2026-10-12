@@ -35,7 +35,7 @@ public final class LyricsDocumentProcessor {
         LyricTimeline.rebalanceStaticTimings(doc);
         LyricTimeline.fillMissingEndTimes(doc);
         applyProviderTranslations(context, doc);
-        applyCachedGoogleEnhancements(context, doc, processingVersion);
+        applyCachedMachineTranslations(context, doc, processingVersion);
         initProcessing(context, doc);
     }
 
@@ -269,6 +269,7 @@ public final class LyricsDocumentProcessor {
         target.romanizationPending = source.romanizationPending;
         target.translationPending = source.translationPending;
         target.translationFailed = source.translationFailed;
+        target.translationFailureReason = safeText(source.translationFailureReason);
         target.processingPending = source.processingPending;
         target.readingFromAi = source.readingFromAi;
         target.translationFromAi = source.translationFromAi;
@@ -449,7 +450,7 @@ public final class LyricsDocumentProcessor {
         doc.translationAiRefinedFromGoogle = false;
         doc.translationAiFailureToken = "";
         doc.translationPending = enabled
-                && "google_unofficial".equalsIgnoreCase(backend)
+                && LyricsMeaningLane.isMachineBackend(backend)
                 && hasGeneratedTranslationWork(doc, effectiveSourceLanguage(config, doc.language), target);
         doc.processingPending = doc.romanizationPending || doc.translationPending;
     }
@@ -469,11 +470,17 @@ public final class LyricsDocumentProcessor {
      * immune to the user's reading-mode setting, and different tracks ended up displaying different
      * romanization styles. Readings now come exclusively from the mode-keyed Sound artifact, which
      * the Sound lane persists whether the text came from a local romanizer or the network fallback.
+     *
+     * <p>Any registered machine backend's cache is restored, not only Google's: the per-line key
+     * carries track, source, target, and text, so the value is a translation of that line whichever
+     * endpoint produced it, and a document opened with a backend selected shows what that line's
+     * cache already holds instead of waiting for a run.
      */
-    private static void applyCachedGoogleEnhancements(Context context, LyricsDocument doc, int processingVersion) {
+    private static void applyCachedMachineTranslations(Context context, LyricsDocument doc,
+                                                       int processingVersion) {
         if (context == null || doc == null || doc.lines == null) return;
         SpotifyPlusConfig config = SpotifyPlusConfig.from(context);
-        if (!"google_unofficial".equalsIgnoreCase(config.get(Settings.TRANSLATION_BACKEND))) return;
+        if (!LyricsMeaningLane.isMachineBackend(config.get(Settings.TRANSLATION_BACKEND))) return;
         String targetLang = config.get(Settings.TRANSLATION_TARGET);
         String sourceLang = effectiveSourceLanguage(config, doc.language);
         boolean documentNeedsTranslation = SpicyProcessing.flagsFor(
@@ -509,7 +516,7 @@ public final class LyricsDocumentProcessor {
         doc.romanizationPending = flags.romanizationPending;
         doc.includesTranslation = translationEnabled && hasDisplayedTranslation(doc);
         doc.translationPending = translationEnabled
-                && "google_unofficial".equalsIgnoreCase(backend)
+                && LyricsMeaningLane.isMachineBackend(backend)
                 && hasGeneratedTranslationWork(doc, sourceLang, targetLang);
         doc.processingPending = doc.romanizationPending || doc.translationPending;
         doc.detectedScripts.clear();
@@ -536,7 +543,7 @@ public final class LyricsDocumentProcessor {
         doc.romanizationPending = SpicyProcessing.flagsFor(
                 collectText(doc), sourceLang, targetLang).romanizationPending;
         doc.translationPending = translationEnabled
-                && "google_unofficial".equalsIgnoreCase(backend)
+                && LyricsMeaningLane.isMachineBackend(backend)
                 && hasGeneratedTranslationWork(doc, sourceLang, targetLang);
         doc.processingPending = doc.romanizationPending || doc.translationPending;
     }

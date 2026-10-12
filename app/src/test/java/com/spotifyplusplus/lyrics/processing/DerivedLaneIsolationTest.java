@@ -154,6 +154,7 @@ public class DerivedLaneIsolationTest {
     @Test
     public void onlyTheSelectedBackendClaimsMeaningWork() {
         LyricsMeaningLane.MeaningProvider google = new LyricsMeaningLane.GoogleMeaningProvider();
+        LyricsMeaningLane.MeaningProvider baidu = new LyricsMeaningLane.BaiduMeaningProvider();
 
         assertEquals("google_unofficial", google.backendId());
         assertTrue(google.handles("google_unofficial"));
@@ -161,6 +162,30 @@ public class DerivedLaneIsolationTest {
         assertFalse(google.handles("disabled"));
         assertFalse(google.handles(""));
         assertFalse(google.handles(null));
+
+        assertEquals("baidu_unofficial", baidu.backendId());
+        assertTrue(baidu.handles("baidu_unofficial"));
+        assertTrue(baidu.handles("BAIDU_UNOFFICIAL"));
+        // The peers must not claim each other's setting: the row's choice has to be the one that
+        // runs, or a mainland install would keep sending the requests Google never answers.
+        assertFalse(baidu.handles("google_unofficial"));
+        assertFalse(google.handles("baidu_unofficial"));
+        assertFalse(baidu.handles("provider"));
+        assertFalse(baidu.handles(null));
+
+        // The registry resolves each stored setting to the peer that claims it, and to nothing at
+        // all for "provider" - the value that means no machine backend.
+        assertEquals("google_unofficial", LyricsMeaningLane.providerFor("google_unofficial").backendId());
+        assertEquals("baidu_unofficial", LyricsMeaningLane.providerFor("baidu_unofficial").backendId());
+        assertNotEquals(LyricsMeaningLane.providerFor("google_unofficial"),
+                LyricsMeaningLane.providerFor("baidu_unofficial"));
+        assertNull(LyricsMeaningLane.providerFor("provider"));
+        assertNull(LyricsMeaningLane.providerFor(null));
+        // The pending gate above the lane accepts exactly the settings a backend claims.
+        assertTrue(LyricsMeaningLane.isMachineBackend("google_unofficial"));
+        assertTrue(LyricsMeaningLane.isMachineBackend("baidu_unofficial"));
+        assertFalse(LyricsMeaningLane.isMachineBackend("provider"));
+        assertFalse(LyricsMeaningLane.isMachineBackend("disabled"));
     }
 
     @Test

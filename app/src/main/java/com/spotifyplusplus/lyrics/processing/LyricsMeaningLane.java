@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.SystemClock;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -17,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 
 import com.spotifyplusplus.Diagnostics;
@@ -64,7 +66,6 @@ public final class LyricsMeaningLane {
     private static final int TRANSLATION_BATCH_MAX_CHARS = 4500;
     private static final int TRANSLATION_RETRY_MAX_LINES = 12;
     private static final int TRANSLATION_RETRY_MAX_CHARS = 1200;
-    private static final int TRANSLATION_SINGLE_RESCUE_MAX_ROWS = 8;
 
     /**
      * A machine Meaning backend. Google is one peer behind this contract; nothing above the lane
@@ -85,6 +86,16 @@ public final class LyricsMeaningLane {
         void cancel(OkHttpClient http, String cancelTag);
 
         boolean shouldDisplay(String sourceText, String translated);
+
+        /**
+         * Lowercase token naming this backend in diagnostics and in user-facing status text.
+         *
+         * <p>Defaults to the backend id so a test provider needs nothing; the two shipped backends
+         * spell it the way their device logs already do.
+         */
+        default String logToken() {
+            return backendId();
+        }
     }
 
     /** The unofficial Google endpoint, kept behind the provider contract. */
@@ -113,6 +124,72 @@ public final class LyricsMeaningLane {
         @Override public boolean shouldDisplay(String sourceText, String translated) {
             return GoogleEnhancer.shouldDisplayTranslation(sourceText, translated);
         }
+
+        @Override public String logToken() {
+            return "google";
+        }
+    }
+
+    /** The unofficial Baidu endpoint, the peer that answers where Google is unreachable. */
+    public static final class BaiduMeaningProvider implements MeaningProvider {
+        @Override public String backendId() {
+            return "baidu_unofficial";
+        }
+
+        @Override public boolean handles(String backendSetting) {
+            return "baidu_unofficial".equalsIgnoreCase(backendSetting);
+        }
+
+        @Override public GoogleEnhancer.BatchResult translate(Context context, OkHttpClient http,
+                                                              int processingVersion, String trackId,
+                                                              String sourceLang, String targetLang,
+                                                              List<GoogleEnhancer.BatchLine> batch,
+                                                              String cancelTag) {
+            return BaiduTranslateBackend.translateBatch(context, http, processingVersion, trackId,
+                    sourceLang, targetLang, batch, cancelTag);
+        }
+
+        @Override public void cancel(OkHttpClient http, String cancelTag) {
+            BaiduTranslateBackend.cancelTagged(http, cancelTag);
+        }
+
+        @Override public boolean shouldDisplay(String sourceText, String translated) {
+            return BaiduTranslateBackend.shouldDisplayTranslation(sourceText, translated);
+        }
+
+        @Override public String logToken() {
+            return "baidu";
+        }
+    }
+
+    /**
+     * Every backend behind the contract, in the order a stored setting is matched against them.
+     * Google stays first: it is the shipped default, so an install that never touches the setting
+     * resolves to exactly the provider it used before a second one existed.
+     */
+    private static final List<MeaningProvider> REGISTERED = Collections.unmodifiableList(Arrays.asList(
+            new GoogleMeaningProvider(), new BaiduMeaningProvider()));
+
+    /** The registered backend that answers {@code backendSetting}, or null when none claims it. */
+    public static MeaningProvider providerFor(String backendSetting) {
+        return providerFor(REGISTERED, backendSetting);
+    }
+
+    /**
+     * True when {@code backendSetting} names a backend this lane can run. The document processor
+     * needs that answer before the lane is reached: it decides there whether a document has
+     * machine translation pending at all, and "provider" or "disabled" must keep reading as no.
+     */
+    public static boolean isMachineBackend(String backendSetting) {
+        return providerFor(REGISTERED, backendSetting) != null;
+    }
+
+    private static MeaningProvider providerFor(List<MeaningProvider> providers, String backendSetting) {
+        if (backendSetting == null) return null;
+        for (MeaningProvider candidate : providers) {
+            if (candidate != null && candidate.handles(backendSetting)) return candidate;
+        }
+        return null;
     }
 
     /**
@@ -130,7 +207,8 @@ public final class LyricsMeaningLane {
     /** Elapsed-realtime source for run metrics; injectable so JVM tests control time. */
     private final LongSupplier clock;
     private final int processingVersion;
-    private final MeaningProvider provider;
+    /** The backends this lane may use; a run resolves the stored setting against this list. */
+    private final List<MeaningProvider> providers;
     private final AiSettingsSource settingsSource;
     /** Retires earlier runs of this lane: only the newest sequence may publish. */
     private final AtomicLong laneSequence = new AtomicLong();
@@ -141,14 +219,17 @@ public final class LyricsMeaningLane {
 
     public LyricsMeaningLane(Context context, OkHttpClient http, ExecutorService laneExecutor,
                              ExecutorService aiExecutor, Handler handler, int processingVersion) {
-        this(context, http, laneExecutor, aiExecutor, handler, processingVersion,
-                new GoogleMeaningProvider());
+        this(context, http, laneExecutor, aiExecutor, processingVersion, REGISTERED,
+                handler == null ? null : handler::post, SystemClock::elapsedRealtime,
+                AiSettings::new);
     }
 
     public LyricsMeaningLane(Context context, OkHttpClient http, ExecutorService laneExecutor,
                              ExecutorService aiExecutor, Handler handler, int processingVersion,
                              MeaningProvider provider) {
-        this(context, http, laneExecutor, aiExecutor, processingVersion, provider,
+        this(context, http, laneExecutor, aiExecutor, processingVersion,
+                provider == null ? Collections.<MeaningProvider>emptyList()
+                        : Collections.singletonList(provider),
                 handler == null ? null : handler::post, SystemClock::elapsedRealtime,
                 AiSettings::new);
     }
@@ -164,6 +245,16 @@ public final class LyricsMeaningLane {
                       ExecutorService aiExecutor, int processingVersion,
                       MeaningProvider provider, Poster poster, LongSupplier clock,
                       AiSettingsSource settingsSource) {
+        this(context, http, laneExecutor, aiExecutor, processingVersion,
+                provider == null ? Collections.<MeaningProvider>emptyList()
+                        : Collections.singletonList(provider),
+                poster, clock, settingsSource);
+    }
+
+    private LyricsMeaningLane(Context context, OkHttpClient http, ExecutorService laneExecutor,
+                              ExecutorService aiExecutor, int processingVersion,
+                              List<MeaningProvider> providers, Poster poster, LongSupplier clock,
+                              AiSettingsSource settingsSource) {
         this.context = context;
         this.http = http;
         this.laneExecutor = laneExecutor;
@@ -171,7 +262,7 @@ public final class LyricsMeaningLane {
         this.poster = poster;
         this.clock = clock;
         this.processingVersion = processingVersion;
-        this.provider = provider;
+        this.providers = providers;
         this.settingsSource = settingsSource;
     }
 
@@ -201,7 +292,11 @@ public final class LyricsMeaningLane {
         if (snapshot == null || snapshot.lines.isEmpty()) return false;
         final AiSettings aiSettings = settingsSource.create(context);
         final boolean aiAutomatic = aiSettings.translationAutomatic() && aiSettings.canRequest();
-        final boolean wanted = snapshot.translationPending && provider.handles(backend);
+        // The backend setting decides which registered provider owns this run. An install that
+        // never touched the setting resolves to Google, exactly as it did when Google was the only
+        // peer; a setting no backend claims leaves the lane with nothing to do, as before.
+        final MeaningProvider provider = providerFor(providers, backend);
+        final boolean wanted = snapshot.translationPending && provider != null;
         LyricsDocument workerSnapshot = LyricsDocument.copyOf(snapshot);
         if (workerSnapshot == null || workerSnapshot.lines.isEmpty()) return false;
 
@@ -221,7 +316,7 @@ public final class LyricsMeaningLane {
         final DerivedLayerRun run = DerivedLayerRun.begin(context, LayerKind.MEANING, workerSnapshot, laneSequence);
         String retired = activeTag;
         activeTag = run.tag;
-        if (!retired.isEmpty()) provider.cancel(http, retired);
+        if (!retired.isEmpty()) cancelTagged(retired);
 
         // AI remains the display authority. The composer may optionally ask for a Google draft as
         // request input; otherwise Meaning reads canonical source directly. Google preview is the
@@ -230,18 +325,20 @@ public final class LyricsMeaningLane {
         boolean aiConfigured = aiSettings.meaningLayerEnabled() && aiSettings.isEnabled()
                 && !aiSettings.modelName().isEmpty();
         boolean aiAutomaticRequest = aiAutomatic && snapshot.translationPending;
-        // Pending Google work must stay on the Google lane unless the user explicitly requested
-        // AI or selected the automatic AI trigger. The old `wanted` term made every configured AI
-        // install bypass Google, even in On-demand mode; disabling AI then exposed the broken
-        // assumption because no Google result had been fetched for that document.
+        // Pending machine-translation work must stay on the selected backend's lane unless the
+        // user explicitly requested AI or selected the automatic AI trigger. The old `wanted` term
+        // made every configured AI install bypass Google, even in On-demand mode; disabling AI
+        // then exposed the broken assumption because no Google result had been fetched for that
+        // document.
         if (shouldUseAi(aiConfigured, explicitAiRequest, aiAutomatic, snapshot.translationPending)) {
             if (meaningFlow == AiSettings.MeaningFlow.GOOGLE_PREVIEW) {
                 return startPreviewRun(run, id, generation, snapshot, workerSnapshot, work,
-                        backend, targetLang, sourceLang, effectiveSourceLang, explicitAiRequest,
-                        explicitAiRequest || aiAutomaticRequest, currentGuard, callback);
+                        provider, backend, targetLang, sourceLang, effectiveSourceLang,
+                        explicitAiRequest, explicitAiRequest || aiAutomaticRequest, currentGuard,
+                        callback);
             }
-            return startAiRun(run, id, generation, snapshot, workerSnapshot, work, backend,
-                    targetLang, sourceLang, effectiveSourceLang, explicitAiRequest,
+            return startAiRun(run, id, generation, snapshot, workerSnapshot, work, provider,
+                    backend, targetLang, sourceLang, effectiveSourceLang, explicitAiRequest,
                     explicitAiRequest || aiAutomaticRequest, currentGuard, callback);
         }
 
@@ -262,33 +359,44 @@ public final class LyricsMeaningLane {
         }
 
         final long startedAtMs = clock.getAsLong();
-        laneExecutor.execute(() -> {
+        // The work key was claimed above, on this thread. If the executor refuses the task nothing
+        // would ever release it, and every later request for this song and configuration would be
+        // told the work is already in flight - forever, with no owner. The layer would sit in
+        // PROCESSING with nothing behind it, which is exactly the "tapping does nothing" state:
+        // the toggle cannot offer a retry while it still reads as running. The AI path below has
+        // always had this guard; the machine-translation path did not.
+        try {
+            laneExecutor.execute(() -> {
             AtomicInteger changed = new AtomicInteger();
             Set<Integer> translated = new HashSet<>();
-            GoogleRunStats googleStats = new GoogleRunStats(work == null ? 0 : work.size(), clock.getAsLong());
+            ProviderRunStats stats = new ProviderRunStats(work == null ? 0 : work.size(),
+                    clock.getAsLong(), provider);
             // Collected as the lane works rather than read back off the document. Provider-supplied
             // translations are deliberately absent: they are canonical source data carried by the
             // base, not something this layer produced.
             List<MeaningEntry> entries = new ArrayList<>();
             try {
                 if (!run.accepts(currentGuard, id, generation, snapshot)) return;
-                List<Integer> retry = translateBatchPass(id, effectiveSourceLang, targetLang,
-                        workerSnapshot, work, entries, translated, changed, true, run.tag, run,
-                        googleStats);
-                if (!retry.isEmpty() && run.accepts(currentGuard, id, generation, snapshot)) {
+                List<Integer> retry = translateBatchPass(provider, id, effectiveSourceLang,
+                        targetLang, workerSnapshot, work, entries, translated, changed, true,
+                        run.tag, run, stats);
+                // A permanent refusal already ended the pass with an empty retry list; the guard is
+                // the second half of that: no later pass may ask a backend that cannot answer.
+                if (!retry.isEmpty() && !stats.permanent
+                        && run.accepts(currentGuard, id, generation, snapshot)) {
                     post(run, id, generation, snapshot, currentGuard,
                             () -> callback.progress("Retrying echoed translations... " + retry.size()));
-                    translateBatchPass(id, effectiveSourceLang, targetLang, workerSnapshot, retry,
-                            entries, translated, changed, false, run.tag, run, googleStats);
+                    translateBatchPass(provider, id, effectiveSourceLang, targetLang, workerSnapshot,
+                            retry, entries, translated, changed, false, run.tag, run, stats);
                 }
-                List<Integer> rescue = untranslated(work, translated);
-                if (!rescue.isEmpty() && rescue.size() <= TRANSLATION_SINGLE_RESCUE_MAX_ROWS
-                        && run.accepts(currentGuard, id, generation, snapshot)) {
-                    translateBatchPass(id, effectiveSourceLang, targetLang, workerSnapshot, rescue,
-                            entries, translated, changed, false, run.tag, run, googleStats,
-                            1, 512);
-                }
+                retryUntranslatedRows(provider, id, effectiveSourceLang, targetLang, workerSnapshot,
+                        work, entries, translated, changed, run.tag, run, stats,
+                        () -> run.accepts(currentGuard, id, generation, snapshot));
             } catch (Throwable t) {
+                // The pass escaped before recording anything, so nothing else in this run knows a
+                // request was even made. Without this the settlement reported LayerFailure.NONE and
+                // the reader was told nothing at all about a run that produced no translation.
+                stats.recordTransportFailure(t);
                 XpLog.log(TAG + " translation pass failed: " + t.getClass().getSimpleName());
             } finally {
                 // Release before publishing so a deferred surface re-runs against the fresh cache.
@@ -296,19 +404,34 @@ public final class LyricsMeaningLane {
             }
 
             boolean complete = translated.containsAll(work);
-            logGoogleSettlement(googleStats, translated.size(), complete,
+            logSettlement(stats, translated.size(), complete,
                     clock.getAsLong() - startedAtMs);
             boolean includes = complete
                     && (LyricsDocumentProcessor.hasDisplayedTranslation(workerSnapshot) || !translated.isEmpty());
             int finalChanged = changed.get();
+            // A run that ended with every row translated is not a failure. An earlier pass's reason
+            // is history by then - a partial answer and a transient refusal are both what the later
+            // passes exist to recover from - and reporting it showed "the service's answer could not
+            // be read" for a song that is fully translated on screen.
+            final LayerFailure settledFailure = complete ? LayerFailure.NONE : stats.failure();
+            final String settledMessage = complete
+                    ? "Enhanced " + finalChanged + " translation fields"
+                    : stats.message(finalChanged);
             LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.MEANING_PROCESSED);
             LyricPipelineMetrics.record(LyricPipelineMetrics.Timing.MEANING_PROCESSING,
                     clock.getAsLong() - startedAtMs);
             post(run, id, generation, snapshot, currentGuard,
-                    () -> callback.complete(LayerKind.MEANING, artifactOf(run, entries, complete),
-                            googleStats.failure(),
-                            googleStats.message(finalChanged), finalChanged));
-        });
+                    () -> callback.complete(LayerKind.MEANING, artifactOf(provider, run, entries, complete),
+                            settledFailure, settledMessage, finalChanged));
+            });
+        } catch (java.util.concurrent.RejectedExecutionException notDispatched) {
+            COALESCER.finish(runIdentity);
+            XpLog.log(TAG + " translation not dispatched: "
+                    + notDispatched.getClass().getSimpleName());
+            // Nothing was attempted, so nothing was translated and no layer state changed. The
+            // caller reads false and a later request for this song is free to try again.
+            return false;
+        }
         return true;
     }
 
@@ -328,7 +451,8 @@ public final class LyricsMeaningLane {
      */
     private boolean startAiRun(final DerivedLayerRun run, final String id, final int generation,
                                final LyricsDocument snapshot, final LyricsDocument workerSnapshot,
-                               final List<Integer> googleWork, final String backend,
+                               final List<Integer> googleWork, final MeaningProvider provider,
+                               final String backend,
                                final String targetLang, final String sourceLang,
                                final String effectiveSourceLang,
                                final boolean explicitAiRequest,
@@ -375,18 +499,19 @@ public final class LyricsMeaningLane {
                     // never enters this path.
                     refineGoogle = settings.meaningFlow() == AiSettings.MeaningFlow.GOOGLE_DRAFT;
                     if (refineGoogle) {
-                        GoogleFallbackResult googleResult = googleFallback(run, id, workerSnapshot,
-                                googleWork, effectiveSourceLang, targetLang);
+                        ProviderFallbackResult googleResult = providerFallback(provider, run, id,
+                                workerSnapshot, googleWork, effectiveSourceLang, targetLang);
                         googleBaseline = googleResult.artifact;
-                        postGoogleFailureIfNeeded(run, id, generation, snapshot, currentGuard,
-                                callback, googleResult.failure);
+                        postProviderFailureIfNeeded(provider, run, id, generation, snapshot,
+                                currentGuard, callback, googleResult.failure);
                     }
                     if (googleBaseline != null) {
                         final MeaningArtifact preliminary = googleBaseline;
                         post(run, id, generation, snapshot, currentGuard, new Runnable() {
                             @Override public void run() {
                                 callback.rerender(LayerKind.MEANING, preliminary,
-                                        "Showing Google translation while AI works");
+                                        "Showing " + backendName(provider)
+                                                + " translation while AI works");
                             }
                         });
                     }
@@ -441,11 +566,11 @@ public final class LyricsMeaningLane {
                 // Every AI Meaning mode uses the same document-level display selector. AI-only
                 // has no Google candidate; Google-draft may fall back only to a complete baseline.
                 if (googleBaseline == null && refineGoogle) {
-                    GoogleFallbackResult googleResult = googleFallback(run, id, workerSnapshot,
-                            googleWork, effectiveSourceLang, targetLang);
+                    ProviderFallbackResult googleResult = providerFallback(provider, run, id,
+                            workerSnapshot, googleWork, effectiveSourceLang, targetLang);
                     googleBaseline = googleResult.artifact;
-                    postGoogleFailureIfNeeded(run, id, generation, snapshot, currentGuard,
-                            callback, googleResult.failure);
+                    postProviderFailureIfNeeded(provider, run, id, generation, snapshot,
+                            currentGuard, callback, googleResult.failure);
                 }
                 Set<String> requiredRows = requiredRowIds(
                         run.base, workerSnapshot, sourceLang, targetLang,
@@ -495,7 +620,8 @@ public final class LyricsMeaningLane {
      */
     private boolean startPreviewRun(final DerivedLayerRun run, final String id, final int generation,
                                     final LyricsDocument snapshot, final LyricsDocument workerSnapshot,
-                                    final List<Integer> googleWork, final String backend,
+                                    final List<Integer> googleWork, final MeaningProvider provider,
+                                    final String backend,
                                     final String targetLang, final String sourceLang,
                                     final String effectiveSourceLang,
                                     final boolean explicitAiRequest,
@@ -543,8 +669,8 @@ public final class LyricsMeaningLane {
                             COALESCER.finish(runIdentity);
                             return;
                         }
-                        GoogleFallbackResult googleResult = googleFallback(run, id, workerSnapshot,
-                                googleWork, effectiveSourceLang, targetLang);
+                        ProviderFallbackResult googleResult = providerFallback(provider, run, id,
+                                workerSnapshot, googleWork, effectiveSourceLang, targetLang);
                         google = googleResult.artifact;
                         googleFailure = googleResult.failure;
                     } catch (Throwable failure) {
@@ -553,8 +679,8 @@ public final class LyricsMeaningLane {
                     }
                     final MeaningPreviewRace.Outcome googleOutcome = race.onGoogleSettled(google);
                     if (googleFailure.isFailure()) {
-                        postGoogleFailureIfNeeded(run, id, generation, snapshot, currentGuard,
-                                callback, googleFailure);
+                        postProviderFailureIfNeeded(provider, run, id, generation, snapshot,
+                                currentGuard, callback, googleFailure);
                     }
                     if (googleOutcome.preliminary) {
                         final MeaningArtifact preliminary = googleOutcome.artifact;
@@ -564,7 +690,8 @@ public final class LyricsMeaningLane {
                                     if (run.accepts(currentGuard, id, generation, snapshot)
                                             && race.mayPublishPreliminary(preliminary)) {
                                         callback.rerender(LayerKind.MEANING, preliminary,
-                                                "Showing Google translation while AI works");
+                                                "Showing " + backendName(provider)
+                                                        + " translation while AI works");
                                     }
                                 } finally {
                                     previewReadyForAi.countDown();
@@ -678,7 +805,7 @@ public final class LyricsMeaningLane {
             COALESCER.finish(runIdentity);
             AiRequestLiveState.cancel(LayerKind.MEANING, run.canonicalDigest(), run.tag);
             // The same tag owns both children's calls, so this aborts the Google child too.
-            provider.cancel(http, run.tag);
+            cancelTagged(run.tag);
             XpLog.log(TAG + " preview ai translation not dispatched: "
                     + notDispatched.getClass().getSimpleName());
             return false;
@@ -723,16 +850,33 @@ public final class LyricsMeaningLane {
         return settingsSource.create(context).providerId();
     }
 
-    private GoogleFallbackResult googleFallback(DerivedLayerRun run, String id,
-                                           LyricsDocument workerSnapshot, List<Integer> work,
+    /**
+     * Aborts the in-flight calls every registered backend started under {@code cancelTag}. Called
+     * when a run is retired. The tag names one run, so a backend that never sent anything under it
+     * matches nothing - which is why the tag is broadcast rather than tracked per backend.
+     */
+    private void cancelTagged(String cancelTag) {
+        for (MeaningProvider candidate : providers) {
+            if (candidate != null) candidate.cancel(http, cancelTag);
+        }
+    }
+
+    /** Capitalized backend name for user-facing status text: "Google", "Baidu". */
+    private static String backendName(MeaningProvider provider) {
+        String token = provider == null ? "" : safe(provider.logToken());
+        if (token.isEmpty()) return "";
+        return Character.toUpperCase(token.charAt(0)) + token.substring(1);
+    }
+
+    private ProviderFallbackResult providerFallback(MeaningProvider provider, DerivedLayerRun run,
+                                           String id, LyricsDocument workerSnapshot, List<Integer> work,
                                            String effectiveSourceLang, String targetLang) {
         List<MeaningEntry> entries = new ArrayList<>();
         for (int i = 0; workerSnapshot != null && i < workerSnapshot.lines.size(); i++) {
             LyricsLine line = workerSnapshot.lines.get(i);
             if (line == null || isBlank(line.translatedText)) continue;
             CanonicalRow row = run.base.rowAt(i);
-            if (row != null && GoogleEnhancer.shouldDisplayTranslation(line.text,
-                    line.translatedText)) {
+            if (row != null && provider.shouldDisplay(line.text, line.translatedText)) {
                 entries.add(new MeaningEntry(row.rowId, line.translatedText, targetLang));
             }
         }
@@ -741,86 +885,98 @@ public final class LyricsMeaningLane {
                 : new ArrayList<>(work);
         Set<Integer> translated = new HashSet<>();
         AtomicInteger changed = new AtomicInteger();
-        GoogleRunStats stats = new GoogleRunStats(missing.size(), clock.getAsLong());
+        ProviderRunStats stats = new ProviderRunStats(missing.size(), clock.getAsLong(), provider);
         if (!missing.isEmpty()) {
             try {
-                List<Integer> retry = translateBatchPass(id, effectiveSourceLang, targetLang,
-                        workerSnapshot, missing, entries, translated, changed, true, run.tag, run,
-                        stats);
-                if (!retry.isEmpty() && run.isNewest()) {
-                    translateBatchPass(id, effectiveSourceLang, targetLang, workerSnapshot, retry,
-                            entries, translated, changed, false, run.tag, run, stats);
+                List<Integer> retry = translateBatchPass(provider, id, effectiveSourceLang,
+                        targetLang, workerSnapshot, missing, entries, translated, changed, true,
+                        run.tag, run, stats);
+                if (!retry.isEmpty() && !stats.permanent && run.isNewest()) {
+                    translateBatchPass(provider, id, effectiveSourceLang, targetLang, workerSnapshot,
+                            retry, entries, translated, changed, false, run.tag, run, stats);
                 }
-                List<Integer> rescue = untranslated(missing, translated);
-                if (!rescue.isEmpty() && rescue.size() <= TRANSLATION_SINGLE_RESCUE_MAX_ROWS
-                        && run.isNewest()) {
-                    translateBatchPass(id, effectiveSourceLang, targetLang, workerSnapshot, rescue,
-                            entries, translated, changed, false, run.tag, run, stats, 1, 512);
-                }
+                retryUntranslatedRows(provider, id, effectiveSourceLang, targetLang, workerSnapshot,
+                        missing, entries, translated, changed, run.tag, run, stats, run::isNewest);
             } catch (Throwable failure) {
-                XpLog.log(TAG + " google fallback failed: "
+                XpLog.log(TAG + " " + safe(provider.logToken()) + " fallback failed: "
                         + failure.getClass().getSimpleName());
             }
         }
         boolean complete = missing.isEmpty() || translated.containsAll(missing);
-        logGoogleSettlement(stats, translated.size(), complete,
+        logSettlement(stats, translated.size(), complete,
                 clock.getAsLong() - stats.startedAtMs);
         MeaningArtifact artifact = entries.isEmpty() ? null : new MeaningArtifact(
                 run.canonicalDigest(), run.configId(),
-                new LayerProvenance(LayerAuthority.MACHINE, "google_unofficial", run.configId(),
+                new LayerProvenance(LayerAuthority.MACHINE, provider.backendId(), run.configId(),
                         System.currentTimeMillis()), entries, !complete);
-        LayerFailure failure = stats.lastStatus == 429
-                ? LayerFailure.http(429) : LayerFailure.NONE;
-        return new GoogleFallbackResult(artifact, failure);
+        // The full classification, not only the frequency limit. A refusal the endpoint reports in
+        // its own error number is a terminal outcome of a paid call and has to reach the reader by
+        // the same route the limit already did; reporting the limit alone is what left a refused
+        // Baidu run silent. A recovered run reports no failure, for the reason the machine path
+        // does: every row it was asked for came back translated.
+        LayerFailure failure = complete ? LayerFailure.NONE : stats.failure();
+        return new ProviderFallbackResult(artifact, failure);
     }
 
-    private void postGoogleFailureIfNeeded(DerivedLayerRun run, String id, int generation,
-                                           LyricsDocument snapshot,
-                                           LyricsSecondaryProcessor.CurrentGuard guard,
-                                           LyricsSecondaryProcessor.Callback callback,
-                                           LayerFailure failure) {
-        if (failure == null || failure.reason != LayerFailure.Reason.RATE_LIMITED) return;
+    /**
+     * Tells the surface a translation run ended without producing one.
+     *
+     * <p>Nothing else carries this: the artifact is empty, the layer settles FAILED with no text,
+     * and the progress channel recorded only the reason. Rate limiting keeps the wording it already
+     * had; every other outcome is named by kind, so a refusal, an unreadable answer and a dead
+     * network do not read as the same event.
+     */
+    private void postProviderFailureIfNeeded(MeaningProvider provider, DerivedLayerRun run, String id,
+                                            int generation, LyricsDocument snapshot,
+                                            LyricsSecondaryProcessor.CurrentGuard guard,
+                                            LyricsSecondaryProcessor.Callback callback,
+                                            LayerFailure failure) {
+        TranslationFailureNotice notice = TranslationFailureNotice.of(failure, provider.logToken());
+        if (notice == null) return;
         post(run, id, generation, snapshot, guard,
-                () -> callback.progress("Google translation rate limited"));
+                () -> callback.progress(notice.describe()));
     }
 
-    private static final class GoogleFallbackResult {
+    private static final class ProviderFallbackResult {
         final MeaningArtifact artifact;
         final LayerFailure failure;
 
-        GoogleFallbackResult(MeaningArtifact artifact, LayerFailure failure) {
+        ProviderFallbackResult(MeaningArtifact artifact, LayerFailure failure) {
             this.artifact = artifact;
             this.failure = failure == null ? LayerFailure.NONE : failure;
         }
     }
 
     private List<Integer> translateBatchPass(
-            String id, String sourceLang, String targetLang, LyricsDocument workerSnapshot,
+            MeaningProvider provider, String id, String sourceLang, String targetLang,
+            LyricsDocument workerSnapshot,
             List<Integer> work, List<MeaningEntry> entries, Set<Integer> translatedIndices,
             AtomicInteger changed, boolean collectRetry, String cancelTag, DerivedLayerRun run
     ) {
-        return translateBatchPass(id, sourceLang, targetLang, workerSnapshot, work, entries,
-                translatedIndices, changed, collectRetry, cancelTag, run, null);
+        return translateBatchPass(provider, id, sourceLang, targetLang, workerSnapshot, work,
+                entries, translatedIndices, changed, collectRetry, cancelTag, run, null);
     }
 
     private List<Integer> translateBatchPass(
-            String id, String sourceLang, String targetLang, LyricsDocument workerSnapshot,
+            MeaningProvider provider, String id, String sourceLang, String targetLang,
+            LyricsDocument workerSnapshot,
             List<Integer> work, List<MeaningEntry> entries, Set<Integer> translatedIndices,
             AtomicInteger changed, boolean collectRetry, String cancelTag, DerivedLayerRun run,
-            GoogleRunStats stats
+            ProviderRunStats stats
     ) {
         int maxLines = collectRetry ? TRANSLATION_BATCH_MAX_LINES : TRANSLATION_RETRY_MAX_LINES;
         int maxChars = collectRetry ? TRANSLATION_BATCH_MAX_CHARS : TRANSLATION_RETRY_MAX_CHARS;
-        return translateBatchPass(id, sourceLang, targetLang, workerSnapshot, work, entries,
-                translatedIndices, changed, collectRetry, cancelTag, run, stats,
+        return translateBatchPass(provider, id, sourceLang, targetLang, workerSnapshot, work,
+                entries, translatedIndices, changed, collectRetry, cancelTag, run, stats,
                 maxLines, maxChars);
     }
 
     private List<Integer> translateBatchPass(
-            String id, String sourceLang, String targetLang, LyricsDocument workerSnapshot,
+            MeaningProvider provider, String id, String sourceLang, String targetLang,
+            LyricsDocument workerSnapshot,
             List<Integer> work, List<MeaningEntry> entries, Set<Integer> translatedIndices,
             AtomicInteger changed, boolean collectRetry, String cancelTag, DerivedLayerRun run,
-            GoogleRunStats stats, int maxLines, int maxChars
+            ProviderRunStats stats, int maxLines, int maxChars
     ) {
         List<Integer> retry = new ArrayList<>();
         if (workerSnapshot == null || work == null || work.isEmpty()) return retry;
@@ -835,7 +991,9 @@ public final class LyricsMeaningLane {
                     id, sourceLang, targetLang, batch, cancelTag);
             if (stats != null) stats.record(result);
             // Rate-limited: the remaining batches (and the retry passes after this one) would
-            // only be refused too, and every refused ask keeps the limit in place.
+            // only be refused too, and every refused ask keeps the limit in place. A permanent
+            // refusal is the same conclusion for a different reason: the backend has already said
+            // that no retry can succeed, so re-asking costs a round trip and changes nothing.
             boolean rateLimited = result.httpStatus == 429;
             for (GoogleEnhancer.BatchLine item : batch) {
                 if (item == null || item.index < 0 || item.index >= workerSnapshot.lines.size()) continue;
@@ -852,7 +1010,7 @@ public final class LyricsMeaningLane {
                 translatedIndices.add(item.index);
                 changed.incrementAndGet();
             }
-            if (rateLimited) {
+            if (rateLimited || result.permanentFailure) {
                 retry.clear();
                 break;
             }
@@ -863,6 +1021,38 @@ public final class LyricsMeaningLane {
     static boolean translationPassComplete(boolean requested, List<Integer> work, Set<Integer> translatedIndices) {
         return !requested || work == null || work.isEmpty()
                 || (translatedIndices != null && translatedIndices.containsAll(work));
+    }
+
+    /**
+     * Re-asks every row the passes above left untranslated, until a pass makes no progress or the
+     * backend says stop.
+     *
+     * <p>The old form asked once, and only when at most eight rows were missing. A chorus that
+     * repeats one line is exactly the document that exceeds that cap: the run settled with a
+     * translation on screen and the rest of the rows still in their source language, and nothing
+     * ever asked for them again - "it has a little translation, so it stops translating". Every
+     * line that carries no translation must be attempted, so the loop is bounded by progress (a
+     * pass that translates nothing ends it) rather than by a row count, and it stops on the two
+     * verdicts that make more asking pointless: a permanent refusal, and the endpoint's frequency
+     * limit, which more requests are what keeps in place.
+     */
+    private void retryUntranslatedRows(
+            MeaningProvider provider, String id, String sourceLang, String targetLang,
+            LyricsDocument workerSnapshot, List<Integer> work, List<MeaningEntry> entries,
+            Set<Integer> translatedIndices, AtomicInteger changed, String cancelTag,
+            DerivedLayerRun run, ProviderRunStats stats, BooleanSupplier stillWanted
+    ) {
+        List<Integer> missing = untranslated(work, translatedIndices);
+        while (!missing.isEmpty() && !stats.permanent && !stats.rateLimited
+                && stillWanted.getAsBoolean()) {
+            List<Integer> window = new ArrayList<>(
+                    missing.subList(0, Math.min(TRANSLATION_RETRY_MAX_LINES, missing.size())));
+            translateBatchPass(provider, id, sourceLang, targetLang, workerSnapshot, window,
+                    entries, translatedIndices, changed, false, cancelTag, run, stats);
+            List<Integer> next = untranslated(missing, translatedIndices);
+            if (next.size() >= missing.size()) break;
+            missing = next;
+        }
     }
 
     private List<List<GoogleEnhancer.BatchLine>> translationBatches(LyricsDocument doc, List<Integer> work) {
@@ -905,13 +1095,13 @@ public final class LyricsMeaningLane {
         return missing;
     }
 
-    private void logGoogleSettlement(GoogleRunStats stats, int translated, boolean complete,
-                                     long durationMs) {
+    private void logSettlement(ProviderRunStats stats, int translated, boolean complete,
+                               long durationMs) {
         if (stats == null) return;
         String result = complete ? "complete" : translated > 0 ? "partial" : "empty";
         String reason = safe(stats.lastReason);
         if (complete && !reason.isEmpty()) reason = "recovered_" + reason;
-        XpLog.log(TAG + " google settled result=" + result
+        XpLog.log(TAG + " " + safe(stats.logToken) + " settled result=" + result
                 + " requested=" + stats.requested
                 + " translated=" + translated
                 + " cacheHits=" + stats.cacheHits.size()
@@ -921,17 +1111,35 @@ public final class LyricsMeaningLane {
                 + " durationMs=" + Math.max(0L, durationMs));
     }
 
-    private static final class GoogleRunStats {
+    private static final class ProviderRunStats {
         final int requested;
         final long startedAtMs;
+        /** Names the backend that answered, so the settled line says which one it was. */
+        final String logToken;
         final Set<Integer> cacheHits = new HashSet<>();
         int networkAttempts;
         int lastStatus;
         String lastReason = "";
+        /**
+         * A backend refusal no retry can change, reported by the backend itself.
+         *
+         * <p>The retry and rescue passes exist for answers that did not arrive or did not parse.
+         * Running them against a refusal - a wrong credential is the case this was added for -
+         * spends one request per pass to be told the same thing again.
+         */
+        boolean permanent;
+        /**
+         * The endpoint's frequency limit, reported by the backend as a 429.
+         *
+         * <p>Kept apart from {@link #permanent} because it is temporary: it stops the re-ask loop
+         * only while it is in force, and more requests are what keeps it in place.
+         */
+        boolean rateLimited;
 
-        GoogleRunStats(int requested, long startedAtMs) {
+        ProviderRunStats(int requested, long startedAtMs, MeaningProvider provider) {
             this.requested = Math.max(0, requested);
             this.startedAtMs = startedAtMs;
+            this.logToken = provider == null ? "" : safe(provider.logToken());
         }
 
         void record(GoogleEnhancer.BatchResult result) {
@@ -942,11 +1150,28 @@ public final class LyricsMeaningLane {
             cacheHits.addAll(result.cachedIndices);
             networkAttempts += Math.max(0, result.networkAttempts);
             if (result.httpStatus > 0) lastStatus = result.httpStatus;
+            if (result.httpStatus == 429) rateLimited = true;
             if (!isBlank(result.failureReason)) lastReason = result.failureReason;
+            if (result.permanentFailure) permanent = true;
+        }
+
+        /**
+         * Records a pass that threw before it could record a provider result. The exception type is
+         * the only evidence of why, and a socket failure is the ordinary case here, so it is kept in
+         * the same slot a provider-reported reason uses.
+         */
+        void recordTransportFailure(Throwable failure) {
+            if (failure == null) return;
+            networkAttempts++;
+            lastReason = failure.getClass().getSimpleName();
         }
 
         LayerFailure failure() {
-            if (lastStatus > 0 && lastStatus != 200) return LayerFailure.http(lastStatus);
+            if (lastStatus > 0 && lastStatus != 200) {
+                // The reason code travels with the status. Dropping it here is what made a refused
+                // Baidu run - HTTP 200 carrying errno 1022 - unnameable at the settlement.
+                return new LayerFailure(LayerFailure.Reason.UNAVAILABLE, lastReason, lastStatus);
+            }
             if ("parse_empty".equals(lastReason) || "partial_parse".equals(lastReason)) {
                 return new LayerFailure(LayerFailure.Reason.MALFORMED, lastReason, 0);
             }
@@ -963,11 +1188,12 @@ public final class LyricsMeaningLane {
         String message(int changed) {
             LayerFailure failure = failure();
             if (!failure.isFailure()) return "Enhanced " + changed + " translation fields";
-            if (failure.reason == LayerFailure.Reason.RATE_LIMITED) {
-                return "Google translation rate limited; retry later";
-            }
-            return "Google translation unavailable (" + failure.reason.name().toLowerCase(
-                    java.util.Locale.ROOT) + ")";
+            TranslationFailureNotice notice =
+                    TranslationFailureNotice.of(failure, logToken);
+            // The same wording the reader is shown, so a diagnostic report reading the settlement
+            // line and the notice on screen cannot describe two different outcomes.
+            return notice == null ? "Enhanced " + changed + " translation fields"
+                    : notice.describe();
         }
     }
 
@@ -980,7 +1206,7 @@ public final class LyricsMeaningLane {
         laneSequence.incrementAndGet();
         String retired = activeTag;
         activeTag = "";
-        if (!retired.isEmpty()) provider.cancel(http, retired);
+        if (!retired.isEmpty()) cancelTagged(retired);
         AiSignal signal = aiSignal;
         aiSignal = null;
         // Aborts the socket as well as the callback, so skipping a track stops the transfer. It
@@ -988,8 +1214,13 @@ public final class LyricsMeaningLane {
         if (signal != null) signal.abort("track_change");
     }
 
-    /** The artifact for what this lane translated, built from entries collected while it worked. */
-    private MeaningArtifact artifactOf(DerivedLayerRun run, List<MeaningEntry> entries, boolean complete) {
+    /**
+     * The artifact for what this lane translated, built from entries collected while it worked.
+     * Provenance names the backend that actually answered, so a document shows which provider its
+     * translations came from.
+     */
+    private MeaningArtifact artifactOf(MeaningProvider provider, DerivedLayerRun run,
+                                       List<MeaningEntry> entries, boolean complete) {
         if (entries.isEmpty()) return null;
         return new MeaningArtifact(run.canonicalDigest(), run.configId(),
                 new LayerProvenance(LayerAuthority.MACHINE, provider.backendId(), run.configId(),

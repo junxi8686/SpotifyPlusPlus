@@ -6,7 +6,8 @@ import com.spotifyplusplus.lyrics.ai.AiCredentialStore;
 
 /** Keystore-backed owner of the experimental desktop Spotify token used by Spicy. */
 public final class SpicyManualTokenStore {
-    private static final String SCOPE = "spicy_desktop_spotify_token";
+    /** Credential scope inside the shared encrypted store. Public so a backup names it once. */
+    public static final String SCOPE = "spicy_desktop_spotify_token";
 
     private SpicyManualTokenStore() {
     }

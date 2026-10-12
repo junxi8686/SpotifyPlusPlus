@@ -135,6 +135,101 @@ public final class LyricsMeaningLaneBehaviorTest {
         assertEquals("one refused request, not a run's worth of them", 1, provider.translateCalls());
     }
 
+    /**
+     * A backend refusal has to reach the surface in words.
+     *
+     * <p>The device showed the defect this covers: a Baidu run refused with errno 1022 settled in
+     * half a second, left the original lyrics untouched, and handed the surface nothing to show -
+     * so a reader who had just tapped translate saw no spinner, no message, and no translation.
+     * The run is terminal either way; what must differ is that the surface is told.
+     */
+    @Test public void refusedRunTellsTheSurfaceWhyItProducedNothing() throws Exception {
+        provider.refused = true;
+        Recorder callback = new Recorder("refused-run");
+
+        assertTrue(newLane().start("refused-track", 1, longPendingDocument(6), BACKEND,
+                "en", "zh", "auto", false, alwaysCurrent(), callback));
+
+        assertTrue("expected refused-run:complete, saw " + events.snapshot(),
+                events.await("refused-run:complete", WAIT_MS));
+        assertTrue("a refusal must be announced; messages were " + events.messages(),
+                events.anyMessageContains("refused the request"));
+        assertEquals("no translation was produced, so the notice is the only outcome",
+                0, provider.translatedCount());
+    }
+
+    /**
+     * A refusal the backend calls permanent ends the run after one request.
+     *
+     * <p>Wrong credentials are the case the official Baidu API made real: every later batch, the
+     * retry pass and the rescue pass would be signed the same way and refused identically, so each
+     * of them is a round trip spent to be told the same thing. The ladder exists for answers that
+     * did not arrive - a timeout, a dropped connection - not for an answer that says no.
+     */
+    @Test public void permanentRefusalIsNotAskedAgain() throws Exception {
+        provider.permanentlyRefused = true;
+        Recorder callback = new Recorder("permanent-run");
+
+        assertTrue(newLane().start("permanent-track", 1, longPendingDocument(6), BACKEND,
+                "en", "zh", "auto", false, alwaysCurrent(), callback));
+
+        assertTrue("expected permanent-run:complete, saw " + events.snapshot(),
+                events.await("permanent-run:complete", WAIT_MS));
+        assertEquals("one request, not one per pass", 1, provider.translateCalls());
+        assertTrue("a refusal must still be announced; messages were " + events.messages(),
+                events.anyMessageContains("refused the request"));
+        assertEquals("no translation was produced, so the notice is the only outcome",
+                0, provider.translatedCount());
+    }
+
+    /**
+     * An unreadable answer that parses as nothing is still terminal, and says so: "the translation could
+     * not be read" is a different problem from "the service refused", and the reader acts on it
+     * differently.
+     */
+    @Test public void unreadableAnswerTellsTheSurfaceItCouldNotBeRead() throws Exception {
+        provider.unreadable = true;
+        Recorder callback = new Recorder("unreadable-run");
+
+        assertTrue(newLane().start("unreadable-track", 1, longPendingDocument(6), BACKEND,
+                "en", "zh", "auto", false, alwaysCurrent(), callback));
+
+        assertTrue("expected unreadable-run:complete, saw " + events.snapshot(),
+                events.await("unreadable-run:complete", WAIT_MS));
+        assertTrue("an unreadable answer must be announced; messages were " + events.messages(),
+                events.anyMessageContains("could not be read"));
+    }
+
+    /**
+     * A lane executor that refuses the task must not strand the layer in PROCESSING.
+     *
+     * <p>The work key is claimed before dispatch. Releasing it only on the worker meant a refused
+     * execution held the key with no owner, so every later request for that song and configuration
+     * was told the work was already in flight and the layer stayed "running" with nothing behind it
+     * - the toggle cannot offer a retry while it reads as running, so tapping it did nothing. The
+     * machine-translation path had no guard here; the AI path always has.
+     */
+    @Test public void refusedTranslationDispatchReleasesTheCoalescerKey() throws Exception {
+        // Only the lane executor refuses; the lane under test is otherwise the ordinary harness.
+        GateExecutor refusingLane = new GateExecutor("lane-refusing");
+        refusingLane.rejecting(true);
+        spareExecutors.add(refusingLane);
+        LyricsMeaningLane refusedLane = newLane(refusingLane, aiExecutor);
+        Recorder refused = new Recorder("refused-dispatch");
+
+        assertFalse("a run that never dispatched is not started",
+                refusedLane.start("dispatch-track", 1, pendingDocument(), BACKEND, "en", "ko", "ko",
+                        false, alwaysCurrent(), refused));
+        assertFalse(events.await("refused-dispatch:complete", 250));
+
+        Recorder later = new Recorder("later-dispatch");
+        assertTrue("a later request must claim the abandoned key",
+                newLane().start("dispatch-track", 1, pendingDocument(), BACKEND, "en", "ko", "ko",
+                        false, alwaysCurrent(), later));
+        assertTrue("expected later-dispatch:complete, saw " + events.snapshot(),
+                events.await("later-dispatch:complete", WAIT_MS));
+    }
+
     // --- Coalescer contracts ---------------------------------------------
 
     /**
@@ -497,7 +592,13 @@ public final class LyricsMeaningLaneBehaviorTest {
 
     /** A second surface: its own lane instance, because each surface owns its own lane. */
     private LyricsMeaningLane newLane(ExecutorService otherAiExecutor) {
-        LyricsMeaningLane lane = new LyricsMeaningLane(context, new OkHttpClient(), laneExecutor,
+        return newLane(laneExecutor, otherAiExecutor);
+    }
+
+    /** A lane with both executors chosen by the caller, for the dispatch-refusal contract. */
+    private LyricsMeaningLane newLane(ExecutorService otherLaneExecutor,
+                                      ExecutorService otherAiExecutor) {
+        LyricsMeaningLane lane = new LyricsMeaningLane(context, new OkHttpClient(), otherLaneExecutor,
                 otherAiExecutor, 1, provider, Runnable::run, () -> 1_000L,
                 context -> aiSettings);
         if (otherAiExecutor != aiExecutor) spareExecutors.add(otherAiExecutor);
@@ -604,20 +705,39 @@ public final class LyricsMeaningLaneBehaviorTest {
 
         @Override public void progress(String message) {
             events.add(tag + ":progress");
+            events.recordMessage(tag, message);
         }
 
         @Override public void complete(LayerKind layer, DerivedLayerArtifact artifact,
                                        LayerFailure failure, String message, int changed) {
             events.add(tag + ":complete");
+            events.recordMessage(tag, message);
         }
     }
 
     /** Dispatch as the surface would: inline, on whatever thread the lane settles from. */
     static final class EventLog {
         private final List<String> events = new CopyOnWriteArrayList<>();
+        private final List<String> messages = new CopyOnWriteArrayList<>();
 
         void add(String event) {
             events.add(event);
+        }
+
+        /** Every message a surface was handed, prefixed with the callback it arrived on. */
+        void recordMessage(String tag, String message) {
+            messages.add(tag + "|" + (message == null ? "" : message));
+        }
+
+        List<String> messages() {
+            return new ArrayList<>(messages);
+        }
+
+        boolean anyMessageContains(String text) {
+            for (String message : messages) {
+                if (message.contains(text)) return true;
+            }
+            return false;
         }
 
         List<String> snapshot() {
@@ -652,7 +772,20 @@ public final class LyricsMeaningLaneBehaviorTest {
         private volatile boolean gated;
         /** Answers 429 the way the endpoint does when the address is rate limited. */
         private volatile boolean rateLimited;
+        /**
+         * Answers 200 carrying a backend refusal, the shape a Baidu run takes when errno 1022
+         * arrives from an address the endpoint will not serve.
+         */
+        private volatile boolean refused;
+        /** Answers 200 with a body the parser reads as no translations at all. */
+        private volatile boolean unreadable;
+        /**
+         * Answers 200 with a refusal the backend calls permanent - a wrong signature, an
+         * unauthorised app id - which no later pass can turn into an answer.
+         */
+        private volatile boolean permanentlyRefused;
         private final AtomicInteger translateCalls = new AtomicInteger();
+        private final AtomicInteger translatedTotal = new AtomicInteger();
         /** Holds one track's worker after the global gate opens, so a settlement can land first. */
         private volatile String parkedTrack;
         private final CountDownLatch parkRelease = new CountDownLatch(1);
@@ -675,6 +808,11 @@ public final class LyricsMeaningLaneBehaviorTest {
 
         int translateCalls() {
             return translateCalls.get();
+        }
+
+        /** Lines this provider actually translated, so a refusal can prove it produced none. */
+        int translatedCount() {
+            return translatedTotal.get();
         }
 
         @Override public String backendId() {
@@ -705,13 +843,32 @@ public final class LyricsMeaningLaneBehaviorTest {
                 }
             }
             GoogleEnhancer.BatchResult result = new GoogleEnhancer.BatchResult();
+            if (permanentlyRefused) {
+                result.httpStatus = 200;
+                result.failureReason = "baidu_error_54001";
+                result.permanentFailure = true;
+                return result;
+            }
             if (rateLimited) {
                 result.httpStatus = 429;
                 result.failureReason = "http_429";
                 return result;
             }
+            if (refused) {
+                // A 200 with nothing usable in it and the backend's own reason: exactly what the
+                // device log shows for errno 1022, minus the wire call.
+                result.httpStatus = 200;
+                result.failureReason = "baidu_errno_1022";
+                return result;
+            }
+            if (unreadable) {
+                result.httpStatus = 200;
+                result.failureReason = "parse_empty";
+                return result;
+            }
             for (GoogleEnhancer.BatchLine line : batch) {
                 result.translations.put(line.index, "T:" + line.text);
+                translatedTotal.incrementAndGet();
             }
             return result;
         }

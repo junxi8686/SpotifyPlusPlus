@@ -95,6 +95,9 @@ public final class LyricsFetchDiagnosticsState {
         if (fetchSource.contains("lrclib")) return "lrclib";
         if (fetchSource.contains("native")) return "native";
         if (fetchSource.contains("apple_music")) return "apple_music";
+        // "spicy_org" also contains "spicy", so the live SpicyLyrics.org route has to be named
+        // before the retired-alias fallback or its cached rows read as "cache (apple_music)".
+        if (fetchSource.contains("spicy_org")) return "spicy_org";
         // Legacy cached records used the retired Spicy labels for the same remote endpoint.
         if (fetchSource.contains("spicy")) return "apple_music";
 

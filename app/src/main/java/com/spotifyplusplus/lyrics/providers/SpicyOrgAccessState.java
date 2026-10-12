@@ -4,7 +4,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-/** A confirmed access loss blocks cached lyrics until the server confirms restored access. */
+/**
+ * A confirmed access loss blocks cached lyrics until the server confirms restored access.
+ *
+ * <p>It never blocks the request itself: every fresh attempt is allowed to ask, and the answer
+ * decides. Only display is gated - {@code CatalogPolicy.eligibleForDisplay()} hides stored
+ * results of this source while the flag stands.
+ */
 public final class SpicyOrgAccessState {
     private static final String STATE = "SpotifyPlusSpicyOrgAccessState";
     private static final CopyOnWriteArraySet<Runnable> listeners = new CopyOnWriteArraySet<>();
@@ -13,8 +19,13 @@ public final class SpicyOrgAccessState {
 
     public static final class RequestTicket {
         public final long keyEpoch;
+        /**
+         * True when the caller asked for an explicit recovery check. Recorded so a request can
+         * name the path that issued it; it no longer decides whether access can be restored - a
+         * validated response does.
+         */
+        public final boolean recovery;
         private final long revision;
-        private final boolean recovery;
 
         private RequestTicket(long keyEpoch, long revision, boolean recovery) {
             this.keyEpoch = keyEpoch;
@@ -39,17 +50,23 @@ public final class SpicyOrgAccessState {
         return beginRequest(context, false) != null;
     }
 
-    /** A new key can be checked, but rotation alone cannot restore cached lyric display. */
+    /**
+     * A new key can be checked, but rotation alone cannot restore cached lyric display.
+     *
+     * <p>A recorded access loss never refuses a fresh request. This used to return null while a
+     * termination was recorded for the current key, which only {@code fetchForAccessCheck} (an
+     * explicit recovery, and nothing calls it) could clear - so one refusal silenced
+     * SpicyLyrics.org for automatic acquisition and for every later picker check until the owner
+     * replaced the key. The other five sources are asked and the response decides; a revoked key
+     * answers with the same refusal, which re-records it, and the catalogue's own retry horizon
+     * bounds how often that happens. What stays gated is display: {@code eligibleForDisplay()}
+     * keeps this source's cached results hidden until a validated response confirms access again.
+     */
     public static RequestTicket beginRequest(Context context, boolean explicitRecovery) {
         synchronized (SpicyOrgKeyStore.class) {
             if (context == null) return null;
-            SharedPreferences state = state(context);
-            long epoch = SpicyOrgKeyStore.epoch(context);
-            if (state.getBoolean("terminated", false)
-                    && state.getLong("terminated_epoch", -1L) == epoch && !explicitRecovery) {
-                return null;
-            }
-            return new RequestTicket(epoch, state.getLong("revision", 0L), explicitRecovery);
+            return new RequestTicket(SpicyOrgKeyStore.epoch(context),
+                    state(context).getLong("revision", 0L), explicitRecovery);
         }
     }
 
@@ -72,8 +89,10 @@ public final class SpicyOrgAccessState {
             if (!current(context, ticket)) return false;
             SharedPreferences state = state(context);
             if (state.getBoolean("terminated", false)) {
-                if (!ticket.recovery
-                        && state.getLong("terminated_epoch", -1L) == ticket.keyEpoch) return false;
+                // Any validated response for the current ticket is the server confirming access
+                // again, whichever path asked for it. This used to require ticket.recovery, so an
+                // automatic answer could not clear the flag and access stayed lost until a check
+                // that no caller ever made.
                 state.edit().putBoolean("terminated", false).remove("terminated_epoch")
                         .putLong("revision", ticket.revision + 1L).commit();
                 restored = true;

@@ -6,7 +6,8 @@ import com.spotifyplusplus.lyrics.ai.AiCredentialStore;
 /** The user's own Spicy Lyrics client key, encrypted in Spotify's private storage. */
 public final class SpicyOrgKeyStore {
     public static final String CATALOG_URL = "https://developers.spicylyrics.org/catalog/spicy-ex";
-    private static final String SCOPE = "spicy_org_client_key";
+    /** Credential scope inside the shared encrypted store. Public so a backup names it once. */
+    public static final String SCOPE = "spicy_org_client_key";
     private static final String STATE = "SpotifyPlusSpicyOrgKeyState";
 
     private SpicyOrgKeyStore() { }

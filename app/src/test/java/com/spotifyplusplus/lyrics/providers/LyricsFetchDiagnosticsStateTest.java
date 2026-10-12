@@ -46,6 +46,18 @@ public class LyricsFetchDiagnosticsStateTest {
         assertEquals("cache (apple_music)", snapshot.displayedSourceChosen());
     }
 
+    /** "spicy_org" contains "spicy", so the live route must be named before the legacy alias. */
+    @Test
+    public void liveSpicyOrgCacheKeepsItsOwnOrigin() {
+        LyricsDocument document = document("spicy_org", "Spicy Lyrics");
+
+        LyricsFetchDiagnosticsState.recordCached(document);
+
+        LyricsFetchDiagnosticsState.Snapshot snapshot = LyricsFetchDiagnosticsState.get();
+        assertEquals("spicy_org", snapshot.cacheSource);
+        assertEquals("cache (spicy_org)", snapshot.displayedSourceChosen());
+    }
+
     @Test
     public void freshSourceClearsPriorCacheOrigin() {
         LyricsDocument cached = document("lrclib", "LRCLIB");

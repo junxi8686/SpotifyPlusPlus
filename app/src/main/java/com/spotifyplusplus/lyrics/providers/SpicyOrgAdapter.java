@@ -6,6 +6,7 @@ import com.spotifyplusplus.lyrics.LyricsDocument;
 import com.spotifyplusplus.lyrics.LyricUtils;
 import com.spotifyplusplus.lyrics.catalog.CatalogAdapters;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource;
+import com.spotifyplusplus.xposed.XpLog;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import okhttp3.*;
@@ -55,7 +56,18 @@ final class SpicyOrgAdapter {
             fail(context, track, callback, error.getMessage());
             return;
         }
-        if (cooldownActive(epoch, System.currentTimeMillis())) {
+        // One line per attempt, before it goes out: which track, whether a key is stored (never the
+        // key), which path issued the request, and whether a recorded rate limit will refuse it.
+        // Without this a source that never reaches the wire is indistinguishable from one that
+        // answered and lost, which is what made this take guesswork.
+        boolean cooling = cooldownActive(epoch, System.currentTimeMillis());
+        XpLog.log("[SpotifyPlusSpicyOrg] request track=" + (trackId.isEmpty() ? "none" : trackId)
+                + " key=" + (key.isEmpty() ? "missing" : "present")
+                + " path=" + (ticket.recovery ? "recovery" : "automatic")
+                + " epoch=" + epoch
+                + " terminated=" + SpicyOrgAccessState.isTerminated(context)
+                + " cooldown=" + (cooling ? "active" : "none"));
+        if (cooling) {
             fail(context, track, callback, "Spicy Lyrics rate limited; retry later");
             return;
         }
@@ -66,6 +78,7 @@ final class SpicyOrgAdapter {
 
             @Override public void onResponse(Call call, Response response) {
                 LyricsDocument document;
+                boolean stored;
                 try (Response ignored = response) {
                     long seconds = SpicyOrgProtocol.seconds(response.header("Retry-After"));
                     if ("0".equals(response.header("RateLimit-Remaining"))) {
@@ -92,6 +105,7 @@ final class SpicyOrgAdapter {
                         throw new IllegalArgumentException("Invalid lyrics");
                     }
                     // A rotation retires an old key's result before it can enter the cache.
+                    stored = false;
                     synchronized (SpicyOrgKeyStore.class) {
                         if (!SpicyOrgAccessState.acceptValidatedResponse(context, ticket)) {
                             fail(context, track, callback, "Spicy Lyrics key changed; retry");
@@ -100,10 +114,16 @@ final class SpicyOrgAdapter {
                         document.selectedSource = "Spicy Lyrics";
                         document.selectionMode = "strict";
                         document.selectionOverride = "Spicy Lyrics";
-                        CatalogAdapters.recordSuccess(context, CatalogSource.SourceId.SPICY_ORG,
+                        stored = CatalogAdapters.recordSuccess(context, CatalogSource.SourceId.SPICY_ORG,
                                 track, document, CatalogSource.MatchMethod.EXACT_SPOTIFY_ID,
                                 trackId, raw, 1);
                     }
+                    // A document the catalogue refused is the third way this source can produce
+                    // nothing, and the only one with no error to report: say so, or it reads as a
+                    // stored result that simply never wins.
+                    XpLog.log("[SpotifyPlusSpicyOrg] outcome track=" + trackId + " result="
+                            + (stored ? "stored" : "refused-by-catalog")
+                            + " lines=" + document.lines.size() + " type=" + document.type);
                 } catch (Exception error) {
                     fail(context, track, callback, "Spicy Lyrics invalid response");
                     return;
@@ -131,6 +151,11 @@ final class SpicyOrgAdapter {
 
     private static void fail(Context context, SpotifyTrack track,
                              LyricsRepository.ResultCallback callback, String error) {
+        // The outcome that keeps this source out of the seat, named in the log. The callback's
+        // message only reaches a surface the owner may not be looking at.
+        XpLog.log("[SpotifyPlusSpicyOrg] outcome track="
+                + (track == null ? "none" : LyricUtils.trackIdFromUri(track.uri))
+                + " result=none reason=" + error);
         CatalogAdapters.recordError(context, CatalogSource.SourceId.SPICY_ORG, track, error);
         callback.onError(error);
     }

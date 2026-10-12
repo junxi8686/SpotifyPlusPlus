@@ -181,6 +181,16 @@ public final class LyricsRepository {
             return;
         }
         final int count = enabledOrder.size();
+        // The labels are the requests that actually go out, so a mapping mistake is visible here
+        // rather than only as a source that never wins. "Spicy" is the retired Apple route and
+        // "Spicy Lyrics" is the personal-key v1 request: the two are one wrong mapping apart.
+        StringBuilder asked = new StringBuilder();
+        for (int index = 0; index < count; index++) {
+            if (index > 0) asked.append(", ");
+            asked.append(labelFor(enabledOrder.get(index)));
+        }
+        XpLog.log(TAG + " ordered fetch asks " + asked + " for "
+                + trackIdFromUri(track == null ? "" : track.uri));
         final AtomicInteger settled = new AtomicInteger();
         final AtomicInteger deliveredScore = new AtomicInteger(LyricQualityRanker.REJECT);
         final AtomicReference<LyricsDocument> delivered = new AtomicReference<>();
@@ -188,14 +198,30 @@ public final class LyricsRepository {
 
         for (int index = 0; index < count; index++) {
             final String source = labelFor(enabledOrder.get(index));
+            final String guardTrackId = trackIdFromUri(track == null ? "" : track.uri);
+            // One live automatic request per source and track. Two rounds for one track used to be
+            // free to search the same provider at the same moment - the fetch gate opens when the
+            // first source of the previous race delivers, not when the last one finishes - which is
+            // how three identical searches landed in the same millisecond on the owner's device.
+            if (!SourceRequestGuard.claim(source, guardTrackId)) {
+                XpLog.log(TAG + " duplicate " + source + " attempt skipped: one is already in flight"
+                        + " for " + guardTrackId);
+                if (settled.incrementAndGet() == count && delivered.get() == null
+                        && reportedError.compareAndSet(false, true)) {
+                    callback.onError("No lyric source in order produced lyrics");
+                }
+                continue;
+            }
             // Each source needs its own Runnable: the pool rejects a task that is already running.
             final Runnable attempt = () -> fetchSingleSource(context, track, generation, source,
                     accessToken, karaokeOriginalLyrics, new ResultCallback() {
                         @Override public void onSuccess(LyricsDocument document) {
+                            SourceRequestGuard.release(source, guardTrackId);
                             consider(document);
                         }
 
                         @Override public void onError(String error) {
+                            SourceRequestGuard.release(source, guardTrackId);
                             settle();
                         }
 
@@ -1640,12 +1666,17 @@ public final class LyricsRepository {
                 .build();
     }
 
-    private static String sourceLabel(LyricsDocument doc, String fallback) {
+    /** Package-visible for the diagnostics-label test: this string is read off the settings card. */
+    static String sourceLabel(LyricsDocument doc, String fallback) {
         String source = doc == null ? "" : safe(doc.fetchSource).toLowerCase(java.util.Locale.US);
         if (source.contains("cache")) return "cache";
         if (source.contains("lrclib")) return "lrclib";
         if (source.contains("amll")) return "amll";
         if (source.contains("native")) return "native";
+        // Live SpicyLyrics.org responses carry fetchSource "spicy_org", which also contains "spicy".
+        // Matching the retired apple-music alias first reported them as "apple_music" on the
+        // diagnostics card, so the owner read the withdrawn Apple Music route as the live one.
+        if (source.contains("spicy_org")) return "spicy_org";
         if (source.contains("spicy")) return "apple_music";
         if (source.contains("apple_music")) return "apple_music";
         return fallback;

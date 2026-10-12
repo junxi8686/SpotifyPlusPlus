@@ -1,6 +1,7 @@
 package com.spotifyplusplus.lyrics.processing;
 
 import com.spotifyplusplus.lyrics.language.ProviderTextDetectionStore;
+import com.spotifyplusplus.lyrics.language.SpicyTextDetection;
 import com.spotifyplusplus.lyrics.language.TextDetectionLookup;
 
 import java.util.Locale;
@@ -145,7 +146,17 @@ public final class ProviderTranslationResolver {
         if (containsRange(text, 0x0600, 0x06ff)) return "ar";
         if (containsRange(text, 0x0980, 0x09ff)) return "bn";
         if (containsRange(text, 0x0b80, 0x0bff)) return "ta";
-        return "";
+        // The scripts below were missing while the project already had predicates for them in
+        // SpicyTextDetection. Each one made the same failure the Han branch did: the provider text
+        // inferred as nothing, so the only way left to accept it was a session detection of that
+        // exact string, and with none stored the translation was withheld and machine-translated
+        // instead. For a Russian or Hindi song that is every single line.
+        if (SpicyTextDetection.itemCyrillicTest(text)) return "ru";
+        if (SpicyTextDetection.itemDevanagariTest(text)) return "hi";
+        if (SpicyTextDetection.itemGurmukhiTest(text)) return "pa";
+        // Han last, and deliberately after kana and Hangul: Japanese and Korean text contain Han
+        // too, so testing Han first would label them Chinese.
+        return inferHanLanguage(text);
     }
 
     private static String inferHanLanguage(String text) {

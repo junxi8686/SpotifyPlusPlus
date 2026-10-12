@@ -111,7 +111,7 @@ public final class GoogleEnhancer {
             BatchLine line = pending.get(i);
             String translated = parsed.get(i);
             if (isBlank(translated)) continue;
-            translated = stripMarkerEcho(translated, i).trim();
+            translated = stripMarkerEcho(translated).trim();
             if (!shouldDisplayTranslation(line.text, translated)) continue;
             result.translations.put(line.index, translated);
             result.networkTranslatedCount++;
@@ -301,8 +301,11 @@ public final class GoogleEnhancer {
     /**
      * Batch position to text. A marker only splits when its number parses, so a reading that
      * happens to contain brackets keeps its tail instead of losing it.
+     *
+     * <p>Shared with {@link BaiduTranslateBackend}: both backends send a batch behind these same
+     * markers, so both must split an answer back the same way.
      */
-    private static Map<Integer, String> splitByMarkers(String text) {
+    static Map<Integer, String> splitByMarkers(String text) {
         Map<Integer, String> result = new LinkedHashMap<>();
         if (isBlank(text)) return result;
         Matcher matcher = BATCH_MARKER_PATTERN.matcher(text);
@@ -517,9 +520,10 @@ public final class GoogleEnhancer {
     /**
      * Google's echo of the marker it was handed, in whatever shape it romanized or translated it.
      * The line's own reading is what must survive, so every marker shape is dropped, not just the
-     * one that was sent.
+     * one that was sent. Shared with {@link BaiduTranslateBackend} for the same reason the split
+     * is.
      */
-    private static String stripMarkerEcho(String text, int index) {
+    static String stripMarkerEcho(String text) {
         if (text == null) return "";
         return BATCH_MARKER_PATTERN.matcher(text).replaceAll("").trim();
     }
@@ -619,6 +623,16 @@ public final class GoogleEnhancer {
         public int networkTranslatedCount;
         public int httpStatus;
         public String failureReason = "";
+        /**
+         * True when the backend refused in a way no retry can change: a wrong credential, a bad
+         * signature, an address the service blocks.
+         *
+         * <p>Reported separately from {@link #failureReason} because the lane's ladder - a second
+         * pass over the echoed lines, then a one-line rescue pass - exists for answers that were not
+         * refused, and every pass over a permanent refusal is another request that cannot succeed.
+         * Google never sets it; a refusal there arrives as a wire status.
+         */
+        public boolean permanentFailure;
     }
 
     static final class HttpResult {

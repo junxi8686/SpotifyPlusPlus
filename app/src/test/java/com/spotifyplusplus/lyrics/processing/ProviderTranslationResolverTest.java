@@ -114,6 +114,39 @@ public class ProviderTranslationResolverTest {
     }
 
     @Test
+    public void unlabelledHanProviderTextIsAcceptedForTheMatchingChineseTarget() {
+        // Script inference is one of the evidence kinds this resolver documents, and Han was the
+        // one script it never inferred. A Chinese provider translation with no declared language
+        // therefore inferred as nothing, and the only way left to accept it was a session
+        // detection of that exact string - so with none stored, every Chinese translation was
+        // withheld and the lines went off to be machine-translated instead.
+        assertEquals("这首歌", ProviderTranslationResolver.resolve("this song", "这首歌", "", "zh"));
+        assertEquals("這首歌", ProviderTranslationResolver.resolve("this song", "這首歌", "", "zh-TW"));
+        // The variants still must not cross: a Traditional translation is not a zh-Hans answer.
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "這首歌", "", "zh"));
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "这首歌", "", "zh-TW"));
+        // Kana and Hangul are tested before Han, so Japanese and Korean are not read as Chinese.
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "この歌です", "", "zh"));
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "이 노래", "", "zh"));
+        // Latin is still not assumed to be English without its own detection.
+        assertEquals("", ProviderTranslationResolver.resolve("这首歌", "this song", "", "en"));
+    }
+
+    @Test
+    public void unlabelledScriptsTheProjectCanDetectAreInferredToo() {
+        // Cyrillic, Devanagari and Gurmukhi had predicates in SpicyTextDetection but were never
+        // consulted here, so a Russian, Hindi or Punjabi provider translation was withheld exactly
+        // as the Chinese one was. Every line of such a song fell through to machine translation.
+        assertEquals("Эта песня", ProviderTranslationResolver.resolve("this song", "Эта песня", "", "ru"));
+        assertEquals("यह गाना", ProviderTranslationResolver.resolve("this song", "यह गाना", "", "hi"));
+        assertEquals("ਇਹ ਗੀਤ", ProviderTranslationResolver.resolve("this song", "ਇਹ ਗੀਤ", "", "pa"));
+        // And each still must not satisfy an unrelated target.
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "Эта песня", "", "zh"));
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "यह गाना", "", "ru"));
+        assertEquals("", ProviderTranslationResolver.resolve("this song", "ਇਹ ਗੀਤ", "", "hi"));
+    }
+
+    @Test
     public void providerTranslationFieldsSurviveCopies() {
         LyricsLine source = new LyricsLine();
         source.providerTranslatedText = "Hello";

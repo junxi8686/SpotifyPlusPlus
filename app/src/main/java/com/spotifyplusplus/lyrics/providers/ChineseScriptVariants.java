@@ -59,6 +59,54 @@ public final class ChineseScriptVariants {
         return ALIGNED && hasAny(text, SIMPLIFIED_SOURCE);
     }
 
+    /**
+     * How many characters of {@code text} are Simplified-only: written in a form whose Traditional
+     * counterpart differs, per the same {@link #SIMPLIFIED_SOURCE} table {@link #hasSimplified} reads.
+     *
+     * <p>Counted rather than answered yes or no because the owner's script component wants a share of
+     * a document, not a flag on it: "of all the characters in the whole song, how many are Simplified
+     * characters". The caller supplies the denominator it counts against, because what belongs in it
+     * is a ranking decision rather than a property of these tables.
+     *
+     * <p>The table is the conversion table, so a character that is written the same in both scripts
+     * for most of its senses still counts here when the conversion has an entry for it - 表 against
+     * 錶, 里 against 裡, 台 against 臺. That is the same treatment {@link #hasSimplified} gives them,
+     * and it is the reason this is a proportion rather than a verdict: the handful of such characters
+     * in a lyric is noise beside the thousands that genuinely differ.
+     */
+    public static int simplifiedOnlyCount(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int count = 0;
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            i += Character.charCount(cp);
+            if (cp <= Character.MAX_VALUE && SIMPLIFIED_SOURCE.indexOf((char) cp) >= 0) count++;
+        }
+        return count;
+    }
+
+    /**
+     * How many characters of {@code text} are Traditional-only: written in a form their Simplified
+     * counterpart differs from, per the same {@link #TRADITIONAL} table {@link #hasTraditional} and
+     * {@link #traditionalConfidence} read.
+     *
+     * <p>The counterpart of {@link #simplifiedOnlyCount}, and the two together are the denominator of
+     * the ranking's Simplified share: over the characters that actually differ between the scripts,
+     * 0% is purely Traditional and 100% purely Simplified. Characters written identically in both are
+     * in neither count, which is what makes the share a fixed scale rather than one that depends on
+     * which words a song happens to use.
+     */
+    public static int traditionalOnlyCount(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int count = 0;
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            i += Character.charCount(cp);
+            if (cp <= Character.MAX_VALUE && TRADITIONAL.indexOf((char) cp) >= 0) count++;
+        }
+        return count;
+    }
+
     /** Traditional -> Simplified, character by character. Returns the input when nothing maps. */
     /**
      * The share of Han characters in {@code text} that differ from their Simplified form, 0..1.

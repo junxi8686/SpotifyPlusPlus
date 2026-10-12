@@ -41,23 +41,78 @@ import static com.spotifyplusplus.lyrics.LyricUtils.safe;
 public final class QqMusicAdapter {
     public static final int ADAPTER_REVISION = 1;
     /**
-     * One retry, not two.
+     * Minimum interval between ANY two QQ searches, whichever path asks - a variant of the walk, a
+     * later round, an explicit check from the picker.
      *
-     * <p>A throttled window outlasts both attempts: the log shows a query refused at 19:44:54,
-     * 19:44:55 and 19:44:57 and then answered correctly at 19:45:02. The second and third attempts
-     * bought nothing and deepened the throttle.
+     * <p>This is the pacing the owner asked for, and it is the piece that was missing. The variant
+     * gap below spaces one walk; it does not stop a second walk - a new round, a manual check -
+     * starting immediately after the first. The in-flight guard stops two requests being in the air
+     * at once, which is a different thing again: three <em>sequential</em> requests in one second
+     * were always allowed.
+     *
+     * <p>1500 ms is chosen against the observed tolerance: the owner's log has refusals arriving in
+     * bursts of three within a millisecond and then the same query answered correctly about five
+     * seconds later, so the source tolerates roughly one request per second at worst and recovers
+     * within seconds. Pacing slightly above that keeps the walk inside what QQ accepts instead of
+     * paying for a burst with silence.
+     *
+     * <p>A request that arrives inside the interval is <em>skipped</em>, not queued: that source is
+     * failed for the round with {@code QQ Music paced; next slot in Nms} and the round carries on
+     * without it. Skipping is the deliberate choice, not a gap to close. Waiting for the slot would
+     * hold up the whole round - the other five sources racing in it included - on one source's pacing,
+     * which is the opposite of what a race is for; the next round asks again once the slot has passed,
+     * so the only cost is one round of latency on that one source.
      */
-    private static final int SEARCH_RETRY_LIMIT = 1;
-    /** Pause before the single retry; long enough to clear the window the log actually shows. */
-    private static final long SEARCH_RETRY_DELAY_MS = 2500L;
+    static final long MIN_REQUEST_INTERVAL_MS = 1500L;
+
     /**
-     * Gap between spellings.
+     * Gap between spellings of one walk.
      *
-     * <p>The plan holds several spellings and they used to be sent as fast as they could be built -
-     * the log has three of them inside 186 ms. Each spelling is a separate search, so they are
-     * spaced instead of arriving as one burst.
+     * <p>The plan holds up to {@link SearchQueryVariants#MAX_QUERIES} spellings, and they used to be
+     * sent as fast as they could be built - the log has three of them inside 186 ms. At 450 ms three
+     * spellings still landed inside about a second, which is exactly the "hit too many times within
+     * one second" the owner describes, and it happens on the normal path: a first spelling that
+     * answers {@code code=0} with no acceptable hit moves straight to the second and third, with
+     * nothing wrong anywhere.
+     *
+     * <p>Two seconds between spellings, so a three-spelling walk takes four seconds rather than one.
+     * Slower to exhaust the plan, and far cheaper than the throttle that exhausting it caused.
      */
-    private static final long VARIANT_DELAY_MS = 450L;
+    private static final long VARIANT_DELAY_MS = 2000L;
+
+    /**
+     * How many spellings one automatic attempt will try.
+     *
+     * <p>A cap, because the plan can hold twelve and each one is a separate search: an attempt that
+     * finds nothing ranked well would spend twelve requests keeping the source busy for half a minute.
+     * Three is the depth the walk actually reached in the log that motivated the spacing (three
+     * spellings inside 186 ms), and the walk stops earlier anyway whenever a spelling produces a hit
+     * that {@link QqSongRanker} considers settled - the common case for a track that exists in QQ's
+     * catalogue. Each request now logs its {@code variant=i/N}, so the owner's next session shows
+     * whether the third spelling ever produces the accepted hit; if it does not, this drops to two.
+     */
+    static final int MAX_SPELLINGS_PER_ATTEMPT = 3;
+
+    /**
+     * When the next QQ search may go out; see {@link #MIN_REQUEST_INTERVAL_MS}.
+     *
+     * <p>There is deliberately no cooldown beside it. A refusal ends the attempt and leaves the
+     * source alone until this slot passes, which at 1500 ms is a few seconds at the very worst and
+     * never the 30-second silence the owner objected to. Pacing is the fix; silence was the wrong
+     * answer, and a source that is being refused has to stay available for the next round.
+     */
+    private static long nextAllowedRequestMs;
+
+    /**
+     * A distinct identifier per outbound search, so a request and its response can be counted
+     * independently of any decision trace.
+     *
+     * <p>Asked for by name after the owner could not tell twenty-five log lines from twenty-five
+     * requests, or from a handful printed repeatedly. Process-wide rather than per adapter: two
+     * adapters for two rounds would otherwise both print {@code id=1}.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong REQUEST_SEQUENCE =
+            new java.util.concurrent.atomic.AtomicLong();
 
     /**
      * A realistic browser UA, not the bare {@code "Mozilla/5.0"} this used to send on every call.
@@ -90,12 +145,6 @@ public final class QqMusicAdapter {
     public void fetch(Context context, SpotifyTrack track, int generation,
                       boolean karaokeOriginalLyrics,
                       LyricsRepository.ResultCallback callback) {
-        fetch(context, track, generation, karaokeOriginalLyrics, callback, 0);
-    }
-
-    private void fetch(Context context, SpotifyTrack track, int generation,
-                       boolean karaokeOriginalLyrics,
-                       LyricsRepository.ResultCallback callback, int retryCount) {
         SpotifyTrack searchTrack = KaraokeTitles.forLyricsSearch(track, karaokeOriginalLyrics);
         boolean substituted = searchTrack != track;
         // A row the owner picked out of QQ's own result list: fetch exactly that, skipping search,
@@ -110,18 +159,19 @@ public final class QqMusicAdapter {
         // No candidate carried in yet: the whole plan is walked and scored, and the best hit
         // across all of its spellings is what gets fetched.
         searchVariant(context, track, searchTrack, substituted, generation, karaokeOriginalLyrics,
-                callback, retryCount, queries, 0,
+                callback, queries, 0,
                 Collections.<QqSongRanker.Candidate>emptyList());
     }
 
     private void searchVariant(Context context, SpotifyTrack track, SpotifyTrack queryTrack,
                                boolean substituted, int generation, boolean karaokeOriginalLyrics,
-                               LyricsRepository.ResultCallback callback, int retryCount,
+                               LyricsRepository.ResultCallback callback,
                                List<String> queries, int index,
                                List<QqSongRanker.Candidate> carried) {
-        if (queries == null || index >= queries.size()) {
+        if (queries == null || index >= queries.size() || index >= MAX_SPELLINGS_PER_ATTEMPT) {
             // The best hit found anywhere in the plan is the answer; only a plan that produced
-            // no acceptable hit at all reports nothing.
+            // no acceptable hit at all reports nothing. Reaching the cap without a settled hit ends
+            // the walk the same way - the remaining spellings are not worth three more requests.
             if (carried != null && !carried.isEmpty()) {
                 fetchLyric(context, track, queryTrack, substituted, generation, carried, callback);
                 return;
@@ -130,6 +180,18 @@ public final class QqMusicAdapter {
             return;
         }
         String query = queries.get(index);
+        // The rate limiter, across every path that asks this source. A request that arrives inside
+        // the pacing window is not sent and not waited for: QQ is skipped for this round and counted
+        // as not answered, so the other five sources and the round's completion are not held up by
+        // one source's pacing. The next round asks again once the slot has passed.
+        long waitMs = waitForRequestSlot(System.currentTimeMillis());
+        if (waitMs > 0L) {
+            trace("qq paced skipped wait=" + waitMs + "ms variant=" + (index + 1)
+                    + " q=\"" + query + "\"");
+            fail(context, track, callback,
+                    "QQ Music paced; next slot in " + waitMs + "ms");
+            return;
+        }
         String data = "{\"music.search.SearchCgiService\":{\"method\":\"DoSearchForQQMusicDesktop\","
                 + "\"module\":\"music.search.SearchCgiService\","
                 + "\"param\":{\"num_per_page\":\"20\",\"page_num\":\"1\","
@@ -141,8 +203,16 @@ public final class QqMusicAdapter {
                 .header("User-Agent", USER_AGENT)
                 .header("Referer", "https://y.qq.com/")
                 .build();
+        final long requestId = REQUEST_SEQUENCE.incrementAndGet();
+        final long startedAtMs = android.os.SystemClock.elapsedRealtime();
+        final int variant = index;
+        final int variants = queries.size();
+        trace("qq request id=" + requestId + " variant=" + (variant + 1) + "/" + variants
+                + " q=\"" + query + "\"");
         http.newCall(request).enqueue(new Callback() {
             @Override public void onFailure(Call call, IOException e) {
+                trace("qq response id=" + requestId + " outcome=transport-error ms="
+                        + elapsed(startedAtMs) + " detail=" + safe(e.getMessage()));
                 if (carried != null && !carried.isEmpty()) {
                     fetchLyric(context, track, queryTrack, substituted, generation, carried, callback);
                     return;
@@ -153,6 +223,8 @@ public final class QqMusicAdapter {
             @Override public void onResponse(Call call, Response response) throws IOException {
                 try (Response ignored = response) {
                     if (!response.isSuccessful() || response.body() == null) {
+                        trace("qq response id=" + requestId + " outcome=http-" + response.code()
+                                + " ms=" + elapsed(startedAtMs));
                         fail(context, track, callback,
                                 "QQ Music search HTTP " + response.code());
                         return;
@@ -169,34 +241,25 @@ public final class QqMusicAdapter {
                     // As on NetEase: what came back, and what cleared the gate. code is included
                     // because this endpoint answers 200 with an empty list while throttling, which
                     // is otherwise indistinguishable from the catalogue not carrying the track.
-                    try {
-                        com.spotifyplusplus.xposed.XpLog.log("SpotifyPlusSpicy " + "qq q=\"" + query + "\" code=" + searchCode
-                                + " hits=" + (hits == null ? 0 : hits.size())
-                                + " accepted=" + songs.size());
-                    } catch (Throwable traceFailure) {
-                        // A trace must never affect the request it describes.
+                    trace("qq response id=" + requestId + " code=" + searchCode
+                            + " hits=" + (hits == null ? 0 : hits.size())
+                            + " accepted=" + songs.size() + " ms=" + elapsed(startedAtMs));
+                    if (searchCode != 0) {
+                        // A refusal is not a missing result, so it ends this attempt without trying
+                        // the remaining spellings - they would be refused too. No cooldown is
+                        // recorded: the pacing slot is the only bound, so the source is available
+                        // again for the next round as soon as the minimum interval has passed, and a
+                        // persistent refusal is visible in the log rather than hidden behind silence.
+                        trace("qq refused code=" + searchCode + " variant=" + (variant + 1)
+                                + " q=\"" + query + "\"");
+                        fail(context, track, callback,
+                                "QQ Music refused the search (code " + searchCode + ")");
+                        return;
                     }
                     if (songs.isEmpty()) {
-                        // The code says which kind of empty this is, and the two want opposite
-                        // treatment. A non-zero code means the endpoint refused the request without
-                        // reading the query - it is throttling, and coming back later is the only
-                        // thing that helps. A zero code means it did read the query and has nothing
-                        // acceptable, which repeating the identical query cannot change.
-                        //
-                        // Retrying both alike is what made a burst: three attempts per spelling,
-                        // every spelling, all inside a couple of seconds. The log shows the result -
-                        // a two-second window where nothing succeeds, and the same query answering
-                        // correctly five seconds later.
-                        if (searchCode != 0 && retryCount < SEARCH_RETRY_LIMIT
-                                && scheduler != null) {
-                            int nextRetry = retryCount + 1;
-                            scheduler.schedule(
-                                    () -> fetch(context, track, generation,
-                                            karaokeOriginalLyrics, callback, nextRetry),
-                                    SEARCH_RETRY_DELAY_MS,
-                                    TimeUnit.MILLISECONDS);
-                            return;
-                        }
+                        // A zero code means the endpoint read the query and has nothing acceptable,
+                        // which repeating the identical query cannot change - so the plan moves on
+                        // to the next spelling, or reports the miss.
                         if (index + 1 < queries.size()) {
                             // Next spelling, after a gap. The delay is dropped only when there is no
                             // scheduler, which is the synchronous test path.
@@ -205,11 +268,11 @@ public final class QqMusicAdapter {
                                 scheduler.schedule(
                                         () -> searchVariant(context, track, queryTrack, substituted,
                                                 generation, karaokeOriginalLyrics, callback,
-                                                retryCount, queries, nextIndex, carried),
+                                                queries, nextIndex, carried),
                                         VARIANT_DELAY_MS, TimeUnit.MILLISECONDS);
                             } else {
                                 searchVariant(context, track, queryTrack, substituted, generation,
-                                        karaokeOriginalLyrics, callback, retryCount, queries,
+                                        karaokeOriginalLyrics, callback, queries,
                                         nextIndex, carried);
                             }
                             return;
@@ -219,8 +282,7 @@ public final class QqMusicAdapter {
                                     carried, callback);
                             return;
                         }
-                        fail(context, track, callback, "QQ Music empty"
-                                + (searchCode != 0 ? " (code " + searchCode + ")" : ""));
+                        fail(context, track, callback, "QQ Music empty");
                         return;
                     }
                     List<QqSongRanker.Candidate> best = betterOf(carried, songs);
@@ -230,7 +292,7 @@ public final class QqMusicAdapter {
                         return;
                     }
                     searchVariant(context, track, queryTrack, substituted, generation,
-                            karaokeOriginalLyrics, callback, retryCount, queries,
+                            karaokeOriginalLyrics, callback, queries,
                             index + 1, best);
                 } catch (Throwable t) {
                     fail(context, track, callback,
@@ -384,6 +446,43 @@ public final class QqMusicAdapter {
                       LyricsRepository.ResultCallback callback, String error) {
         CatalogAdapters.recordError(context, CatalogSource.SourceId.QQ, track, error);
         callback.onError(error);
+    }
+
+    /** A search line, written through the same guard as every other trace in this path. */
+    private static void trace(String line) {
+        try {
+            com.spotifyplusplus.xposed.XpLog.log("SpotifyPlusSpicy " + line);
+        } catch (Throwable ignored) {
+            // A trace must never affect the request it describes.
+        }
+    }
+
+    private static long elapsed(long startedAtMs) {
+        return android.os.SystemClock.elapsedRealtime() - startedAtMs;
+    }
+
+    /**
+     * Claims the next request slot: 0 when this request may go out now, otherwise how long it has to
+     * wait. Claiming a slot starts the interval, so two callers cannot both be told to go.
+     */
+    static long waitForRequestSlot(long nowMs) {
+        synchronized (QqMusicAdapter.class) {
+            if (nowMs < nextAllowedRequestMs) return nextAllowedRequestMs - nowMs;
+            nextAllowedRequestMs = nowMs + MIN_REQUEST_INTERVAL_MS;
+            return 0L;
+        }
+    }
+
+    /** Test seam: forget the pacing this process recorded. */
+    static void resetPacing() {
+        synchronized (QqMusicAdapter.class) {
+            nextAllowedRequestMs = 0L;
+        }
+    }
+
+    /** Test seam: the process-wide request id the next search will carry. */
+    static long nextRequestId() {
+        return REQUEST_SEQUENCE.get() + 1L;
     }
 
     static int searchServiceCode(String body) {
