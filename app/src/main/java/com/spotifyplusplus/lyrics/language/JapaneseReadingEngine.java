@@ -30,6 +30,13 @@ public final class JapaneseReadingEngine {
     private volatile Tokenizer tokenizer;
     private volatile FuriganaTable jmdictFurigana;
     private volatile Map<String, String> jmdictPreferredReadings;
+    /**
+     * Set when the dictionaries could not be loaded at all - a device with no language model pack,
+     * whose APK deliberately carries none of the files. Retrying that load on every rendered line
+     * costs real time for nothing, so the failure is remembered until {@link #trimMemory()}, which
+     * a completed pack download calls.
+     */
+    private volatile boolean tokenizerUnavailable;
     /** Active analysis count. A trim never drops resources an analysis is still using. */
     private int activeUses;
     private boolean trimPending;
@@ -83,7 +90,7 @@ public final class JapaneseReadingEngine {
         }
     }
 
-    /** UniDic tokenizer, built on first use. */
+    /** UniDic tokenizer, built on first use; null when its dictionaries cannot be loaded at all. */
     public Tokenizer tokenizer() {
         Runnable observer = tokenizerObserverForTest;
         if (observer != null) observer.run();
@@ -91,7 +98,15 @@ public final class JapaneseReadingEngine {
         if (local != null) return local;
         synchronized (this) {
             if (tokenizer == null) {
-                tokenizer = MappedTokenizerBuilder.build(appContext);
+                if (tokenizerUnavailable) return null;
+                Tokenizer built;
+                try {
+                    built = MappedTokenizerBuilder.build(appContext);
+                } catch (Throwable failure) {
+                    tokenizerUnavailable = true;
+                    return null;
+                }
+                tokenizer = built;
                 tokenizerLoads++;
             }
             return tokenizer;
@@ -150,6 +165,7 @@ public final class JapaneseReadingEngine {
         tokenizer = null;
         jmdictFurigana = null;
         jmdictPreferredReadings = null;
+        tokenizerUnavailable = false;
         trimPending = false;
     }
 

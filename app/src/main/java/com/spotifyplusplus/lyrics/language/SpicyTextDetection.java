@@ -173,6 +173,25 @@ public final class SpicyTextDetection {
         return containsCodePoint(text, SpicyTextDetection::isKana);
     }
 
+    /**
+     * How many code points of the text are kana, counted against the same ranges {@link #hasKana}
+     * tests.
+     *
+     * <p>A count rather than a flag because the ranking measures the kana *ratio*: a Chinese song
+     * that quotes a line of Japanese is Chinese with a kana trace in it, while a Japanese lyric is
+     * half kana, and only a proportion can tell those apart.
+     */
+    public static int kanaCount(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int count = 0;
+        for (int i = 0; i < text.length(); ) {
+            int cp = text.codePointAt(i);
+            i += Character.charCount(cp);
+            if (isKana(cp)) count++;
+        }
+        return count;
+    }
+
     /** Matches the desktop renderer's line contract: the first strong character owns direction. */
     public static boolean isRtl(String text) {
         if (text == null || text.isEmpty()) return false;

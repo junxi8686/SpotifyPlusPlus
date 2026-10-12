@@ -930,7 +930,14 @@ public final class SpicyJapaneseChineseProcessor {
         String analysisSource = analysisText == null ? sourceText : analysisText.text;
         List<Token> tokens;
         try {
-            tokens = tokenizer().tokenize(analysisSource);
+            Tokenizer tokenizer = tokenizer();
+            if (tokenizer == null) {
+                // No language model pack on this device, so there are no dictionaries to load: the
+                // heuristic fallback is the whole answer, and the engine does not retry the load
+                // until something clears it - a completed download does exactly that.
+                return fallbackEntries(sourceText, analysisText, "tokenizer.unavailable");
+            }
+            tokens = tokenizer.tokenize(analysisSource);
         } catch (Throwable t) {
             return fallbackEntries(sourceText, analysisText, "tokenizer.exception");
         }
