@@ -60,6 +60,15 @@ public class LyricsDocument {
     public boolean translationPending;
     /** The translation run failed and nothing is shown for it: the toggle offers a retry. */
     public boolean translationFailed;
+    /**
+     * Why that run failed, as the backend spelled it - "baidu_errno_1022", "parse_empty", a socket
+     * exception name. Empty unless {@link #translationFailed}.
+     *
+     * <p>The flag alone reaches a chip, which is a mark the reader has to interpret. This is what
+     * lets the surface name the failure in words, so a refusal is not mistaken for a run that is
+     * still working.
+     */
+    public String translationFailureReason = "";
     public boolean includesRomanization;
     public boolean includesTranslation;
     /**
@@ -124,6 +133,7 @@ public class LyricsDocument {
         copy.romanizationPending = source.romanizationPending;
         copy.translationPending = source.translationPending;
         copy.translationFailed = source.translationFailed;
+        copy.translationFailureReason = safe(source.translationFailureReason);
         copy.includesRomanization = source.includesRomanization;
         copy.includesTranslation = source.includesTranslation;
         copy.readingFromAi = source.readingFromAi;
