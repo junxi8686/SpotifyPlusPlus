@@ -31,6 +31,7 @@ import com.spotifyplusplus.diagnostics.DiagnosticReportingDialog;
 import com.spotifyplusplus.lyrics.cache.CacheClearKind;
 import com.spotifyplusplus.lyrics.cache.CacheStoragePolicy;
 import com.spotifyplusplus.lyrics.language.LanguageModelPack;
+import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
 import com.spotifyplusplus.lyrics.providers.LyricsFetchDiagnosticsState;
 import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
@@ -462,6 +463,14 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
             spicyOrgKeyRow(content);
             return;
         }
+        if (setting == Settings.BAIDU_TRANSLATE_APPID) {
+            baiduAppIdRow(content);
+            return;
+        }
+        if (setting == Settings.BAIDU_TRANSLATE_SECRET) {
+            baiduSecretRow(content);
+            return;
+        }
         if (setting == Settings.LYRICS_FONT_CUSTOM_PATH) {
             lyricsFontPathRow(content);
             return;
@@ -840,6 +849,71 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
                 actions.toArray(new AiSettingsRows.IconAction[0]));
     }
 
+    /**
+     * Baidu Translate app id, the identifier half of the official API's credential pair.
+     *
+     * <p>The API is credentialled - the keyless endpoint this backend used to call now refuses
+     * every request - so these two rows are where the backend is switched on. Both show the masked
+     * form and offer the same edit, reveal and delete actions the other credential rows do; the
+     * plaintext only ever appears in the secure reveal dialog.
+     */
+    private void baiduAppIdRow(LinearLayout content) {
+        String masked = BaiduTranslateCredentials.masked(
+                BaiduTranslateCredentials.appId(context));
+        baiduCredentialRow(content, Settings.BAIDU_TRANSLATE_APPID, masked,
+                new AiSettingsRows.IconAction(Kind.EDIT,
+                        uiStrings.get("settings_baidu_appid_edit", "Enter app ID"),
+                        v -> dialogs.promptBaiduAppId()),
+                new AiSettingsRows.IconAction(Kind.VISIBILITY,
+                        uiStrings.get("settings_baidu_appid_reveal", "Reveal app ID"),
+                        v -> dialogs.revealBaiduAppId()),
+                new AiSettingsRows.IconAction(Kind.DELETE,
+                        uiStrings.get("settings_baidu_appid_delete", "Delete app ID"),
+                        v -> {
+                            BaiduTranslateCredentials.deleteAppId(context);
+                            rebuildSection(Settings.TRANSLATION);
+                        }));
+    }
+
+    /** Baidu Translate secret key, the half that signs every request. */
+    private void baiduSecretRow(LinearLayout content) {
+        String masked = BaiduTranslateCredentials.masked(
+                BaiduTranslateCredentials.secret(context));
+        baiduCredentialRow(content, Settings.BAIDU_TRANSLATE_SECRET, masked,
+                new AiSettingsRows.IconAction(Kind.EDIT,
+                        uiStrings.get("settings_baidu_secret_edit", "Enter secret"),
+                        v -> dialogs.promptBaiduSecret()),
+                new AiSettingsRows.IconAction(Kind.VISIBILITY,
+                        uiStrings.get("settings_baidu_secret_reveal", "Reveal secret"),
+                        v -> dialogs.revealBaiduSecret()),
+                new AiSettingsRows.IconAction(Kind.DELETE,
+                        uiStrings.get("settings_baidu_secret_delete", "Delete secret"),
+                        v -> {
+                            BaiduTranslateCredentials.deleteSecret(context);
+                            rebuildSection(Settings.TRANSLATION);
+                        }));
+    }
+
+    /**
+     * One credential row: the masked value, labelled by its setting, with the edit action always
+     * offered and reveal/delete only once something is stored.
+     */
+    private void baiduCredentialRow(LinearLayout content, Settings.Setting<?> setting, String masked,
+                                    AiSettingsRows.IconAction edit,
+                                    AiSettingsRows.IconAction reveal,
+                                    AiSettingsRows.IconAction delete) {
+        List<AiSettingsRows.IconAction> actions = new ArrayList<>();
+        actions.add(edit);
+        if (!masked.isEmpty()) {
+            actions.add(reveal);
+            actions.add(delete);
+        }
+        rows.aiFieldRow(content, uiStrings.setting(setting),
+                masked.isEmpty() ? uiStrings.get("settings_baidu_absent", "Not set") : masked,
+                false, setting.key, edit.listener,
+                actions.toArray(new AiSettingsRows.IconAction[0]));
+    }
+
     private void lyricsFontPathRow(LinearLayout content) {
         String path = store.get(Settings.LYRICS_FONT_CUSTOM_PATH);
         String display = path == null || path.isEmpty()
@@ -863,6 +937,12 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
 
     private String fontCoverageSummaryForPanel(String path) {
         if (path == null || path.isEmpty()) return "";
+        // A path that names a file which is not there is a missing font, not a font whose coverage
+        // was measured: Typeface.create() never fails for an unknown path, so the line below would
+        // otherwise report the platform fallback's coverage as if it were the owner's file.
+        if (FontPathState.isMissingFile(path)) {
+            return uiStrings.get("settings_lyrics_font_file_missing", "Font file not found");
+        }
         android.graphics.Typeface typeface = null;
         java.io.File file = new java.io.File(path);
         if (file.isFile()) {
@@ -1055,27 +1135,61 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
                 v -> {
                     // The system picker when this context can raise one, because the owner chooses
                     // where the file goes; the fixed Downloads path is the fallback for the case
-                    // where no Activity is reachable, which is rare but not impossible.
+                    // where no Activity is reachable, which is rare but not impossible. That
+                    // fallback reads whole databases, so it runs off the UI thread like the picker
+                    // path does - there is just no dialog to host its progress.
                     BackupPicker.ensureInstalled(context);
                     if (BackupPicker.startExport(context)) return;
-                    String path = SpicyBackup.exportToDownloads(context);
-                    toast(path == null
-                            ? uiStrings.get("settings_backup_export_failed", "Could not export")
-                            : String.format(uiStrings.get("settings_backup_exported_to",
-                                    "Saved to %1$s"), path));
+                    exportToDownloadsOffThread();
                 });
         rows.actionRow(card, null,
                 uiStrings.get("settings_backup_import", "Import settings and data"),
                 v -> {
                     BackupPicker.ensureInstalled(context);
                     if (BackupPicker.startImport(context)) return;
-                    int restored = SpicyBackup.restoreFromDownloads(context);
-                    toast(restored < 0
-                            ? uiStrings.get("settings_backup_missing", "No backup found in Downloads")
-                            : String.format(uiStrings.get("settings_backup_restored_count",
-                                    "Restored %1$d entries"), restored));
+                    if (BackupPicker.startDownloadsRestore(context)) return;
+                    restoreFromDownloadsOffThread();
                 });
         style.attachCard(parent, card, index);
+    }
+
+    /** The Downloads export, off the UI thread; the only surface left here is a toast. */
+    private void exportToDownloadsOffThread() {
+        final String failed = uiStrings.get("settings_backup_export_failed", "Could not export");
+        final String savedFormat = uiStrings.get("settings_backup_exported_to", "Saved to %1$s");
+        new Thread(() -> {
+            String message;
+            try {
+                String path = SpicyBackup.exportToDownloads(context);
+                message = path == null ? failed : String.format(savedFormat, path);
+            } catch (Throwable failure) {
+                message = failed;
+            }
+            final String text = message;
+            uiHandler.post(() -> toast(text));
+        }, "spicy-backup-export").start();
+    }
+
+    /**
+     * The Downloads restore, off the UI thread, for the case where no Activity is reachable and
+     * therefore no progress dialog or restart prompt can be shown. The result - including any
+     * credential the owner has to enter again - is reported through the panel's toast.
+     */
+    private void restoreFromDownloadsOffThread() {
+        final String unreadable = uiStrings.get("settings_backup_unreadable",
+                "That file is not a Spicy EX backup");
+        new Thread(() -> {
+            SpicyBackup.RestoreOutcome outcome = null;
+            try {
+                outcome = SpicyBackup.restoreDownloads(context, null);
+            } catch (Throwable failure) {
+                // Reported as an unusable file below; the panel must not die with the worker.
+            }
+            final SpicyBackup.RestoreOutcome result = outcome;
+            // Message built on the UI thread, where the panel's string table is safe to read.
+            uiHandler.post(() -> toast(result == null
+                    ? unreadable : SpicyBackup.restoreMessage(context, result)));
+        }, "spicy-backup-import").start();
     }
 
     private static final String BACKUP_CARD_TAG = "backup:export-import";
@@ -1249,6 +1363,10 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
 
     @Override public void onSpicyTokenChanged() {
         rebuildSection(Settings.LYRICS_SOURCES);
+    }
+
+    @Override public void onBaiduCredentialsChanged() {
+        rebuildSection(Settings.TRANSLATION);
     }
 
     // --- SourceOrderEditor.Host ---

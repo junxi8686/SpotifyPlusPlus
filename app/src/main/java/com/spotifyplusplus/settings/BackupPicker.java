@@ -107,6 +107,18 @@ public final class BackupPicker {
         }
     }
 
+    /**
+     * Restores {@code Downloads/Spicy EX} with the same progress, cancellation and restart prompt
+     * the picked-file path gets. False when no Activity is reachable, so there is no dialog to
+     * host that flow.
+     */
+    public static boolean startDownloadsRestore(Context context) {
+        Activity activity = activityOf(context);
+        if (activity == null) return false;
+        runRestore(activity, null);
+        return true;
+    }
+
     private static void handler(Activity activity, int request, int result, Uri uri) {
         try {
             if (result != Activity.RESULT_OK || uri == null) return;
@@ -122,48 +134,83 @@ public final class BackupPicker {
         final PanelStyle style = new PanelStyle(activity);
         final ProgressUi ui = ProgressUi.show(activity, style, "正在导出…", cancelled);
         new Thread(() -> {
-            int written = SpicyBackup.writeTo(activity, uri, ui.progress());
+            int written;
+            try {
+                written = SpicyBackup.writeTo(activity, uri, ui.progress());
+            } catch (Throwable failure) {
+                // The export builds and streams a document that can be hundreds of megabytes. A
+                // failure here - an OutOfMemoryError included - must still close the dialog and say
+                // so, rather than taking the process down with it.
+                written = -1;
+            }
             ui.close();
+            final int result = written;
             // Every UI call goes back to the main thread. A Dialog or a Toast built on a worker
             // thread throws, and that is why the completion message never appeared.
             onUi(activity, () -> {
-                if (written == SpicyBackup.CANCELLED) {
+                if (result == SpicyBackup.CANCELLED) {
                     toast(activity, SpicyBackup.text(activity, "settings_backup_cancelled",
-                            "已取消"));
-                } else if (written < 0) {
+                            "Cancelled"));
+                } else if (result < 0) {
                     toast(activity, SpicyBackup.text(activity, "settings_backup_export_failed",
-                            "导出失败"));
+                            "Could not export"));
                 } else {
-                    toast(activity, SpicyBackup.format(activity, "settings_backup_exported_to",
-                            "已导出 %1$d 项", written));
+                    // The picked file's own name is the owner's to choose, so this path reports the
+                    // count. The fixed Downloads path reports the location it wrote instead.
+                    toast(activity, SpicyBackup.format(activity, "settings_backup_exported_count",
+                            "Exported %1$d entries", result));
                 }
             });
         }, "spicy-backup-export").start();
     }
 
     private static void runImport(Activity activity, Uri uri) {
+        runRestore(activity, uri);
+    }
+
+    /**
+     * The shared restore flow: a cancellable progress dialog, then the outcome.
+     *
+     * @param uri the picked document, or null to read the fixed Downloads file
+     */
+    private static void runRestore(Activity activity, Uri uri) {
         final AtomicBoolean cancelled = new AtomicBoolean();
         final PanelStyle style = new PanelStyle(activity);
         final ProgressUi ui = ProgressUi.show(activity, style, "正在导入…", cancelled);
         new Thread(() -> {
-            int restored = SpicyBackup.restoreFrom(activity, uri, ui.progress());
-            ui.close();
-            if (restored == SpicyBackup.CANCELLED) {
-                onUi(activity, () -> toast(activity,
-                        SpicyBackup.text(activity, "settings_backup_cancelled", "已取消")));
-                return;
+            SpicyBackup.RestoreOutcome outcome;
+            try {
+                outcome = uri == null
+                        ? SpicyBackup.restoreDownloads(activity, ui.progress())
+                        : SpicyBackup.restore(activity, uri, ui.progress());
+            } catch (Throwable failure) {
+                outcome = null;
             }
-            if (restored < 0) {
+            ui.close();
+            if (outcome == null) {
                 onUi(activity, () -> toast(activity,
                         SpicyBackup.text(activity, "settings_backup_unreadable",
-                                "这个文件不是 Spotify++ 的备份")));
+                                "That file is not a Spicy EX backup")));
+                return;
+            }
+            final SpicyBackup.RestoreOutcome result = outcome;
+            if (result.written == SpicyBackup.CANCELLED) {
+                onUi(activity, () -> toast(activity,
+                        SpicyBackup.text(activity, "settings_backup_cancelled", "Cancelled")));
+                return;
+            }
+            if (result.written < 0) {
+                onUi(activity, () -> toast(activity, SpicyBackup.text(activity,
+                        uri == null ? "settings_backup_missing" : "settings_backup_unreadable",
+                        uri == null ? "No backup found in Downloads"
+                                : "That file is not a Spicy EX backup")));
                 return;
             }
             // The catalogue and the caches are database files. The running process still holds the
             // pages it read, so what it shows now is the state from before the restore - which is
             // why the owner is asked whether to restart rather than told the restore is live.
             // Built on the main thread: this dialog is the whole point of the confirmation.
-            onUi(activity, () -> askRestart(activity, style, restored));
+            onUi(activity, () -> askRestart(activity, style, result));
         }, "spicy-backup-import").start();
     }
 
@@ -181,20 +228,40 @@ public final class BackupPicker {
         }
     }
 
-    /** Offers the restart the restored databases need, and lets the owner decline it. */
-    private static void askRestart(Activity activity, PanelStyle style, int restored) {
+    /**
+     * Offers the restart the restored databases need, and lets the owner decline it.
+     *
+     * <p>This dialog is also the only place the credential outcome is reported. A key the backup
+     * carried but this device cannot decrypt has to be entered again, and a key that already
+     * worked here was kept instead of being replaced by that unreadable value - both are things
+     * the owner has to know, and neither is an import: nothing about a key travels except the
+     * ciphertext that cannot be used without the Keystore it was written under.
+     */
+    private static void askRestart(Activity activity, PanelStyle style,
+                                   SpicyBackup.RestoreOutcome outcome) {
         try {
             final PanelDialog dialog = new PanelDialog(activity, "导入完成");
             dialog.paragraph(SpicyBackup.format(activity, "settings_backup_restored_count",
-                    "已恢复 %1$d 项", restored));
+                    "Restored %1$d entries", outcome.written));
+            if (!outcome.reentryScopes.isEmpty()) {
+                dialog.paragraph(SpicyBackup.format(activity,
+                        "settings_backup_credentials_reenter",
+                        "Enter these again - they were encrypted on the device that wrote this"
+                                + " backup and cannot be read here: %1$s",
+                        SpicyBackup.credentialNames(activity, outcome.reentryScopes)));
+            }
+            if (!outcome.keptScopes.isEmpty()) {
+                dialog.paragraph(SpicyBackup.format(activity, "settings_backup_credentials_kept",
+                        "Kept the keys already working on this device: %1$s",
+                        SpicyBackup.credentialNames(activity, outcome.keptScopes)));
+            }
             dialog.paragraph("曲库和翻译缓存要等 Spotify 重启后才会生效。现在重启吗？");
             dialog.primary("强制停止 Spotify", BackupPicker::stopSpotify);
             dialog.secondary(SpicyBackup.text(activity, "settings_ai_cancel", "取消"), null);
             dialog.show();
         } catch (Throwable t) {
             XpLog.log(TAG + " restart prompt failed: " + t);
-            toast(activity, SpicyBackup.format(activity, "settings_backup_restored_count",
-                    "已恢复 %1$d 项", restored));
+            toast(activity, SpicyBackup.restoreMessage(activity, outcome));
         }
     }
 

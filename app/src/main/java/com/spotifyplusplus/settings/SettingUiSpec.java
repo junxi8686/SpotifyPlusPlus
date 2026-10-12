@@ -19,6 +19,8 @@ public final class SettingUiSpec {
                 || setting == Settings.LYRICS_SOURCE_OVERRIDE
                 || setting == Settings.LYRICS_SOURCE_ORDER
                 || setting == Settings.SPICY_ORG_CLIENT_KEY
+                || setting == Settings.BAIDU_TRANSLATE_APPID
+                || setting == Settings.BAIDU_TRANSLATE_SECRET
                 || setting == Settings.DOWNLOAD_LANGUAGE_MODELS) {
             return RowKind.COMPOSITE;
         }

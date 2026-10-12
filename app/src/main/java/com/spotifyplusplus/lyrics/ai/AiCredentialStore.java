@@ -23,6 +23,11 @@ import java.nio.charset.StandardCharsets;
  *       dedicated provider key with a spend cap set in the provider's own console.
  *   <li><b>Uninstalling Spicy EX does not remove it</b>, because these preferences belong to
  *       Spotify. That is why delete is an explicit action rather than something left to cleanup.
+ *   <li><b>Copying the ciphertext does not move the key.</b> A backup carries these values
+ *       verbatim, so they keep working on this install for as long as the Spotify-side data and
+ *       its Keystore key both survive - a module update, a Spotify update, or a module
+ *       uninstall. They cannot be read after an uninstall or clear-data (the platform destroys
+ *       the key), on another device, or in another Android user of the same device.
  * </ul>
  *
  * <p>The cipher is injected so the storage logic — the cap, the delete, the empty cases — is
@@ -42,8 +47,48 @@ public final class AiCredentialStore {
         void clear();
     }
 
-    static final String PREFS = "SpotifyPlusAiCredentials";
+    /**
+     * Whether one stored value can still be read on this device.
+     *
+     * <p>A restore has to answer that before it overwrites anything: ciphertext written on another
+     * device is indistinguishable from a usable value until it is tried, and replacing a value
+     * that works here with one that cannot be read turns a working install into a broken one.
+     */
+    public interface Decryptability {
+        /** @param stored the raw preference value; never null, may be empty */
+        boolean canDecrypt(String stored);
+    }
+
+    /** The preference file every secret in this module lives in. */
+    public static final String PREFS = "SpotifyPlusAiCredentials";
     private static final String KEY_PREFIX = "secret_";
+
+    /** The preference key one scope is stored under, as a backup sees it. */
+    public static String key(String providerId) {
+        return KEY_PREFIX + AiText.nz(providerId);
+    }
+
+    /** True only for the preference keys this store owns. */
+    public static boolean isCredentialKey(String preferenceKey) {
+        return preferenceKey != null && preferenceKey.startsWith(KEY_PREFIX)
+                && preferenceKey.length() > KEY_PREFIX.length();
+    }
+
+    /** The scope inside one of this store's preference keys, or empty for a foreign key. */
+    public static String scopeOf(String preferenceKey) {
+        return isCredentialKey(preferenceKey) ? preferenceKey.substring(KEY_PREFIX.length()) : "";
+    }
+
+    /**
+     * This device's ability to read a stored value, backed by the Keystore cipher.
+     *
+     * <p>Never throws: a missing or unusable Keystore key answers false, and so does a value that
+     * is not in this store's format at all.
+     */
+    public static Decryptability decryptability(Context context) {
+        AiCredentialStore store = create(context);
+        return stored -> store.cipher != null && store.decryptStored(stored) != null;
+    }
 
     private final SharedPreferences prefs;
     private final Cipher cipher;
@@ -79,24 +124,50 @@ public final class AiCredentialStore {
             Diagnostics.event("AiCredentialStore", "encrypt_failed");
             return false;
         }
-        prefs.edit().putString(KEY_PREFIX + id, encrypted).apply();
+        prefs.edit().putString(key(id), encrypted).apply();
         return true;
     }
 
     /** @return the secret, or empty when there is none or it cannot be decrypted */
     public String load(String providerId) {
         if (prefs == null || cipher == null) return "";
-        String stored = prefs.getString(KEY_PREFIX + AiText.nz(providerId), "");
-        if (AiText.nz(stored).isEmpty()) return "";
+        String stored = storedValue(key(AiText.nz(providerId)));
+        if (stored.isEmpty()) return "";
         String secret = cipher.decrypt(stored);
         if (secret == null) {
-            // Usually the Keystore key was invalidated — a device credential change, or a restore
-            // onto different hardware. The stored bytes will never decrypt again, so treat the
-            // credential as absent and let the owner re-enter it.
+            // The Keystore key that wrote these bytes is gone, or belongs to another device, so
+            // they will never decrypt again: treat the credential as absent and let the owner
+            // re-enter it. Not a device-credential change - this key is created with
+            // setUserAuthenticationRequired(false), so a lock-screen change does not touch it.
+            // The real causes are an uninstall or clear-data (the platform destroys the key), a
+            // restore made on a different device, or a different Android user on the same device.
             Diagnostics.event("AiCredentialStore", "decrypt_failed");
             return "";
         }
         return secret;
+    }
+
+    /**
+     * One stored value, or empty when it is absent or is not a string.
+     *
+     * <p>Guarded the way {@code SettingsStore.get} guards every typed setting: a restored or
+     * hand-edited backup can put a boolean, an integer or a string set under a key this store
+     * reads as a string, and {@code SharedPreferences.getString} throws a
+     * {@link ClassCastException} for that. A credential that cannot be read is absent, never an
+     * exception thrown out of a background reader.
+     */
+    private String storedValue(String preferenceKey) {
+        try {
+            return AiText.nz(prefs.getString(preferenceKey, ""));
+        } catch (ClassCastException invalidStoredValue) {
+            Diagnostics.event("AiCredentialStore", "stored_value_type_mismatch");
+            return "";
+        }
+    }
+
+    /** @return the plaintext of one raw stored value, or null when it cannot be read */
+    private String decryptStored(String stored) {
+        return AiText.nz(stored).isEmpty() ? null : cipher.decrypt(stored);
     }
 
     public boolean has(String providerId) {
@@ -106,7 +177,7 @@ public final class AiCredentialStore {
     /** Removes the stored secret. The only way one leaves the device short of a factory reset. */
     public void delete(String providerId) {
         if (prefs == null) return;
-        prefs.edit().remove(KEY_PREFIX + AiText.nz(providerId)).apply();
+        prefs.edit().remove(key(AiText.nz(providerId))).apply();
     }
 
     /** Removes every stored secret and the key material behind them. */

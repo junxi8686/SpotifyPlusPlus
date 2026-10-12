@@ -8,6 +8,7 @@ import com.spotifyplusplus.SettingsStore;
 import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.spotifyplusplus.lyrics.providers.LyricsResponseCache;
 import com.spotifyplusplus.lyrics.cache.CacheStoragePolicy;
+import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
 import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.lyrics.session.AIPaidArtifactCache;
@@ -54,6 +55,9 @@ public final class PanelDialogs {
 
         /** The Spicy manual token changed; refresh the owning section. */
         void onSpicyTokenChanged();
+
+        /** A Baidu Translate credential changed; refresh the Translation section. */
+        void onBaiduCredentialsChanged();
     }
 
     private final Host host;
@@ -276,5 +280,82 @@ public final class PanelDialogs {
                 .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
         dialog.secretValue(key);
         dialog.show();
+    }
+
+    /**
+     * Baidu Translate app id. Baidu's official API needs both halves of a credential pair that only
+     * the owner's own account has, so the dialog says where they come from instead of only
+     * rejecting a value: a secret pasted from anywhere else cannot work.
+     */
+    public void promptBaiduAppId() {
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.setting(Settings.BAIDU_TRANSLATE_APPID));
+        dialog.paragraph(strings.get("settings_baidu_help",
+                "Get an app ID and secret from your Baidu translate account: "
+                        + BaiduTranslateCredentials.CONSOLE_URL));
+        EditText field = dialog.field(false, BaiduTranslateCredentials.appId(style.context()));
+        dialog.primary(strings.get("settings_ai_save", "Save"), () -> {
+            if (BaiduTranslateCredentials.saveAppId(style.context(),
+                    field.getText().toString().trim())) {
+                host.onBaiduCredentialsChanged();
+            } else {
+                toast(style, strings.get("settings_baidu_appid_rejected",
+                        "App ID not saved: expected letters and digits"));
+            }
+        });
+        dialog.secondary(strings.get("settings_ai_cancel", "Cancel"), null);
+        dialog.show();
+    }
+
+    /** The secret half. Entered masked, stored encrypted, and shown only by the reveal dialog. */
+    public void promptBaiduSecret() {
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.setting(Settings.BAIDU_TRANSLATE_SECRET)).secure();
+        dialog.paragraph(strings.get("settings_baidu_help",
+                "Get an app ID and secret from your Baidu translate account: "
+                        + BaiduTranslateCredentials.CONSOLE_URL));
+        EditText field = dialog.field(true, "");
+        dialog.primary(strings.get("settings_ai_save", "Save"), () -> {
+            if (BaiduTranslateCredentials.saveSecret(style.context(),
+                    field.getText().toString().trim())) {
+                host.onBaiduCredentialsChanged();
+            } else {
+                toast(style, strings.get("settings_baidu_secret_rejected",
+                        "Secret not saved: expected the key Baidu issued"));
+            }
+        });
+        dialog.secondary(strings.get("settings_ai_cancel", "Cancel"), null);
+        dialog.show();
+    }
+
+    public void revealBaiduAppId() {
+        revealBaiduCredential(Settings.BAIDU_TRANSLATE_APPID,
+                BaiduTranslateCredentials.appId(host.style().context()));
+    }
+
+    public void revealBaiduSecret() {
+        revealBaiduCredential(Settings.BAIDU_TRANSLATE_SECRET,
+                BaiduTranslateCredentials.secret(host.style().context()));
+    }
+
+    /** Plaintext exists only in a secure, non-selectable, accessibility-hidden transient dialog. */
+    private void revealBaiduCredential(Settings.Setting<?> setting, String value) {
+        if (value == null || value.isEmpty()) return;
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(), strings.setting(setting))
+                .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
+        dialog.secretValue(value);
+        dialog.show();
+    }
+
+    private void toast(PanelStyle style, String message) {
+        if (message == null || message.isEmpty()) return;
+        android.widget.Toast.makeText(style.context(), message, android.widget.Toast.LENGTH_SHORT)
+                .show();
     }
 }

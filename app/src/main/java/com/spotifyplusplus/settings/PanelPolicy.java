@@ -49,7 +49,11 @@ public final class PanelPolicy {
         if (setting.section == Settings.AI) {
             return aiSettingVisible(setting, snapshot.isAiEnabled());
         }
-        if (setting == Settings.TRANSLATION_TARGET || setting == Settings.TRANSLATION_BRIGHTNESS) {
+        if (setting == Settings.TRANSLATION_BACKEND
+                || setting == Settings.BAIDU_TRANSLATE_APPID
+                || setting == Settings.BAIDU_TRANSLATE_SECRET
+                || setting == Settings.TRANSLATION_TARGET
+                || setting == Settings.TRANSLATION_BRIGHTNESS) {
             return Boolean.TRUE.equals(snapshot.get(Settings.TRANSLATION_ENABLED));
         }
         if (setting == Settings.ALIGNED_PER_WORD_ROMAJI
@@ -199,6 +203,11 @@ public final class PanelPolicy {
     /**
      * Selectors that must never commit from a single tap. UI language is the dangerous one: an
      * accidental pick re-renders every label, which reads as "the UI changed language on its own".
+     *
+     * <p>The ranking algorithm sat here while it was a choice between two rules - an accidental tap
+     * on the experimental value changed which source won for every track, silently and immediately.
+     * One rule ships now, and the row went with its setting, so it is absent here too rather than
+     * kept as a dead entry that reads like a live safeguard.
      */
     public static boolean isConfirmingSelector(Settings.Setting<?> setting) {
         return setting == Settings.UI_LANGUAGE

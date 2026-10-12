@@ -65,6 +65,7 @@ public final class SettingsUiSchema {
             Settings.LYRICS_SOURCE_ORDER,
             Settings.KARAOKE_ORIGINAL_LYRICS,
             Settings.SYNC_UPGRADE,
+            Settings.LYRICS_LANGUAGE_PREFERENCE,
             Settings.CACHE_SIZE,
             // Layout editor (tap behaviour stays in the panel; looks are edited on-screen)
             Settings.LIVE_CARD_TAP_MODE,
@@ -90,6 +91,10 @@ public final class SettingsUiSchema {
             Settings.CYRILLIC_KEEP_SIGNS,
             // Translation
             Settings.TRANSLATION_ENABLED,
+            Settings.TRANSLATION_BACKEND,
+            // Credentials for the Baidu backend, directly under the row that selects it.
+            Settings.BAIDU_TRANSLATE_APPID,
+            Settings.BAIDU_TRANSLATE_SECRET,
             Settings.TRANSLATION_TARGET,
             Settings.TRANSLATION_BRIGHTNESS,
             // AI

@@ -142,7 +142,13 @@ public final class AiSettings {
         return credentialScopeFor(providerChoice());
     }
 
-    static String credentialScopeFor(String providerChoice) {
+    /**
+     * The store scope one provider choice reads and writes.
+     *
+     * <p>Public because the backup names credential scopes the same way this function does: there
+     * is deliberately one definition of each scope string.
+     */
+    public static String credentialScopeFor(String providerChoice) {
         if (PROVIDER_OPENAI.equals(providerChoice)) return CREDENTIAL_SCOPE_OPENAI_OFFICIAL;
         if (PROVIDER_OPENROUTER.equals(providerChoice)) return PROVIDER_OPENROUTER;
         if (PROVIDER_DEEPSEEK.equals(providerChoice)) return PROVIDER_DEEPSEEK;

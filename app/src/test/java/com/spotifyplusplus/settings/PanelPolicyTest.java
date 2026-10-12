@@ -23,9 +23,11 @@ public class PanelPolicyTest {
     @Test
     public void translationRowsFollowTheMasterSwitch() {
         assertFalse(PanelPolicy.shouldRender(Settings.TRANSLATION_TARGET, full()));
+        assertFalse(PanelPolicy.shouldRender(Settings.TRANSLATION_BACKEND, full()));
         PanelSnapshot on = PanelSnapshot.builder().allCapabilities()
                 .put(Settings.TRANSLATION_ENABLED, true).build();
         assertTrue(PanelPolicy.shouldRender(Settings.TRANSLATION_TARGET, on));
+        assertTrue(PanelPolicy.shouldRender(Settings.TRANSLATION_BACKEND, on));
         assertTrue(PanelPolicy.shouldRender(Settings.TRANSLATION_BRIGHTNESS, on));
     }
 
