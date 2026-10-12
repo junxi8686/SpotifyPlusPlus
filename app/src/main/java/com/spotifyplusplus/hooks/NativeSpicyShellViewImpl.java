@@ -241,7 +241,6 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     private final LyricsSpaceView bottomVirtualSpacer;
     private final TextView writerFooter;
     private final TextView sourceFooter;
-    private final com.spotifyplusplus.lyrics.SpicyOrgAttributionView responseAttribution;
     private final SpotifyPlusConfig config;
     private final AiSettings aiSettings;
     private final FrameStyleBatcher styleBatcher;
@@ -679,6 +678,12 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             new com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState();
     private final com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState meaningAiFeedback =
             new com.spotifyplusplus.lyrics.ai.AiRequestFeedbackState();
+    /**
+     * Failure reason the reader has already been told about, so one terminal run is announced once
+     * however many publications follow it. Cleared when a new document mounts, and by a retry,
+     * which clears {@code translationFailed} itself.
+     */
+    private String translationFailureNoticeShown = "";
     private final GlyphIconDrawable romanGlyph = new GlyphIconDrawable(
             "A", android.graphics.Typeface.DEFAULT_BOLD);
     private int lyricsTopInsetPx;
@@ -887,9 +892,6 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             report.number("edge_margin", edgeMargin);
             report.number("chrome_top_floor", shellOnScreen[1] + chromeCornerTopPx() - edgeMargin);
             report.rect("lyrics_frame", LyricsLayoutEditController.screenRectOf(lyricsFrame));
-            report.flag("credit_present", responseAttribution.getVisibility() == VISIBLE);
-            report.flag("credit_in_footer", responseAttribution.getParent() == lyricsColumn);
-            report.number("credit_links", responseAttribution.getUrls().length);
             report.flag("writers_present", writerFooter.getVisibility() == VISIBLE);
             report.flag("writers_in_footer", writerFooter.getParent() == lyricsColumn);
             report.flag("writers_interactive", writerFooter.isClickable() || writerFooter.isFocusable());
@@ -1742,11 +1744,6 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         sourceFooter.setClickable(true);
         sourceFooter.setFocusable(true);
         sourceFooter.setOnClickListener(v -> openSourcePicker());
-        responseAttribution = new com.spotifyplusplus.lyrics.SpicyOrgAttributionView(activity);
-        responseAttribution.setTextColor(Color.rgb(125, 125, 125));
-        responseAttribution.setLinkTextColor(Color.rgb(160, 160, 160));
-        responseAttribution.setAlpha(0.8f);
-        responseAttribution.setPadding(dp(16), dp(6), dp(16), dp(180));
         rowMountController = new LyricsRowMountController(
                 mountedRowsHost,
                 topVirtualSpacer,
@@ -2502,6 +2499,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 refreshSecondaryRows("");
             }
             observeAiRequestFeedback(mounted);
+            observeTranslationFailure(mounted);
             // Provenance and failure state can change without changing displayed lyric text.
             // Refresh controls after every same-base publication so a failed paid request is
             // never hidden merely because Google/deterministic fallback stayed on screen.
@@ -2511,9 +2509,12 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         cancelLoadEntranceAnimation();
         boolean firstMount = document == null;
         document = doc;
+        // A different document is a different track or source; its failures are its own.
+        translationFailureNoticeShown = "";
         pendingLoadEntrance = firstMount;
         loadingTrackId = "";
         observeAiRequestFeedback(document);
+        observeTranslationFailure(document);
         LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.DOCUMENT_REBUILD);
         renderDocument(false);
         XpLog.log(TAG + " lyrics loaded source=" + doc.fetchSource + " provider="
@@ -2589,7 +2590,6 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     private void showLoading(String message) {
         writerFooter.setText("");
         writerFooter.setVisibility(GONE);
-        responseAttribution.bind(null);
         rowMountController.reset();
         followState.resetActive();
         emptyStateController.showLoading(lyricsScroll, lyricsColumn, message,
@@ -2599,7 +2599,6 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     private void showError(String error) {
         writerFooter.setText("");
         writerFooter.setVisibility(GONE);
-        responseAttribution.bind(null);
         songChangeHadSkeleton = false;
         document = null;
         loadingTrackId = "";
@@ -2637,9 +2636,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         boolean hasWriters = document != null && !isBlank(document.songWriters);
         writerFooter.setText(hasWriters ? "Written by: " + document.songWriters.trim() : "");
         writerFooter.setVisibility(hasWriters ? VISIBLE : GONE);
-        responseAttribution.bind(document, false);
-        sourceFooter.setPadding(dp(16), dp(hasWriters ? 6 : 38), dp(16),
-                responseAttribution.getVisibility() == VISIBLE ? 0 : dp(180));
+        sourceFooter.setPadding(dp(16), dp(hasWriters ? 6 : 38), dp(16), dp(180));
         dbg("NativeSpicyShellView.renderDocument", "doc=" + (document == null ? "null" : document.fetchSource + "/" + document.type + "/" + document.lines.size()));
         updateToggleVisuals();
         ensureLyricsColumnScaffold();
@@ -2948,7 +2945,6 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         lyricsColumn.addView(bottomVirtualSpacer, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         lyricsColumn.addView(writerFooter, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         lyricsColumn.addView(sourceFooter, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        lyricsColumn.addView(responseAttribution, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private void renderWindowForActive(int active) {
@@ -3534,10 +3530,8 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 int focusLimit = Math.max(0, scrollController.centeredScrollTarget(
                         last, dp(56), true));
                 // Reveal the footer text without scrolling through its large bottom padding.
-                View footerEnd = responseAttribution.getVisibility() == VISIBLE
-                        ? responseAttribution : sourceFooter;
-                int footerTextBottom = footerEnd.getTop() + footerEnd.getHeight()
-                        - footerEnd.getPaddingBottom();
+                int footerTextBottom = sourceFooter.getTop() + sourceFooter.getHeight()
+                        - sourceFooter.getPaddingBottom();
                 limit = scrollEndLimit(focusLimit, footerTextBottom, lyricsScroll.getHeight(),
                         lyricsScroll.getPaddingTop(), dp(24));
             }
@@ -5414,6 +5408,40 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                             aiLayerLabel(layer)),
                     android.widget.Toast.LENGTH_LONG).show();
         }
+    }
+
+    /**
+     * Announces a translation run that ended without a translation.
+     *
+     * <p>The lane already knows the outcome; until this existed the only thing it reached was a
+     * layer status, and a reader looking at unchanged original lyrics with a chip that had stopped
+     * moving could not tell a refused request from one still in flight. Reported per reason, so a
+     * retry that fails the same way is announced once and a different failure is announced again.
+     */
+    private void observeTranslationFailure(LyricsDocument value) {
+        if (value == null) return;
+        String reason = safe(value.translationFailureReason);
+        if (reason.isEmpty()) return;
+        // Gated the way the chip is: a failure on a layer the reader is not showing is not news.
+        if (renderConfig == null || !renderConfig.translationEnabled
+                || !documentHasTranslationCandidate()) return;
+        if (reason.equals(translationFailureNoticeShown)) return;
+        translationFailureNoticeShown = reason;
+        com.spotifyplusplus.lyrics.session.LayerFailure failure =
+                new com.spotifyplusplus.lyrics.session.LayerFailure(
+                        com.spotifyplusplus.lyrics.session.LayerFailure.Reason.UNAVAILABLE, reason, 0);
+        // The stored setting value names the endpoint ("baidu_unofficial"); the notice names the
+        // product, so it goes through the provider's own log token. Rendering the setting value
+        // directly is what produced "Baidu_unofficial translation failed" on screen.
+        com.spotifyplusplus.lyrics.processing.LyricsMeaningLane.MeaningProvider provider =
+                com.spotifyplusplus.lyrics.processing.LyricsMeaningLane.providerFor(
+                        config.get(Settings.TRANSLATION_BACKEND));
+        com.spotifyplusplus.lyrics.processing.TranslationFailureNotice notice =
+                com.spotifyplusplus.lyrics.processing.TranslationFailureNotice.of(failure,
+                        provider == null ? "" : provider.logToken());
+        if (notice == null) return;
+        android.widget.Toast.makeText(activity, uiText(notice.resourceKey(), notice.describe()),
+                android.widget.Toast.LENGTH_LONG).show();
     }
 
     private String uiText(String name, String fallback) {

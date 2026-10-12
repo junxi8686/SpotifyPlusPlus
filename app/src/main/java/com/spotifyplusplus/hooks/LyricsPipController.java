@@ -27,6 +27,7 @@ import com.spotifyplusplus.xposed.XpLog;
 import com.spotifyplusplus.xposed.XpReflect;
 
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.WeakHashMap;
@@ -129,19 +130,9 @@ final class LyricsPipController {
         // Keep Spotify's video PiP out of our host. On entering PiP (and on every start while in
         // it) NowPlayingActivity swaps in its video PiP page, which finishes the activity as soon
         // as the current track isn't a video - lyrics PiP closed within half a second - and
-        // pushes its own window params. For our host: its PiP callback doesn't run at all, it
-        // is told it isn't in PiP, and only our params reach the window.
-        try {
-            XpHooks.findBefore(PIP_HOST_ACTIVITY, loader, "onPictureInPictureModeChanged",
-                    "pip:NowPlayingActivity#onPictureInPictureModeChanged", param -> {
-                        Activity activity = (Activity) param.thisObject;
-                        if (!hosts.containsKey(activity)) return;
-                        param.setResult(null);
-                        onModeChanged(activity, (boolean) param.args[0]);
-                    }, boolean.class, Configuration.class);
-        } catch (Throwable t) {
-            XpLog.log(NativeSpicyLyricsHook.TAG + " lyrics PiP: host hook unavailable " + t);
-        }
+        // pushes its own window params. For our host: its PiP callbacks don't run at all, it is
+        // told it isn't in PiP, and only our params reach the window.
+        hookHostPipCallbacks(loader);
         // Entering PiP is a configuration change the host handles itself, so every text view in
         // the shell sees onConfigurationChanged - and the platform's TextView (Samsung's, at least)
         // puts the system typeface back on views that never named a font family. The lyrics lost
@@ -169,6 +160,66 @@ final class LyricsPipController {
             foreignLaunches.remove(activity);
             if (hosts.remove(activity) != null) unmount(activity);
         });
+    }
+
+    /**
+     * Takes over every PiP callback the host declares, whatever signatures this Spotify ships.
+     *
+     * <p>Spotify reaches its video PiP page from more than one callback, and the set moves
+     * between releases. 9.1.88 swapped the page from
+     * {@code onPictureInPictureModeChanged(boolean, Configuration)} alone; 9.1.90 added the API 35
+     * {@code onPictureInPictureUiStateChanged}, sent before the mode change while the window is
+     * still entering PiP, which reaches the same page. Hooking one signature by name therefore
+     * installs cleanly and silently stops suppressing anything the moment the override moves or a
+     * second entry point appears: PiP is entered, Spotify's page finishes the host within a third
+     * of a second, and the window is dismissed before it can show any lyrics.
+     *
+     * <p>Hooking the declared methods themselves, rather than a name, also survives the API 33
+     * {@code onPictureInPictureModeChanged(PictureInPictureModeChangedInfo)} overload.
+     */
+    private void hookHostPipCallbacks(ClassLoader loader) {
+        int hooked = 0;
+        try {
+            for (Method method : XpReflect.findClass(PIP_HOST_ACTIVITY, loader).getDeclaredMethods()) {
+                final String name = method.getName();
+                final boolean modeChanged = "onPictureInPictureModeChanged".equals(name);
+                if (!modeChanged && !"onPictureInPictureUiStateChanged".equals(name)) continue;
+                try {
+                    XpHooks.hook(method, "pip:" + name, param -> {
+                        Activity activity = (Activity) param.thisObject;
+                        if (!hosts.containsKey(activity)) return;
+                        param.setResult(null);
+                        // A PiP UI state change is not a mode change: the host stays where it is.
+                        if (modeChanged) onModeChanged(activity, inPip(param));
+                    }, null);
+                    hooked++;
+                } catch (Throwable t) {
+                    XpLog.log(NativeSpicyLyricsHook.TAG
+                            + " lyrics PiP: host callback hook failed " + name + " " + t);
+                }
+            }
+        } catch (Throwable t) {
+            XpLog.log(NativeSpicyLyricsHook.TAG + " lyrics PiP: host hook unavailable " + t);
+        }
+        XpLog.log(NativeSpicyLyricsHook.TAG + " lyrics PiP: host callbacks hooked=" + hooked);
+    }
+
+    /** The mode flag of a PiP callback: its own boolean where the signature carries one, else the
+     *  one the info argument carries. An unreadable flag counts as "still in PiP", because that
+     *  path only re-mounts the shell while the left path tears the window down. */
+    private static boolean inPip(XpHooks.XpParam param) {
+        for (Object arg : param.args) {
+            if (arg instanceof Boolean) return (Boolean) arg;
+        }
+        for (Object arg : param.args) {
+            if (arg == null) continue;
+            try {
+                Object inPip = XpReflect.callMethod(arg, "isInPictureInPictureMode");
+                if (inPip instanceof Boolean) return (Boolean) inPip;
+            } catch (Throwable ignored) {
+            }
+        }
+        return true;
     }
 
     /** An explicit button opens PiP; a normal close or back press keeps its old behavior. */

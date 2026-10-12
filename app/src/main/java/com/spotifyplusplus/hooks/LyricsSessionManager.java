@@ -42,7 +42,7 @@ import com.spotifyplusplus.lyrics.catalog.CatalogAdapters;
 import com.spotifyplusplus.lyrics.catalog.CatalogDecisions;
 import com.spotifyplusplus.lyrics.catalog.CatalogPickerModel;
 import com.spotifyplusplus.lyrics.catalog.CatalogPolicy;
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource;
 import com.spotifyplusplus.lyrics.catalog.CatalogState;
 import com.spotifyplusplus.lyrics.catalog.CatalogStore;
@@ -817,7 +817,7 @@ final class LyricsSessionManager {
                 String bare = CatalogSource.bareTrackId(uri);
                 CatalogState state = CatalogStore.state(context, bare);
                 CatalogPolicy sources = CatalogPolicy.read(context);
-                CatalogResolver.Resolution auto = state.candidates.isEmpty() ? null
+                CatalogRanker.Resolution auto = state.candidates.isEmpty() ? null
                         : CatalogDecisions.autoResolution(state, sources);
                 java.util.List<CatalogPickerModel.Row> rows = CatalogPickerModel.build(
                         state.candidates, state.statuses(), state.selection, auto, sources,

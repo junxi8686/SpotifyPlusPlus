@@ -39,6 +39,10 @@ public final class LegacyDocumentComposer {
         // FAILED is only the status when nothing is displayed (a failure over a shown artifact
         // stays CACHED), so this is "the translation did not come, and nothing stands in for it".
         projected.translationFailed = session.meaning.status == LayerStatus.FAILED;
+        // The reason travels with the flag. A surface that only knows a run failed can show a mark
+        // and nothing else, and a reader cannot tell that mark from a run still in flight.
+        projected.translationFailureReason = projected.translationFailed
+                ? session.meaning.failure.detail : "";
         projected.readingAiPending = projected.romanizationPending
                 && session.sound.authority == LayerAuthority.AI;
         projected.translationAiPending = projected.translationPending
