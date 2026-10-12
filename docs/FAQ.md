@@ -1,11 +1,11 @@
-# Spicy EX FAQ
+# Spotify++ FAQ
 
 ### It does not work with my Spotify version
 
-Spicy EX compatibility depends on the Spotify version.
+Spotify++ compatibility depends on the Spotify version.
 
-This release was built and tested against Spotify **9.1.68.1888** (`versionCode 144192416`) from
-Google Play. Older, beta, ReVanced, or modified builds may not work.
+This fork is built and tested against Spotify **9.1.88 – 9.1.90** from Google Play. Older, beta,
+ReVanced, or modified builds may not work.
 
 ### What is included?
 
@@ -24,7 +24,7 @@ After install or update:
 1. Force-stop Spotify.
 2. Reopen Spotify.
 
-### Spicy EX settings are missing
+### Spotify++ settings are missing
 
 Check:
 
@@ -33,7 +33,8 @@ Check:
 - Spotify fully restarted.
 - Spotify build compatible with current hooks.
 
-Still broken? Submit a compatibility report.
+Still broken? Open an issue in this repository with your Spotify version, the module version and
+whether you use LSPosed or LSPatch.
 
 ### Does LSPatch work?
 
@@ -43,7 +44,7 @@ or the same steps in Chinese: [降级-登录-升级方法](readme.md#安装).
 
 ### Lyrics are missing, wrong, or delayed
 
-Lyric availability, text, language, and timing quality can vary by track and upstream source.
+Lyric availability, text, language, and timing quality can vary by track and by source.
 
 ### HyperGlow
 

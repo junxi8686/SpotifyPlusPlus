@@ -69,16 +69,16 @@ Supported reading modes:
 ## Translation
 
 - Optional lyric translation.
-- Google unofficial translation backend, the default.
-- Baidu official translation API, used with an app ID and secret from the owner's own Baidu
-  translate account, for networks where Google Translate is unreachable.
+- An account-free online translation backend, the default.
+- A credentialled official translation API, used with an app ID and secret from the owner's own
+  account with that provider, for networks where the default online translation is unreachable.
 - "Lyrics provider only" leaves translation to the lyrics source's own translations.
 - Batched translation for faster line processing.
 - Configurable target language.
 - Translation brightness: dimmed or bright.
 - Translation cache avoids repeated requests.
 
-Translation uses the unofficial Google endpoint or Baidu's official credentialled API, chosen with
+Translation uses the account-free online endpoint or the credentialled official API, chosen with
 the Translation backend row.
 Eligible lyric text is sent only when translation is enabled.
 
@@ -116,19 +116,19 @@ Eligible lyric text is sent only when translation is enabled.
 ## In-Spotify Settings
 
 - Settings panel inside Spotify.
-- English and Simplified Chinese settings/report UI. The `Interface language` row stays English so
+- English and Simplified Chinese settings UI. The `Interface language` row stays English so
   it remains findable after a language change.
 - Controls grouped by lyrics, transliteration, translation, now-playing, text, animation, and
   background.
 - Cache actions:
   - clear translation cache
   - clear lyrics response cache
-- Status panel with last lyric state and build version.
-- User-triggered private problem reports with a 30-minute privacy-safe event capture, readable JSON
-  preview, public data-policy link, and a report ID for a separately opened formatted GitHub issue.
-- Reports may include the current track identity and bounded current lyric lines shown in preview.
-  They never include Spotify tokens, full logcat, LSPosed logs, or screenshots. Upload is manual and
-  is never performed in the background.
+- Status panel with last lyric state and build version; the **About & Diagnostics** card also shows
+  read-only lines about the current lyric fetch (source chosen, candidates seen, provider, type
+  chosen, cache write).
+- The upstream in-app problem-report flow is not part of this fork: nothing here starts a capture
+  or uploads a report. Report problems through this repository's issue tracker instead, with the
+  details you choose to include; see the [data policy](DIAGNOSTIC_DATA_POLICY.md).
 - `app/translation/strings-template.xml` provides the complete XML key set for new translations.
 
 ## Installation And Distribution

@@ -1,53 +1,39 @@
-# Spicy EX Diagnostic Data Policy
+# Spotify++ Data Policy
 
-Spicy EX sends a diagnostic report only after you open **Report a problem**, review the included
-data, accept this policy, and tap **Upload**. There are no background uploads, analytics, remote
-configuration, automatic GitHub issues, cookies, or embedded intake credentials.
+Spotify++ has no analytics, no background uploads, no remote configuration and no advertising
+identifiers.
 
-## Included data
+## Reporting a problem
 
-- Your description and chosen category.
-- Spicy EX, Spotify, Android, device, build, locale, flavor, and Xposed metadata.
-- Privacy-safe lyric-fetch status, provider/language/timing labels, feature availability, HyperGlow
-  bridge status, and allowlisted settings.
-- Current song title, artist, album, Spotify track URI, and bounded current
-  original/transliterated/translated lyric lines when available.
-- If you use AI translation or AI pronunciation: your AI provider choice, the endpoint host (never
-  the full URL), model name, readiness state, the outcome of the built-in structured-output test
-  including its full request and response exchange, the last AI failure reason with its HTTP status,
-  and bounded recent AI translation/pronunciation request payloads with explicit success, failure,
-  running, or cancellation state. These payloads can contain lyric text and prompts. The API key and
-  provider response bodies are never included. The structured-output test uses a fixed internal
-  fixture; captured AI events carry only allowlisted tokens such as provider, status, reason, and
-  result.
-- If you explicitly run capture: bounded operation events with timestamp, component, operation,
-  exception class, and allowlisted context.
+The upstream project's in-app **Report a problem** entry is not part of this fork: its drafts were
+addressed to the upstream intake, which this repository cannot read, so the entry was removed.
+Nothing in this build starts a diagnostic capture or sends a report, and the compiled intake
+endpoint is empty unless a build sets one.
 
-## Never included
+Report a problem through [Issues](https://github.com/junxi8686/SpotifyPlusPlus/issues) instead, with
+the details you choose to include. Screenshots can be attached there.
 
-- Your API keys — not the Spicy EX key, not any provider key, in any form.
+## What the panel shows locally
+
+**Settings → Spotify++ → About & Diagnostics** renders read-only lines about the current lyric
+fetch: the source chosen, the candidates seen, the provider, the type chosen, and whether a cache
+write happened. They are drawn in the panel and are never uploaded.
+
+The operation capture the upstream code can record (bounded events with an expiry) is inactive
+here: recording returns immediately unless a capture is running, and nothing in this build starts
+one.
+
+## Never collected or sent
+
+- Your credentials — no client key, no AI service key, no translation AppID or secret, in any form.
+- Spotify tokens, cookies or account details.
+- Android ID, serial, IMEI or Wi-Fi SSID.
 - Artwork identifiers or arbitrary URLs.
-- Spotify tokens, cookies, account details, Android ID, serial, IMEI, or Wi-Fi SSID.
-- Throwable messages, full logcat, LSPosed logs, screenshots, or arbitrary files.
-- Your source IP in the application or NocoDB report record. Network infrastructure may process it
-  normally while handling the HTTPS request.
+- Throwable messages, full logcat, LSPosed logs, screenshots or files from your device.
 
-## Storage and retention
+## Network traffic
 
-Reports are private. Accepted report data is retained indefinitely until a maintainer manually
-deletes or redacts it. There is no automatic expiry. Temporary capture state expires after 30
-minutes. Captured events are deleted after finish, cancellation, timeout, or successful upload.
-
-The report ID is a private-storage reference, not a public download key. It cannot retrieve report
-contents from the intake endpoint.
-
-## GitHub issues
-
-Opening GitHub creates a separate public draft containing your description, report ID, Spicy EX
-version/flavor, device model, compatibility summary, song identity, provider, language, timing
-type, and an AI summary: provider choice, endpoint host, model name, readiness state, and the last
-AI failure reason. Lyric text, AI request payloads, and settings values are not added to the GitHub
-issue. Screenshots can be attached manually in GitHub when useful.
-
-To request deletion or redaction, open a Spicy EX issue with the report ID and requested action. Do
-not post additional private diagnostic data in GitHub.
+What leaves the device is what the features need: lyric lookups to the sources you enabled,
+translation to the backend you selected, AI requests to the provider you configured, and the
+optional language-model pack download. Each request is one a feature asked for; none of them is
+telemetry.
