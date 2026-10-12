@@ -225,14 +225,21 @@ tasks.register("packageLanguageModelPack", Zip) {
 }
 
 
-// Persist version-stamped debug APKs to <repo>/artifacts/ so installs do not dig through build/.
+// Persist version-stamped APKs to <repo>/artifacts/ so installs do not dig through build/.
+//
+// The output file carries no build-type word. Every released build so far is signed with the Android
+// debug key because no release keystore exists in this repository, and the android block above
+// refuses to package a release variant without one. Naming the file "debug" made a signature detail
+// look like a maturity claim about the build, and naming it "release" would be worse: the file is
+// not release-signed. The variant is still debug, and `if (variant.buildType.name != 'debug')`
+// below is what keeps the copy honest about which variant it takes.
 android.applicationVariants.configureEach { variant ->
     if (variant.buildType.name != 'debug') return
     def cap = variant.name.capitalize()
     tasks.register("copy${cap}Apk", Copy) {
         from layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
         into rootProject.layout.projectDirectory.dir('artifacts')
-        rename { "SpotifyPlusPlus-debug-${variant.versionName}.apk" }
+        rename { "SpotifyPlusPlus-${variant.versionName}.apk" }
     }
     tasks.named("assemble${cap}").configure { finalizedBy "copy${cap}Apk" }
 }
