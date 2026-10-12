@@ -232,6 +232,25 @@ public final class LyricCaches {
         putProcessingValues(context, processingVersion, values);
     }
 
+    /**
+     * Drops one processing entry, versioned and legacy spellings alike.
+     *
+     * <p>Written for the one caller that has to remove rather than overwrite: a cached translation
+     * that carries wire markers is garbage a broken build stored, and the read path purges it as
+     * well as ignoring it so it cannot keep rendering - or keep being read - on a device whose
+     * cache is otherwise never cleared.
+     */
+    public static void removeProcessingValue(Context context, int processingVersion, String key) {
+        if (context == null || isBlank(key)) return;
+        try {
+            SpicyCacheStore.remove(context, PREFS_GOOGLE_CACHE,
+                    Digests.sha256(processingCacheKey(processingVersion, key)));
+            SpicyCacheStore.remove(context, PREFS_GOOGLE_CACHE, Digests.sha256(safe(key)));
+        } catch (Throwable t) {
+            Diagnostics.warn("LyricCaches", "removeProcessingValue", t);
+        }
+    }
+
     public static void putProcessingValues(Context context, int processingVersion,
                                            Map<String, String> values) {
         if (context == null || values == null || values.isEmpty()) return;

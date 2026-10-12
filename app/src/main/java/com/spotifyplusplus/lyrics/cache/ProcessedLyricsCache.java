@@ -236,19 +236,29 @@ public final class ProcessedLyricsCache {
         JsonObject rows = Json.optObject(record, "rows");
         if (rows == null) return Applied.NONE;
         int applied = 0;
+        boolean complete = Json.optBoolean(record, false, "complete");
         for (CanonicalRow row : base.rows) {
             LyricsLine line = lineFor(doc, row);
             if (line == null) continue;
             JsonObject item = Json.optObject(rows, row.rowId);
             if (item == null || !safe(line.text).equals(Json.optString(item, "text"))) continue;
-            String translated = Json.optString(item, "translatedText");
-            if (isBlank(translated)) continue;
+            String stored = Json.optString(item, "translatedText");
+            if (isBlank(stored)) continue;
+            // A stored row that carries wire markers came from a build that leaked one. Skipping it
+            // leaves the row untranslated - its own text, plainly - and reporting the record
+            // incomplete is what makes the lane ask for it again instead of trusting the artifact.
+            String translated = com.spotifyplusplus.lyrics.processing.GoogleEnhancer
+                    .sanitizeTranslation(stored);
+            if (translated == null) {
+                complete = false;
+                continue;
+            }
             line.translatedText = translated;
             applied++;
         }
         XpLog.log(TAG + " meaning applied rows=" + applied + "/" + base.rows.size()
-                + " complete=" + Json.optBoolean(record, false, "complete"));
-        return new Applied(applied > 0, Json.optBoolean(record, false, "complete"), applied);
+                + " complete=" + complete);
+        return new Applied(applied > 0, complete, applied);
     }
 
     public static boolean saveMeaning(Context context, LyricsDocument doc, CanonicalBase base,

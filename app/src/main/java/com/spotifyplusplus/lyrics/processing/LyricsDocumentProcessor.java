@@ -490,8 +490,15 @@ public final class LyricsDocumentProcessor {
             if (line == null || line.interlude || isBlank(line.text)) continue;
             if (!SpicyProcessing.flagsFor(line.text, sourceLang, targetLang,
                     line.detection).translationPending) continue;
-            String cachedTranslated = LyricCaches.getProcessingValue(context, processingVersion,
-                    LyricCaches.translationKey(doc.trackId, sourceLang, targetLang, line.text));
+            String cacheKey = LyricCaches.translationKey(doc.trackId, sourceLang, targetLang, line.text);
+            String cachedTranslated = LyricCaches.getProcessingValue(context, processingVersion, cacheKey);
+            // A stored value that carries wire markers came from a build that leaked one. It is
+            // ignored and purged here as well as in the backends: this restore runs for cached
+            // documents, so a poisoned entry would otherwise keep rendering.
+            if (!isBlank(cachedTranslated) && GoogleEnhancer.sanitizeTranslation(cachedTranslated) == null) {
+                LyricCaches.removeProcessingValue(context, processingVersion, cacheKey);
+                cachedTranslated = null;
+            }
             if (isBlank(line.translatedText) && !isBlank(cachedTranslated)
                     && !GoogleEnhancer.sameText(cachedTranslated, line.text)) {
                 line.translatedText = cachedTranslated;

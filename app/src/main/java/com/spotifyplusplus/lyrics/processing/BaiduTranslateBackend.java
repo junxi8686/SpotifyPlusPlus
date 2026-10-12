@@ -262,6 +262,14 @@ public final class BaiduTranslateBackend {
             // else: a fully cached batch costs no request, no credentials check, and no failure.
             String cached = LyricCaches.getProcessingValue(context, processingVersion,
                     LyricCaches.translationKey(trackId, sourceLang, target, line.text));
+            // A cached value can carry a marker only if some build stored one. It is garbage either
+            // way: reject it as a miss and purge it, so the request below writes a clean entry and
+            // the corruption stops rendering on a device that never clears its cache.
+            if (cached != null && GoogleEnhancer.sanitizeTranslation(cached) == null) {
+                LyricCaches.removeProcessingValue(context, processingVersion,
+                        LyricCaches.translationKey(trackId, sourceLang, target, line.text));
+                cached = null;
+            }
             if (!isBlank(cached) && GoogleEnhancer.shouldDisplayTranslation(line.text, cached)) {
                 result.translations.put(line.index, cached);
                 result.cachedIndices.add(line.index);
@@ -612,12 +620,19 @@ public final class BaiduTranslateBackend {
     /**
      * Destinations by batch position.
      *
-     * <p>Marked first: the batch went out as {@code [[SPX_000]] line} markers, and a marker is the
-     * only thing that survives the service joining or re-flowing lines. When no marker comes back,
-     * the destinations are mapped by position instead, which is exact for the one-line rescue pass
-     * and for the documented shape - the API answers {@code trans_result} with one entry per line
-     * of {@code q}, in order. Any other shape is reported as empty rather than guessed: one row
-     * showing another row's translation is worse than asking again.
+     * <p>Position first, because it is the API's own contract: {@code trans_result} carries one
+     * entry per line of {@code q}, in order. The old order - markers first, position only when no
+     * marker came back at all - is what left rows without any translation: one marker the service
+     * spelled differently was not recognized, so the row it named got no entry, its text stayed
+     * inside the previous row's value (rendering as a marker-adorned block under that line), and the
+     * rows after it were never asked for again. A marker is a cross-check on the position, not the
+     * other way round.
+     *
+     * <p>Position is trusted only while nothing contradicts it: every destination must either carry
+     * no recognizable marker or carry exactly its own. Any other shape means the service re-flowed
+     * or reordered the answer, and the markers are then the only thing that still identifies a row,
+     * so the joined split below takes over. A row that cannot be identified is reported missing
+     * instead of guessed: one row showing another row's translation is worse than asking again.
      */
     static Parsed parseBatchTranslation(String body, int lineCount) {
         Parsed parsed = new Parsed();
@@ -651,6 +666,14 @@ public final class BaiduTranslateBackend {
         parsed.destinations = destinations.size();
         if (destinations.isEmpty()) return parsed;
 
+        if (lineCount > 0 && destinations.size() == lineCount && markersAgreeWithPosition(destinations)) {
+            for (int i = 0; i < destinations.size(); i++) {
+                String value = positionalValue(destinations.get(i), i);
+                if (!isBlank(value)) parsed.translations.put(i, value);
+            }
+            return parsed;
+        }
+
         StringBuilder joined = new StringBuilder();
         for (String destination : destinations) {
             if (joined.length() > 0) joined.append('\n');
@@ -658,7 +681,10 @@ public final class BaiduTranslateBackend {
         }
         for (Map.Entry<Integer, String> entry
                 : GoogleEnhancer.splitByMarkers(joined.toString()).entrySet()) {
-            String value = GoogleEnhancer.stripMarkerEcho(entry.getValue()).trim();
+            // A value that still carries wire text means the split could not identify every row in
+            // it; displaying it would put a marker on screen, so the rows stay missing and are asked
+            // for again.
+            String value = GoogleEnhancer.sanitizeTranslation(entry.getValue());
             if (!isBlank(value)) parsed.translations.put(entry.getKey(), value);
         }
         if (!parsed.translations.isEmpty()) return parsed;
@@ -669,10 +695,36 @@ public final class BaiduTranslateBackend {
         }
         if (lineCount <= 0 || positional.size() != lineCount) return parsed;
         for (int i = 0; i < positional.size(); i++) {
-            String value = GoogleEnhancer.stripMarkerEcho(positional.get(i)).trim();
+            String value = positionalValue(positional.get(i), i);
             if (!isBlank(value)) parsed.translations.put(i, value);
         }
         return parsed;
+    }
+
+    /** True while every destination carries no recognizable marker, or exactly its own. */
+    private static boolean markersAgreeWithPosition(List<String> destinations) {
+        for (int i = 0; i < destinations.size(); i++) {
+            Map<Integer, String> marked = GoogleEnhancer.splitByMarkers(destinations.get(i));
+            if (marked.isEmpty()) continue;
+            if (marked.size() == 1 && marked.containsKey(i)) continue;
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * One destination's text for the row at {@code position}: its own marked value when the marker
+     * came back, otherwise the destination with any marker echo stripped off.
+     *
+     * <p>Null when wire text survives the strip, so it can never reach a row, a cache or a screen.
+     */
+    private static String positionalValue(String destination, int position) {
+        Map<Integer, String> marked = GoogleEnhancer.splitByMarkers(safe(destination));
+        String text = marked.size() == 1 && marked.containsKey(position)
+                ? marked.get(position)
+                : GoogleEnhancer.stripMarkerEcho(safe(destination));
+        String value = safe(text).trim();
+        return GoogleEnhancer.hasMarkerResidue(value) ? null : value;
     }
 
     /**

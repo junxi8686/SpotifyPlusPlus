@@ -53,12 +53,57 @@ public final class GoogleEnhancer {
      */
     private static final GoogleCooldown COOLDOWN = new GoogleCooldown();
     /**
-     * A batch marker as Google may hand it back, not only as sent: its Japanese romanization
-     * spaces it out ("[ [SPX _ 000] ]"), and CJK output can turn brackets, underscore and digits
-     * full-width. The number is what matters.
+     * A batch marker as a translation endpoint may hand it back, not only as it was sent.
+     *
+     * <p>The wire form is {@code [[SPX_000]]}, and what comes back can be spaced out (Google's
+     * Japanese romanization returns {@code [ [SPX _ 000] ]}), full-width (CJK output turns the
+     * brackets, the underscore and the digits wide), separated by a hyphen, numbered with one to
+     * four digits, single-bracketed, or padded with a space that Java's {@code \s} does not match
+     * - a non-breaking or full-width space renders like an ordinary one on screen. That last shape
+     * is what put wire text on a lyric row: the marker was never recognized, so the splitter left
+     * it inside the previous row's value and the rows it named got no entry at all.
+     *
+     * <p>Recognition is deliberately generous and the token is what makes it safe: nothing but this
+     * protocol writes {@code SPX} inside brackets, so a shape this build has not seen is still
+     * more likely to be a marker than a translation.
+     */
+    private static final String MARKER_SPACE =
+            "[\\s\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]";
+    private static final String MARKER_OPEN = "[\\[［【〖〔]";
+    private static final String MARKER_CLOSE = "[\\]］】〗〕]";
+    /** Spacing inside the token is allowed too: a mangled marker is still a marker. */
+    private static final String MARKER_TOKEN = "(?:S" + MARKER_SPACE + "*P" + MARKER_SPACE
+            + "*X|Ｓ" + MARKER_SPACE + "*Ｐ" + MARKER_SPACE + "*Ｘ)";
+    private static final String MARKER_SEPARATOR = "[_＿\\-‐‑‒–—]";
+    /**
+     * Digits as a translator may render them: half-width, full-width, or written out - a marker
+     * whose number was translated away is still wire text and must not reach a reader.
+     */
+    private static final String MARKER_DIGITS = "[0-9０-９零〇一二三四五六七八九十百千]";
+    /**
+     * A recognized marker: at least one opening bracket, the token, an optional separator, one to
+     * four digits, and up to two closing brackets. Group 1 is the number.
      */
     private static final Pattern BATCH_MARKER_PATTERN = Pattern.compile(
-            "[\\[［]\\s*[\\[［]\\s*(?:SPX|ＳＰＸ)\\s*[_＿]?\\s*([0-9０-９]{3})\\s*[\\]］]\\s*[\\]］]",
+            MARKER_OPEN + MARKER_SPACE + "*" + "(?:" + MARKER_OPEN + ")?" + MARKER_SPACE + "*"
+                    + MARKER_TOKEN + MARKER_SPACE + "*" + MARKER_SEPARATOR + "?" + MARKER_SPACE + "*"
+                    + "(" + MARKER_DIGITS + "{1,4})" + MARKER_SPACE + "*"
+                    + MARKER_CLOSE + "?" + MARKER_SPACE + "*" + MARKER_CLOSE + "?",
+            Pattern.CASE_INSENSITIVE);
+    /**
+     * Anything of that shape whose number cannot be trusted - including a marker whose digits the
+     * service translated away, or one whose opening brackets were lost while a closing one stayed.
+     * Used by {@link #stripMarkerEcho} and by the display boundary, where the only safe treatment is
+     * to refuse the value: wire text is not a translation.
+     */
+    private static final Pattern MARKER_RESIDUE_PATTERN = Pattern.compile(
+            MARKER_OPEN + MARKER_SPACE + "*" + "(?:" + MARKER_OPEN + ")?" + MARKER_SPACE + "*"
+                    + MARKER_TOKEN + MARKER_SPACE + "*" + MARKER_SEPARATOR + "?" + MARKER_SPACE + "*"
+                    + MARKER_DIGITS + "{0,4}" + MARKER_SPACE + "*"
+                    + MARKER_CLOSE + "?" + MARKER_SPACE + "*" + MARKER_CLOSE + "?"
+                    + "|" + MARKER_TOKEN + MARKER_SPACE + "*" + MARKER_SEPARATOR + "?"
+                    + MARKER_SPACE + "*" + MARKER_DIGITS + "{0,4}" + MARKER_SPACE + "*"
+                    + MARKER_CLOSE + MARKER_SPACE + "*" + MARKER_CLOSE + "?",
             Pattern.CASE_INSENSITIVE);
 
     private GoogleEnhancer() {
@@ -82,8 +127,17 @@ public final class GoogleEnhancer {
         for (BatchLine line : lines) {
             if (line == null || isBlank(line.text)) continue;
             result.requestedCount++;
-            String cached = LyricCaches.getProcessingValue(context, processingVersion,
-                    LyricCaches.translationKey(trackId, sourceLang, target, line.text));
+            // A cached value is stored text like any other: a marker reaches it only from a build
+            // that leaked one, and it must be treated as a miss rather than displayed. The purged
+            // entry is written fresh by the request below, so it is not rejected forever.
+            String cacheKey = LyricCaches.translationKey(trackId, sourceLang, target, line.text);
+            String cached = LyricCaches.getProcessingValue(context, processingVersion, cacheKey);
+            if (cached != null && sanitizeTranslation(cached) == null) {
+                LyricCaches.removeProcessingValue(context, processingVersion, cacheKey);
+                cached = null;
+            } else {
+                cached = sanitizeTranslation(cached);
+            }
             if (!isBlank(cached) && shouldDisplayTranslation(line.text, cached)) {
                 result.translations.put(line.index, cached);
                 result.cachedIndices.add(line.index);
@@ -109,9 +163,8 @@ public final class GoogleEnhancer {
         Map<String, String> cacheWrites = new LinkedHashMap<>();
         for (int i = 0; i < pending.size(); i++) {
             BatchLine line = pending.get(i);
-            String translated = parsed.get(i);
-            if (isBlank(translated)) continue;
-            translated = stripMarkerEcho(translated).trim();
+            String translated = sanitizeTranslation(parsed.get(i));
+            if (translated == null || isBlank(translated)) continue;
             if (!shouldDisplayTranslation(line.text, translated)) continue;
             result.translations.put(line.index, translated);
             result.networkTranslatedCount++;
@@ -185,7 +238,7 @@ public final class GoogleEnhancer {
         for (BatchLine line : lines) {
             if (line == null || isBlank(line.text)) continue;
             String key = LyricCaches.romanizationKey(trackId, sourceLang, line.text);
-            String cached = cacheRead == null ? null : cacheRead.apply(key);
+            String cached = sanitizeTranslation(cacheRead == null ? null : cacheRead.apply(key));
             if (!isBlank(cached) && !SpicyTextDetection.hasRomanizableScript(cached)) {
                 if (cachedInto != null) cachedInto.put(line.index, cached);
                 continue;
@@ -223,7 +276,9 @@ public final class GoogleEnhancer {
         List<BatchLine> missing = new ArrayList<>();
         for (int i = 0; i < lines.size(); i++) {
             BatchLine line = lines.get(i);
-            String romanized = parsed.get(i);
+            // The same boundary a translation passes: a reading that carried wire text is not a
+            // reading, so the line stays missing and its own text is what the reader sees.
+            String romanized = sanitizeTranslation(parsed.get(i));
             if (isBlank(romanized) || SpicyTextDetection.hasRomanizableScript(romanized)) {
                 missing.add(line);
                 continue;
@@ -518,14 +573,39 @@ public final class GoogleEnhancer {
     }
 
     /**
-     * Google's echo of the marker it was handed, in whatever shape it romanized or translated it.
-     * The line's own reading is what must survive, so every marker shape is dropped, not just the
-     * one that was sent. Shared with {@link BaiduTranslateBackend} for the same reason the split
-     * is.
+     * The one definition of "this text carries wire protocol", shared by the splitter, the stripper
+     * and every display or cache boundary. Two independent guesses at what a marker looks like is
+     * how a mangled one survives in the cache and keeps rendering: every caller asks this instead.
+     *
+     * <p>It is deliberately tolerant and refuses to guess at digits: a bracketed {@code SPX} token
+     * is wire text however the service spelled it, and a false positive costs one re-translation
+     * while a false negative puts {@code [[SPX_008]]} on a lyric row.
+     */
+    static boolean hasMarkerResidue(String text) {
+        return text != null && MARKER_RESIDUE_PATTERN.matcher(text).find();
+    }
+
+    /**
+     * A value fit to store and display, or null when it is not one.
+     *
+     * <p>A value that carried wire text is refused rather than salvaged: it means the answer's
+     * destinations did not line up with the batch, so the text may belong to a neighbouring row as
+     * well as carrying a marker. The row is then simply missing, which is what lets the lane's
+     * re-ask loop fetch it cleanly, and a cache entry of that shape is treated as a miss and purged.
+     */
+    public static String sanitizeTranslation(String value) {
+        if (isBlank(value) || hasMarkerResidue(value)) return null;
+        return stripMarkerEcho(value);
+    }
+
+    /**
+     * The endpoint's echo of a marker it was handed, in whatever shape it came back. The line's own
+     * reading is what must survive, so every marker shape is dropped, not just the one that was
+     * sent. Shared with {@link BaiduTranslateBackend} for the same reason the split is.
      */
     static String stripMarkerEcho(String text) {
         if (text == null) return "";
-        return BATCH_MARKER_PATTERN.matcher(text).replaceAll("").trim();
+        return MARKER_RESIDUE_PATTERN.matcher(text).replaceAll("").trim();
     }
 
     public static boolean sameText(String a, String b) {

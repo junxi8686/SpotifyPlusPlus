@@ -115,7 +115,14 @@ public final class LegacyDocumentComposer {
         if (line == null || entry == null) return false;
         if (kind == LayerKind.MEANING) {
             if (!(entry instanceof MeaningEntry)) return false;
-            line.translatedText = ((MeaningEntry) entry).text;
+            // The last point before a Meaning entry becomes displayable text. An artifact restored
+            // from a build that leaked a wire marker can still carry one, and a marker must never
+            // render: the row keeps its own text and the layer stays pending, so it can be asked
+            // again rather than showing protocol on screen.
+            String translated = com.spotifyplusplus.lyrics.processing.GoogleEnhancer
+                    .sanitizeTranslation(((MeaningEntry) entry).text);
+            if (translated == null || translated.isEmpty()) return false;
+            line.translatedText = translated;
             return true;
         }
         if (!(entry instanceof SoundEntry)) return false;
