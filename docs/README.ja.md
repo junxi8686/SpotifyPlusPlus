@@ -34,7 +34,7 @@ Spotify 標準の歌詞画面を、実用的なものに置き換えます：複
 
 Spotify のプロセス内で動作する歌詞モジュールです。**[Spicy EX](https://github.com/amarinne/spicy-ex)**（作者 [amarinne](https://github.com/amarinne)）をベースに、主に中国語圏の利用者向けに改変したものです。
 
-**このリポジトリは改変版であり、本家プロジェクトではありません。** 上流の著作権は原作者に帰属し、このフォークの変更部分も同じ **AGPL-3.0** で公開されています —— [LICENSE](LICENSE) と [NOTICE](NOTICE) を参照してください。
+**このリポジトリは改変版であり、本家プロジェクトではありません。** 上流の著作権は原作者に帰属し、このフォークの変更部分も同じ **AGPL-3.0** で公開されています —— [LICENSE](../LICENSE) と [NOTICE](../NOTICE) を参照してください。
 
 やることはひとつ：**表示される歌詞が正しいものになるようにする**。
 
@@ -313,6 +313,6 @@ Windows では `gradlew.bat` を使用してください。
 - 歌詞ソース：SpicyLyrics.org、AMLL、LRCLIB、QQ Music、NetEase Cloud Music
 - アイコン：[Lucide](https://github.com/lucide-icons/lucide)（ISC / MIT）
 
-**AGPL-3.0** で公開されています —— [LICENSE](LICENSE) を参照。
+**AGPL-3.0** で公開されています —— [LICENSE](../LICENSE) を参照。
 
 > Spotify、Spicy Lyrics、および各歌詞プロバイダとは無関係です。歌詞の著作権はそれぞれの権利者に帰属します。

@@ -20,3 +20,9 @@ keystore.properties
 # OS noise
 .DS_Store
 Thumbs.db
+
+# Build/test logs written to the repo root by tooling runs
+build-*.log
+
+# Scratch space for agent probes and captured device evidence
+probe/

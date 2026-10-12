@@ -34,7 +34,7 @@
 
 一个运行在 Spotify 进程内的歌词模块，**基于 [Spicy EX](https://github.com/amarinne/spicy-ex)**（作者 [amarinne](https://github.com/amarinne)）修改而来，主要面向中文用户。
 
-**本仓库是修改版，不是原项目。** 上游的版权归原作者所有，本仓库的修改部分同样以 **AGPL-3.0** 发布 —— 详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+**本仓库是修改版，不是原项目。** 上游的版权归原作者所有，本仓库的修改部分同样以 **AGPL-3.0** 发布 —— 详见 [LICENSE](../LICENSE) 与 [NOTICE](../NOTICE)。
 
 它做的事很简单：**让你看到的歌词是对的那一份**。
 
@@ -47,7 +47,7 @@ Spotify 自带的歌词只来自它自己的供应商（中文常常是繁体、
 ### 歌词获取
 
 - **6 个歌词来源并发搜索** —— 所有已启用的来源同时发起请求，最快的先显示，评分严格更高时才替换
-- **逐字歌词**（卡拉 OK 效果），支持逐行、逐词、逐字四档时间轴
+- **逐字歌词**（卡拉 OK 效果），支持逐行、逐字、逐字四档时间轴
 - **智能匹配** —— 支持精确 Spotify ID、歌名搜索、繁简互搜、别名与拼写变体（例如「反乌托邦 - 拼接版」与「拼接乌托邦」）
 - **按名称手动搜索** —— 自动匹配失败时可以自己搜歌名，从返回结果里挑，按 ID 直接取词
 - **歌词来源列表** —— 每个来源单独检查，显示匹配状态、时间轴级别、翻译与能力，可手动置顶
@@ -91,7 +91,7 @@ Spotify 自带的歌词只来自它自己的供应商（中文常常是繁体、
 ### 默认优先级
 
 ```
-逐字 (Syllable)  >  逐词 (Word)  >  逐行 (Line)  >  无时间轴 (Static)
+逐字 (Syllable)  >  逐字 (Word)  >  逐行 (Line)  >  无时间轴 (Static)
 ```
 
 **时间轴级别优先于来源身份** —— QQ 音乐的逐字歌词会胜过 Spotify 的逐行歌词，即使 Spotify 是「原生」来源。同级别时才会比较来源能力与简繁。
@@ -313,6 +313,6 @@ Windows 用 `gradlew.bat`。
 - 歌词来源：SpicyLyrics.org、AMLL、LRCLIB、QQ 音乐、网易云音乐
 - 图标：[Lucide](https://github.com/lucide-icons/lucide)（ISC / MIT）
 
-本项目以 **AGPL-3.0** 发布，详见 [LICENSE](LICENSE)。
+本项目以 **AGPL-3.0** 发布，详见 [LICENSE](../LICENSE)。
 
 > 本项目不隶属于 Spotify、Spicy Lyrics 或任何歌词服务商。所有歌词的版权归其各自权利人所有。

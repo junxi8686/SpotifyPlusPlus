@@ -69,14 +69,18 @@ Supported reading modes:
 ## Translation
 
 - Optional lyric translation.
-- Google unofficial translation backend.
+- Google unofficial translation backend, the default.
+- Baidu official translation API, used with an app ID and secret from the owner's own Baidu
+  translate account, for networks where Google Translate is unreachable.
+- "Lyrics provider only" leaves translation to the lyrics source's own translations.
 - Batched translation for faster line processing.
 - Configurable target language.
 - Translation brightness: dimmed or bright.
 - Translation cache avoids repeated requests.
 
-Translation uses an unofficial Google endpoint. Eligible lyric text is sent only when translation
-is enabled.
+Translation uses the unofficial Google endpoint or Baidu's official credentialled API, chosen with
+the Translation backend row.
+Eligible lyric text is sent only when translation is enabled.
 
 ## Visual Customization
 

@@ -38,7 +38,8 @@ Still broken? Submit a compatibility report.
 ### Does LSPatch work?
 
 Possible, but less reliable. Patched Spotify may fail Play Integrity or login.
-Follow the [downgrade-login-upgrade method](README.md#install) in the Install section.
+Follow the [downgrade-login-upgrade method](README.en.md#installation) in the Install section,
+or the same steps in Chinese: [降级-登录-升级方法](readme.md#安装).
 
 ### Lyrics are missing, wrong, or delayed
 

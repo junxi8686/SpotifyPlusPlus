@@ -34,7 +34,7 @@ Spotify 기본 가사 화면을 제대로 쓸 수 있는 것으로 바꿉니다:
 
 Spotify 프로세스 안에서 동작하는 가사 모듈로, **[Spicy EX](https://github.com/amarinne/spicy-ex)**(제작 [amarinne](https://github.com/amarinne))를 기반으로 주로 중국어권 사용자를 위해 수정한 것입니다.
 
-**이 저장소는 수정된 포크이며 원본 프로젝트가 아닙니다.** 상류의 저작권은 원저자에게 있고, 이 포크의 변경분도 동일하게 **AGPL-3.0**으로 배포됩니다 — [LICENSE](LICENSE)와 [NOTICE](NOTICE)를 참고하세요.
+**이 저장소는 수정된 포크이며 원본 프로젝트가 아닙니다.** 상류의 저작권은 원저자에게 있고, 이 포크의 변경분도 동일하게 **AGPL-3.0**으로 배포됩니다 — [LICENSE](../LICENSE)와 [NOTICE](../NOTICE)를 참고하세요.
 
 하는 일은 하나입니다: **보이는 가사가 올바른 것이 되게 만듭니다.**
 
@@ -313,6 +313,6 @@ Windows에서는 `gradlew.bat`을 사용하세요.
 - 가사 소스: SpicyLyrics.org, AMLL, LRCLIB, QQ Music, NetEase Cloud Music
 - 아이콘: [Lucide](https://github.com/lucide-icons/lucide)(ISC / MIT)
 
-**AGPL-3.0**으로 배포됩니다 — [LICENSE](LICENSE) 참고.
+**AGPL-3.0**으로 배포됩니다 — [LICENSE](../LICENSE) 참고.
 
 > Spotify, Spicy Lyrics 및 각 가사 제공자와 무관합니다. 가사 저작권은 각 권리자에게 있습니다.

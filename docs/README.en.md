@@ -34,7 +34,7 @@ Unofficial project, not affiliated with Spotify or Spicy Lyrics.
 
 A lyrics module that runs inside the Spotify process, **based on [Spicy EX](https://github.com/amarinne/spicy-ex)** by [amarinne](https://github.com/amarinne), aimed primarily at Chinese-language listeners.
 
-**This repository is a modified fork, not the original project.** Upstream copyright belongs to its author; this fork's changes are released under the same **AGPL-3.0** — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
+**This repository is a modified fork, not the original project.** Upstream copyright belongs to its author; this fork's changes are released under the same **AGPL-3.0** — see [LICENSE](../LICENSE) and [NOTICE](../NOTICE).
 
 It does one simple thing: **it makes sure the lyrics you see are the right ones.**
 
@@ -313,6 +313,6 @@ See [MODIFICATIONS.md](MODIFICATIONS.md) and [FEATURES_USER.md](FEATURES_USER.md
 - Lyric sources: SpicyLyrics.org, AMLL, LRCLIB, QQ Music, NetEase Cloud Music
 - Icons: [Lucide](https://github.com/lucide-icons/lucide) (ISC / MIT)
 
-Released under **AGPL-3.0** — see [LICENSE](LICENSE).
+Released under **AGPL-3.0** — see [LICENSE](../LICENSE).
 
 > Not affiliated with Spotify, Spicy Lyrics or any lyrics provider. All lyrics remain the property of their respective rights holders.
