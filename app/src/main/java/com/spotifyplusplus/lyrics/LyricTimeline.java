@@ -2,6 +2,10 @@ package com.spotifyplusplus.lyrics;
 
 import java.util.List;
 
+import com.spotifyplusplus.lyrics.language.ChineseCharacterConverter;
+import com.spotifyplusplus.lyrics.language.ChineseCharacterForm;
+import com.spotifyplusplus.lyrics.language.ReadingLanguagePolicy;
+import com.spotifyplusplus.lyrics.reading.ReadingModels.CanonicalSpanMapping;
 import com.spotifyplusplus.lyrics.session.LyricsSourcePolicy;
 
 /**
@@ -116,7 +120,7 @@ public final class LyricTimeline {
         } else {
             for (LyricsLine line : doc.lines) {
                 if (line == null) continue;
-                doc.appliedLines.add(createAppliedVocalRow(line, line.startMs, line.endMs));
+                doc.appliedLines.add(createAppliedVocalRow(doc, line, line.startMs, line.endMs));
             }
         }
     }
@@ -150,10 +154,10 @@ public final class LyricTimeline {
             // carries to the next line instead of dropping to "no active row" between lines.
             // The karaoke fill still uses the source line's own end (fillEndMs()).
             long appliedEndMs = resolveAppliedEndMs(line.endMs, nextStartMs, holdGaps);
-            doc.appliedLines.add(createAppliedVocalRow(line, line.startMs, appliedEndMs));
+            doc.appliedLines.add(createAppliedVocalRow(doc, line, line.startMs, appliedEndMs));
             for (BackgroundLine bg : line.backgroundLines) {
                 if (bg == null) continue;
-                doc.appliedLines.add(createAppliedBackgroundRow(line, bg));
+                doc.appliedLines.add(createAppliedBackgroundRow(doc, line, bg));
             }
             if (!holdGaps && nextIndex >= 0
                     && !hasExplicitInterludeBetween(doc.lines, i + 1, nextIndex - 1)) {
@@ -303,7 +307,107 @@ public final class LyricTimeline {
         return changed;
     }
 
-    static AppliedLine createAppliedVocalRow(LyricsLine source, long startMs, long endMs) {
+    /**
+     * Replans the display glyphs of a document already on screen, e.g. after a preference change.
+     *
+     * <p>Only the display text is replanned: {@link #applySyncedRows} rebuilds the rows from the
+     * canonical lines, so timings, word ownership and the scroll anchor are all recomputed from the
+     * same source. Returns true when a row's text actually differs, which is the signal the caller
+     * needs to re-render instead of doing it on every preference change.
+     */
+    public static boolean setChineseCharacterForm(LyricsDocument doc, ChineseCharacterForm form) {
+        if (doc == null || doc.chineseCharacterForm == form) return false;
+        doc.chineseCharacterForm = form;
+        applySyncedRows(doc);
+        return true;
+    }
+
+    /**
+     * Replans display glyphs when the language evidence for a line changed under a document that is
+     * already mounted - a same-source publication can add the Chinese detection a row needs before
+     * the projection applies to it at all. Leaves the form itself alone.
+     */
+    public static boolean refreshChineseCharacterProjection(LyricsDocument doc) {
+        if (doc == null || doc.chineseCharacterForm == ChineseCharacterForm.ORIGINAL) return false;
+        for (AppliedLine row : doc.appliedLines) {
+            if (row == null || row.dotLine || row.bgLine || row.sourceLine == null) continue;
+            AppliedLine desired = new AppliedLine();
+            desired.sourceLine = row.sourceLine;
+            desired.text = LyricsDocument.safe(row.sourceLine.text);
+            projectChineseCharacters(doc, desired, desired.text);
+            if (!desired.text.equals(row.text)) {
+                applySyncedRows(doc);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Display text for one row, and the same projection handed down to its timed spans.
+     *
+     * <p>Two early returns keep the off state inert and free: a document in
+     * {@link ChineseCharacterForm#ORIGINAL} never reaches the converter, and a line the reading
+     * policy does not call Chinese is left exactly as the provider wrote it. When it does apply, the
+     * whole line is converted once - full phrase context - and each timed span is then a
+     * {@code slice} of that conversion, never an independent per-word conversion, because a
+     * converted source character may own zero, one or several display characters.
+     */
+    private static void projectChineseCharacters(LyricsDocument doc, AppliedLine row, String sourceText) {
+        if (doc == null || doc.chineseCharacterForm == ChineseCharacterForm.ORIGINAL) return;
+        String hint = LyricsDocument.safe(doc.language);
+        if (doc.detectedChinese && ReadingLanguagePolicy.language(sourceText, null, hint).isEmpty()) hint = "zh";
+        if (!"zh".equals(ReadingLanguagePolicy.language(sourceText,
+                ReadingLanguagePolicy.detectionFor(row), hint))) return;
+        String canonical = LyricsDocument.safe(sourceText);
+        ChineseCharacterConverter.Projection projection =
+                ChineseCharacterConverter.project(canonical, doc.chineseCharacterForm);
+        row.text = projection.text;
+        int cursor = 0;
+        int lengthCp = canonical.codePointCount(0, canonical.length());
+        for (SyllableSegment word : row.words) {
+            int startCp = word.canonicalStartCp;
+            int endCp = word.canonicalEndCp;
+            if (startCp < 0 || endCp <= startCp || endCp > lengthCp) {
+                startCp = Integer.MAX_VALUE;
+                endCp = -1;
+                // A render plan may own ranges before the provider spans have been stamped.
+                if (!row.bgLine && row.readingRenderPlan != null) {
+                    for (String id : LyricsDocument.safe(word.spanId).split("\\+")) {
+                        for (CanonicalSpanMapping mapping : row.readingRenderPlan.sourceUnits) {
+                            if (mapping == null || mapping.canonicalRange == null || !id.equals(mapping.spanId)) continue;
+                            startCp = Math.min(startCp, mapping.canonicalRange.startCp);
+                            endCp = Math.max(endCp, mapping.canonicalRange.endCp);
+                        }
+                    }
+                }
+                if (startCp < 0 || endCp <= startCp || endCp > lengthCp) {
+                    String token = LyricsDocument.safe(word.text);
+                    int found = token.isEmpty() ? -1 : canonical.indexOf(token, cursor);
+                    if (found < 0) {
+                        token = token.trim();
+                        found = token.isEmpty() ? -1 : canonical.indexOf(token, cursor);
+                    }
+                    if (found < 0) {
+                        // Malformed provider spans have no canonical range to project.
+                        word.text = ChineseCharacterConverter.convert(word.text, doc.chineseCharacterForm);
+                        continue;
+                    }
+                    startCp = canonical.codePointCount(0, found);
+                    endCp = startCp + token.codePointCount(0, token.length());
+                }
+            }
+            // The span's timing is untouched; only its display text and the display offsets move.
+            // Remapping the boundaries is what keeps the karaoke fill and the word highlight on the
+            // same characters they were on before the conversion.
+            word.text = projection.slice(startCp, endCp);
+            cursor = canonical.offsetByCodePoints(0, endCp);
+            word.canonicalStartCp = projection.mapBoundary(startCp);
+            word.canonicalEndCp = projection.mapBoundary(endCp);
+        }
+    }
+
+    static AppliedLine createAppliedVocalRow(LyricsDocument doc, LyricsLine source, long startMs, long endMs) {
         AppliedLine row = new AppliedLine();
         row.sourceLine = source;
         row.text = LyricsDocument.safe(source.text);
@@ -319,10 +423,16 @@ public final class LyricTimeline {
         if (source.syllables != null) {
             for (SyllableSegment seg : source.syllables) row.words.add(copySegment(seg, false));
         }
+        projectChineseCharacters(doc, row, source.text);
         return row;
     }
 
-    static AppliedLine createAppliedBackgroundRow(LyricsLine source, BackgroundLine bg) {
+    /** Compatibility helper for pure timeline tests and callers with no document at hand. */
+    static AppliedLine createAppliedVocalRow(LyricsLine source, long startMs, long endMs) {
+        return createAppliedVocalRow(null, source, startMs, endMs);
+    }
+
+    static AppliedLine createAppliedBackgroundRow(LyricsDocument doc, LyricsLine source, BackgroundLine bg) {
         AppliedLine row = new AppliedLine();
         row.sourceLine = source;
         row.text = LyricsDocument.safe(bg.text);
@@ -334,7 +444,13 @@ public final class LyricTimeline {
         row.oppositeAligned = source.oppositeAligned;
         row.bgLine = true;
         for (SyllableSegment seg : bg.syllables) row.words.add(copySegment(seg, true));
+        projectChineseCharacters(doc, row, bg.text);
         return row;
+    }
+
+    /** Compatibility helper for pure timeline tests and callers with no document at hand. */
+    static AppliedLine createAppliedBackgroundRow(LyricsLine source, BackgroundLine bg) {
+        return createAppliedBackgroundRow(null, source, bg);
     }
 
     public static AppliedLine createAppliedDotRow(long startMs, long endMs, boolean oppositeAligned) {

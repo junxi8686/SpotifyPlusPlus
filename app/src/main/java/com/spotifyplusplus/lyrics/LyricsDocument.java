@@ -1,5 +1,6 @@
 package com.spotifyplusplus.lyrics;
 
+import com.spotifyplusplus.lyrics.language.ChineseCharacterForm;
 import com.spotifyplusplus.lyrics.language.SpicyTextDetection;
 
 import java.util.ArrayList;
@@ -29,11 +30,6 @@ public class LyricsDocument {
     public String spicyOrgMakerUrl = "";
     public String spicyOrgRawPayload = "";
     public long spicyOrgFetchedAtMs;
-    /**
-     * Set when this delivery's timing was derived in memory from a donor timeline. Null for a
-     * document that is exactly what its source returned.
-     */
-    public com.spotifyplusplus.lyrics.blend.SyncUpgradeProvenance syncUpgradeProvenance;
     /** Source-selection metadata shared by fullscreen and now-playing surfaces. */
     public String selectedSource = "";
     public String selectionMode = "smart";
@@ -92,6 +88,12 @@ public class LyricsDocument {
     public String readingAiFailureToken = "";
     public String translationAiFailureToken = "";
     public boolean detectedChinese;
+    /**
+     * Which script the displayed lyrics are shown in. Display only: the source lines stay exactly
+     * what the provider returned, so the picker preview, the cache and the next ranking never see a
+     * converted document. ORIGINAL means nothing was converted and nothing was even loaded.
+     */
+    public ChineseCharacterForm chineseCharacterForm = ChineseCharacterForm.ORIGINAL;
     public final List<SpicyTextDetection.Script> detectedScripts = new ArrayList<>();
     public final List<LyricsLine> lines = new ArrayList<>();
     public final List<AppliedLine> appliedLines = new ArrayList<>();
@@ -113,7 +115,6 @@ public class LyricsDocument {
         copy.spicyOrgMakerUrl = safe(source.spicyOrgMakerUrl);
         copy.spicyOrgRawPayload = safe(source.spicyOrgRawPayload);
         copy.spicyOrgFetchedAtMs = source.spicyOrgFetchedAtMs;
-        copy.syncUpgradeProvenance = source.syncUpgradeProvenance;
         copy.selectedSource = safe(source.selectedSource);
         copy.selectionMode = safe(source.selectionMode);
         copy.selectionOverride = safe(source.selectionOverride);
@@ -146,6 +147,7 @@ public class LyricsDocument {
         copy.readingAiFailureToken = safe(source.readingAiFailureToken);
         copy.translationAiFailureToken = safe(source.translationAiFailureToken);
         copy.detectedChinese = source.detectedChinese;
+        copy.chineseCharacterForm = source.chineseCharacterForm;
         copy.detectedScripts.addAll(source.detectedScripts);
         for (LyricsLine line : source.lines) copy.lines.add(LyricsLine.copyOf(line));
         return copy;
