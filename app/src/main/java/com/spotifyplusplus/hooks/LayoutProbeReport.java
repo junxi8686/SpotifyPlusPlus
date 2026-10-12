@@ -141,9 +141,6 @@ final class LayoutProbeReport {
         chromeCorner(out);
         chromeOverChip(out);
         truncatedOptions(out);
-        if (isTrue("credit_present") && !isTrue("credit_in_footer")) {
-            out.add("R13 credit_outside_footer");
-        }
         return out;
     }
 

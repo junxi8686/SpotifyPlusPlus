@@ -23,7 +23,6 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
     private static final int TIMED_CANDIDATE_RADIUS = 6;
     private static final int STATIC_CANDIDATE_LIMIT = 12;
     private final LinearLayout rowsHost;
-    private final SpicyOrgAttributionView attribution;
     private final FrameStyleBatcher styleBatcher;
     private final LyricsFrameRenderer frameRenderer;
     private final Set<Integer> mountedIndices = new LinkedHashSet<>();
@@ -62,10 +61,6 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
         int horizontal = dp(14);
         rowsHost.setPadding(horizontal, dp(54), horizontal, dp(12));
         addView(rowsHost, rowsLp);
-
-        attribution = new SpicyOrgAttributionView(context);
-        attribution.setBackgroundColor(0xD9000000);
-        addView(attribution, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT, Gravity.BOTTOM));
 
         LinearLayout actions = new LinearLayout(context);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -113,7 +108,6 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
 
     public void setDocument(LyricsDocument nextDocument, LyricsRenderConfig nextConfig) {
         document = nextDocument;
-        attribution.bind(document);
         renderConfig = nextConfig;
         invalidateMeasurements();
         if (isOverlayVisible()) post(this::requestLayout);
@@ -132,7 +126,6 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
 
     public void clearDocument() {
         document = null;
-        attribution.bind(null);
         invalidateMeasurements();
     }
 
@@ -141,7 +134,7 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
                 || document.appliedLines == null || document.appliedLines.isEmpty()
                 || getWidth() <= 0 || getHeight() <= 0) return;
         int available = Math.max(1, getHeight()
-                - rowsHost.getPaddingTop() - rowsHost.getPaddingBottom() - attributionHeight());
+                - rowsHost.getPaddingTop() - rowsHost.getPaddingBottom());
         ensureMeasurements(positionMs, available);
         if (rowHeights == null) return;
         ArtworkLyricWindowPlanner.Window window = ArtworkLyricWindowPlanner.select(
@@ -259,11 +252,11 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
         View last = rowsHost.getChildAt(rowsHost.getChildCount() - 1);
         if (active == null || first == null || last == null) return;
         float contentCenter = (rowsHost.getPaddingTop()
-                + rowsHost.getHeight() - rowsHost.getPaddingBottom() - attributionHeight()) * 0.5f;
+                + rowsHost.getHeight() - rowsHost.getPaddingBottom()) * 0.5f;
         float desired = contentCenter - (active.getTop() + active.getBottom()) * 0.5f;
         float min = rowsHost.getPaddingTop() - first.getTop();
         float max = rowsHost.getHeight() - rowsHost.getPaddingBottom()
-                - attributionHeight() - last.getBottom();
+                - last.getBottom();
         float bounded = min <= max
                 ? Math.max(min, Math.min(max, desired))
                 : Math.max(-rowsHost.getHeight() * 0.5f,
@@ -285,10 +278,6 @@ public final class ArtworkLyricsOverlayView extends FrameLayout {
         background.setShape(GradientDrawable.OVAL);
         button.setBackground(background);
         return button;
-    }
-
-    private int attributionHeight() {
-        return attribution.getVisibility() == VISIBLE ? attribution.getMeasuredHeight() : 0;
     }
 
     private int dp(int value) {

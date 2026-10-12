@@ -26,10 +26,6 @@ public final class SpicyOrgAttribution {
 
     private SpicyOrgAttribution() { }
 
-    public static List<Credit> credits(LyricsDocument document) {
-        return credits(document, true);
-    }
-
     /** Display provenance without changing the canonical provider or catalog identity. */
     public static String sourceLabel(LyricsDocument document) {
         if (document == null) return "Unknown source";
@@ -66,12 +62,17 @@ public final class SpicyOrgAttribution {
         return provider.isEmpty() ? "unknown" : provider;
     }
 
-    /** The source footer already displays the provider, so it only needs contributor links. */
-    public static List<Credit> credits(LyricsDocument document, boolean includeProvider) {
+    /**
+     * The credit line that travels with the lyrics. It is no longer drawn on the now-playing
+     * surfaces, but the published forms of the document still carry it: the share card, the
+     * HyperGlow bridge payload and the Android Auto bundle all name the origin and, for restricted
+     * SpicyLyrics.org content, the contributors.
+     */
+    public static List<Credit> credits(LyricsDocument document) {
         if (document == null) return Collections.emptyList();
         List<Credit> credits = new ArrayList<>();
-        if (includeProvider && (SpicyOrgPolicy.isRestricted(document)
-                || document.syncUpgradeProvenance != null)) {
+        if (SpicyOrgPolicy.isRestricted(document)
+                || document.syncUpgradeProvenance != null) {
             credits.add(new Credit((SpicyOrgPolicy.isRestricted(document) ? "Lyrics from " : "")
                     + sourceLabel(document), ""));
         }
