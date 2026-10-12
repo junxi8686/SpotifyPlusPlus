@@ -53,6 +53,9 @@
     <string name="settings_sync_upgrade_summary">This option uses timing from enabled QQ Music or NetEase sources when the lyrics match. The lyric text does not change.</string>
     <string name="settings_auto_root_requirement">Requires root and LSPosed/Vector. Scope Spotify and Android Auto.</string>
     <string name="settings_label_lyrics_source_order">Lyrics source order</string>
+    <string name="settings_label_lyrics_language_preference">Lyrics language preference</string>
+    <string name="settings_option_lyrics_language_preference_prefer_original">Prefer original</string>
+    <string name="settings_option_lyrics_language_preference_prefer_chinese_translation">Prefer Chinese translation</string>
     <string name="settings_label_lyrics_source_overrides">Per-track lyric sources</string>
     <string name="settings_label_lyrics_karaoke_original_lyrics">Show original lyrics for karaoke versions</string>
     <string name="settings_option_lyrics_source_selection_mode_auto">Auto</string>
@@ -114,6 +117,7 @@
     <string name="settings_lyrics_font_check_result">Result</string>
     <string name="settings_lyrics_font_check_all_covered">Covers every supported language</string>
     <string name="settings_lyrics_font_check_missing">Falls back for</string>
+    <string name="settings_lyrics_font_file_missing">Font file not found</string>
     <string name="settings_label_lyrics_text_size">Lyric text size</string>
     <string name="settings_label_lyrics_text_size_custom">Custom size</string>
     <string name="settings_label_lyrics_adaptive_text_size">Adaptive text size</string>
@@ -169,6 +173,22 @@
     <string name="settings_label_lyrics_cyrillic_mode">Cyrillic reading</string>
     <string name="settings_label_lyrics_cyrillic_keep_signs">Keep Cyrillic soft/hard signs</string>
     <string name="settings_label_lyrics_translation_enabled">Translate lyrics</string>
+    <string name="settings_label_lyrics_translation_backend">Translation backend</string>
+    <string name="settings_option_lyrics_translation_backend_google_unofficial">Google</string>
+    <string name="settings_option_lyrics_translation_backend_baidu_unofficial">Baidu</string>
+    <string name="settings_option_lyrics_translation_backend_provider">Lyrics provider only</string>
+    <string name="settings_label_lyrics_baidu_translate_appid">Baidu app ID</string>
+    <string name="settings_label_lyrics_baidu_translate_secret">Baidu secret key</string>
+    <string name="settings_baidu_help">Get an app ID and secret from your Baidu translate account: https://fanyi-api.baidu.com/</string>
+    <string name="settings_baidu_absent">Not set</string>
+    <string name="settings_baidu_appid_edit">Enter app ID</string>
+    <string name="settings_baidu_appid_reveal">Reveal app ID</string>
+    <string name="settings_baidu_appid_delete">Delete app ID</string>
+    <string name="settings_baidu_appid_rejected">App ID not saved: expected letters and digits</string>
+    <string name="settings_baidu_secret_edit">Enter secret</string>
+    <string name="settings_baidu_secret_reveal">Reveal secret</string>
+    <string name="settings_baidu_secret_delete">Delete secret</string>
+    <string name="settings_baidu_secret_rejected">Secret not saved: expected the key Baidu issued</string>
     <string name="settings_label_lyrics_translation_target">Target language</string>
     <string name="settings_label_lyrics_translation_brightness">Translation brightness</string>
     <!-- Selector values. Stored values remain locale-independent. -->
@@ -524,6 +544,12 @@
     <string name="settings_action_resync_timing">Reset lyrics sync</string>
     <string name="settings_resync_timing_done">Lyrics sync reset</string>
     <string name="lyrics_translation_retrying">Retrying translation…</string>
+    <string name="lyrics_translation_failed_refused">Translation failed: the service refused the request.</string>
+    <string name="lyrics_translation_failed_rate_limited">Translation rate limited; retry later.</string>
+    <string name="lyrics_translation_failed_unreadable">Translation failed: the service\'s answer could not be read.</string>
+    <string name="lyrics_translation_failed_network">Translation failed: the network request did not complete.</string>
+    <string name="lyrics_translation_failed_not_configured">Translation needs a Baidu app ID and secret in Settings.</string>
+    <string name="lyrics_translation_failed_generic">Translation failed. Tap the translation button to retry.</string>
     <string name="lyrics_instrumental">Instrumental</string>
     <string name="settings_label_lyrics_status_bar_hidden_mode">Hide status bar</string>
     <string name="settings_label_lyrics_blur_intensity">Blur intensity</string>
@@ -796,7 +822,13 @@
     <string name="settings_backup_unreadable">That file is not a Spicy EX backup</string>
 
     <string name="settings_backup_exported_to">Saved to %1$s</string>
+    <string name="settings_backup_exported_count">Exported %1$d entries</string>
     <string name="settings_backup_restored_count">Restored %1$d entries</string>
+    <string name="settings_backup_cancelled">Cancelled</string>
+    <string name="settings_backup_restart_advice">Restart Spotify for the restored catalogue and caches to take effect.</string>
+    <string name="settings_backup_credentials_reenter">Enter these again – they were encrypted on the device that wrote this backup and cannot be read here: %1$s</string>
+    <string name="settings_backup_credentials_kept">Kept the keys already working on this device: %1$s</string>
+    <string name="settings_backup_credential_other">Stored credential</string>
 
     <string name="lyrics_ai_request_not_configured">%1$s request cannot start. Complete AI setup first.</string>
     <string name="lyrics_ai_request_already_running">%1$s request is already running for this song.</string>

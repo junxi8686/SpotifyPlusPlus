@@ -190,6 +190,12 @@ public final class Settings {
             "Auto", "Source order"
     );
 
+    // The "Lyrics ranking algorithm" row was removed with the setting behind it. It offered one
+    // value ("Points") ever since the tiered comparison was deleted, and a picker with a single
+    // option is not a setting. A device that ran the beta build still holds
+    // lyrics_ranking_algorithm=Points in its store; nothing declares, renders or reads that key
+    // now, so the entry is inert and needs no migration.
+
     /**
      * Experimental strict source switch. Apple Music and the retired "Spicy" desktop-token remote
      * are deliberately absent: neither can deliver usable lyrics any more, so offering them here
@@ -227,6 +233,21 @@ public final class Settings {
     /** Upgrade low-confidence sync from the SpicyLyrics.org source against a better timeline. */
     public static final Setting<Boolean> SYNC_UPGRADE = boolSetting(
             "lyrics_sync_upgrade", LYRICS_SOURCES, "Upgrade lyric sync", false
+    );
+
+    /**
+     * What the language-match component counts as a match when the track's own language is not
+     * Chinese.
+     *
+     * <p>The default prefers the original: a candidate scores the language points only when its
+     * script family is the track's own. "Prefer Chinese translation" also accepts a Chinese
+     * document, which is the escape hatch for an owner who would rather read a translation than the
+     * original words - a deliberate choice, not a judgement about which is better.
+     */
+    public static final Setting<String> LYRICS_LANGUAGE_PREFERENCE = enumSetting(
+            "lyrics_language_preference", LYRICS_SOURCES, "Lyrics language preference",
+            "Prefer original",
+            "Prefer original", "Prefer Chinese translation"
     );
 
     /** Bounded JSON map of spotify track URI to source id; auto is represented by omission. */
@@ -746,9 +767,28 @@ public final class Settings {
             "lyrics_translation_enabled", TRANSLATION, "Translate lyrics", false
     );
 
-    public static final Setting<String> TRANSLATION_BACKEND = internalEnumSetting(
-            "lyrics_translation_backend", "Translation backend",
-            "google_unofficial", "google_unofficial", "provider"
+    // Which machine translation the Meaning lane runs. "provider" is not a backend: it means the
+    // lyrics provider's own translations only, so the value persists as a user choice but no
+    // backend claims it. Baidu exists because Google's endpoint is unreachable from mainland
+    // China; Google stays the default so an untouched install behaves exactly as before.
+    public static final Setting<String> TRANSLATION_BACKEND = enumSetting(
+            "lyrics_translation_backend", TRANSLATION, "Translation backend",
+            "google_unofficial", "google_unofficial", "baidu_unofficial", "provider"
+    );
+
+    /**
+     * Baidu's official translate API credentials, both obtained from the owner's own account on
+     * the Baidu translate open platform. The API is credentialled - there is no keyless form of it
+     * left - so with either value missing the backend makes no request and the reader is told the
+     * setup is incomplete instead. The values themselves live encrypted in the credential store,
+     * not here: a setting is a key and a default, never a secret.
+     */
+    public static final Setting<String> BAIDU_TRANSLATE_APPID = stringSetting(
+            "lyrics_baidu_translate_appid", TRANSLATION, "Baidu app ID", ""
+    );
+
+    public static final Setting<String> BAIDU_TRANSLATE_SECRET = stringSetting(
+            "lyrics_baidu_translate_secret", TRANSLATION, "Baidu secret key", ""
     );
 
     public static final Setting<String> TRANSLATION_TARGET = enumSetting(

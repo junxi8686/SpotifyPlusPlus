@@ -398,6 +398,7 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
         int sourceRows = 0;
         int skippedBusy = 0;
         int skippedNoId = 0;
+        StringBuilder walked = new StringBuilder();
         for (CatalogPickerState.Shown row : shown) {
             if (row.source == null || row.source.kind != CatalogPickerModel.RowKind.SOURCE) continue;
             sourceRows++;
@@ -414,14 +415,19 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             // Empty success message on purpose: this walk covers every source at once, and the
             // rows report themselves, so a message each was six lines of noise per open.
             run(row.key, callback -> host.refreshCatalogSource(sourceId, callback), "");
+            if (walked.length() > 0) walked.append(',');
+            walked.append(sourceId.id);
             started++;
         }
         // The counts matter: "started for 0 sources" with rows on screen means the rows were all
         // reported busy or unidentified, which is a different fault from the panel opening before
-        // its catalog state arrived. Without the split the two look identical in the log.
+        // its catalog state arrived. Without the split the two look identical in the log. The ids
+        // matter as much: the walk naming the source it asked is the only record that a tap-free
+        // check ever reached it.
         XpLog.log(TAG + " picker auto check started for " + started + " sources"
                 + " rows=" + shown.size() + " sourceRows=" + sourceRows
                 + " skippedBusy=" + skippedBusy + " skippedNoId=" + skippedNoId
+                + " asked=[" + walked + "]"
                 + " climb=" + state.climb);
         // Remember only when the walk actually covered sources; a panel that opened before its
         // rows existed must not mark the track as done and suppress the real check.
@@ -896,6 +902,11 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
     /** One command's outcome: report it, release the row, then read the store it wrote. */
     private void complete(String key, boolean success, String detail, String successMessage) {
         try {
+            // One line per command, so a row that ends without a tick says why in the log instead
+            // of only in a toast the owner may never see. A success that stores nothing is exactly
+            // the case this has to make visible: the fetch worked and the row still has no data.
+            XpLog.log(TAG + " picker row settled row=" + key + " ok=" + success
+                    + (success ? "" : " detail=" + (detail == null ? "" : detail)));
             // The detail is a provider failure, which is reported in English because the fetch
             // classifiers match on those phrases. It is translated here, on the way to the toast.
             String failure = detail == null || detail.isEmpty()

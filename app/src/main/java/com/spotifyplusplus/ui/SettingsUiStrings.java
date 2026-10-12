@@ -263,6 +263,15 @@ public final class SettingsUiStrings {
             if ("Layered".equals(value)) return "Lyrics + Google reading → AI refinement";
             if ("AI only".equals(value)) return "Lyrics → AI reading";
         }
+        // The stored values name the endpoints; the row names the products, because "google
+        // unofficial" is the module's problem, not the owner's. "provider" is not an endpoint at
+        // all: it means the lyrics source's own translations, with no machine translation behind
+        // them.
+        if (setting == Settings.TRANSLATION_BACKEND) {
+            if ("google_unofficial".equals(value)) return "Google";
+            if ("baidu_unofficial".equals(value)) return "百度";
+            if ("provider".equals(value)) return "Lyrics provider only";
+        }
         if (value == null || value.isEmpty()) return "";
         switch (value) {
             case "wordTranslit": return "Word-by-word transliteration";
@@ -270,8 +279,6 @@ public final class SettingsUiStrings {
             case "rrPronunciation": return "Follow pronunciation (RR)";
             case "vnPronunciation": return "Follow pronunciation (VN)";
             case "furigana_romaji": return "Furigana + romaji";
-            case "google_unofficial": return "Automatic (provider + Google)";
-            case "provider": return "Lyrics provider only";
             case "en": return "English (en)";
             case "zh-CN": return "Simplified Chinese (zh-CN)";
             case "zh-TW": return "Traditional Chinese (zh-TW)";

@@ -83,9 +83,16 @@ public class SettingsDefaultsTest {
         assertFalse(Settings.TRANSLITERATION_ENABLED.defaultValue);
         assertFalse(Settings.TRANSLATION_ENABLED.defaultValue);
         assertEquals("google_unofficial", Settings.TRANSLATION_BACKEND.defaultValue);
-        assertEquals(Settings.INTERNAL, Settings.TRANSLATION_BACKEND.section);
-        assertEquals(2, Settings.TRANSLATION_BACKEND.allowedValues.size());
+        assertEquals(Settings.TRANSLATION, Settings.TRANSLATION_BACKEND.section);
+        // The baidu_unofficial peer was added for mainland China, where the Google endpoint is
+        // unreachable. Google stays the default and "provider" keeps meaning "no machine backend",
+        // so an install that never opens the row behaves exactly as it did before the peer existed.
+        assertEquals(java.util.Arrays.asList(
+                "google_unofficial", "baidu_unofficial", "provider"),
+                Settings.TRANSLATION_BACKEND.allowedValues);
+        assertEquals("baidu_unofficial", Settings.TRANSLATION_BACKEND.coerce("baidu_unofficial"));
         assertEquals("provider", Settings.TRANSLATION_BACKEND.coerce("provider"));
+        assertEquals("google_unofficial", Settings.TRANSLATION_BACKEND.coerce("nonsense"));
         assertFalse(Settings.NATIVE_SPICY_ROMANIZATION.defaultValue);
         assertFalse(Settings.NATIVE_SPICY_TRANSLATION.defaultValue);
 

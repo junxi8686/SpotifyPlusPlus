@@ -11,7 +11,9 @@ import org.w3c.dom.NodeList;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -187,14 +189,37 @@ public class SettingsUiStringsContractTest {
                 || "settings_section_ai".equals(name);
     }
 
+    /**
+     * The two in-line timing tiers carry one Chinese label, because that is what they draw.
+     *
+     * <p>SYLLABLE and WORD are different tiers of one rendering: an in-line fill driven by each
+     * line's own spans ({@code LyricsRowViewFactory} reads {@code line.syllables} and never the
+     * document-level type), and the providers time Chinese lyrics one character per span - QQ's
+     * QRC, NetEase's YRC and AMLL's TTML as much as Apple's or Spotify's syllable timing. So
+     * "逐词" promised a per-word highlight no source here sends for a Chinese song, while "逐字" is
+     * exactly what the row shows. The English strings keep the tier names, because for English
+     * lyrics the tiers really are one span per syllable and one per word.
+     */
+    @Test
+    public void chineseTimingLabelsMatchTheHighlightTheRowsDraw() throws Exception {
+        Map<String, String> zh = stringValues("src/main/res/values-zh-rCN/strings.xml");
+        assertEquals("逐字", zh.get("picker_timing_syllable"));
+        assertEquals("逐字", zh.get("picker_timing_word"));
+        assertEquals("逐行", zh.get("picker_timing_line"));
+        assertEquals("无时间轴", zh.get("picker_timing_unsynced"));
+
+        Map<String, String> en = stringValues("src/main/res/values/strings.xml");
+        assertEquals("Syllable", en.get("picker_timing_syllable"));
+        assertEquals("Word", en.get("picker_timing_word"));
+        assertEquals("Line", en.get("picker_timing_line"));
+    }
+
     private static Set<String> defaultStringNames() throws Exception {
         return stringNames("src/main/res/values/strings.xml");
     }
 
     private static Set<String> stringNames(String path) throws Exception {
-        File file = new File(path);
-        if (!file.isFile()) file = new File("app/" + path);
-        assertTrue("Default strings.xml not found from " + new File(".").getAbsolutePath(), file.isFile());
+        File file = resourceFile(path);
         NodeList strings = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
                 .getElementsByTagName("string");
         Set<String> names = new HashSet<>();
@@ -203,5 +228,24 @@ public class SettingsUiStringsContractTest {
             names.add(element.getAttribute("name"));
         }
         return names;
+    }
+
+    private static Map<String, String> stringValues(String path) throws Exception {
+        File file = resourceFile(path);
+        NodeList strings = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(file)
+                .getElementsByTagName("string");
+        Map<String, String> values = new HashMap<>();
+        for (int i = 0; i < strings.getLength(); i++) {
+            Element element = (Element) strings.item(i);
+            values.put(element.getAttribute("name"), element.getTextContent());
+        }
+        return values;
+    }
+
+    private static File resourceFile(String path) {
+        File file = new File(path);
+        if (!file.isFile()) file = new File("app/" + path);
+        assertTrue("Resource file not found from " + new File(".").getAbsolutePath(), file.isFile());
+        return file;
     }
 }

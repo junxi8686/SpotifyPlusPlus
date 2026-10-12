@@ -3319,9 +3319,14 @@ final class LyricsLayoutEditController {
 
         /** Mirrors PanelDialogs#reportFontCoverage's own resolution order (a real file on disk,
          *  else an installed/system font family name) so the same value gets the same verdict in
-         *  either surface. */
+         *  either surface. A file path that is not there is reported as such: Typeface.create
+         *  never fails for an unknown path, so measuring the fallback would call a missing font
+         *  "covered". */
         private String fontCoverageSummary(String path) {
             if (path == null || path.isEmpty()) return "";
+            if (com.spotifyplusplus.settings.FontPathState.isMissingFile(path)) {
+                return strings.get("settings_lyrics_font_file_missing", "Font file not found");
+            }
             android.graphics.Typeface typeface = null;
             java.io.File file = new java.io.File(path);
             if (file.isFile()) {
