@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
+import android.os.SystemClock;
 
 import com.eza.hyperglow.bridge.ISpicyLyricBridge;
 import com.spotifyplusplus.Diagnostics;
@@ -22,8 +23,9 @@ import java.io.IOException;
 
 final class SpicyLyricBridgePublisher {
     static final int PROTOCOL_VERSION = 1;
+    private static final String CONSUMER_PACKAGE = "com.eza.hyperglow";
     private static final ComponentName BRIDGE_COMPONENT = new ComponentName(
-            "com.eza.hyperglow",
+            CONSUMER_PACKAGE,
             "com.eza.hyperglow.bridge.SpicyLyricBridgeService"
     );
     private static final Uri BRIDGE_URI = Uri.parse(
@@ -49,6 +51,12 @@ final class SpicyLyricBridgePublisher {
     private boolean bound;
     private boolean providerFallback;
     private boolean enabled;
+    /** Consecutive failed attempts, and the time before which none may be made. */
+    private int failureAttempts;
+    private long retryAtMs;
+    /** The consumer's package as last probed, and when. Zero means it has never been probed. */
+    private boolean consumerPresent = true;
+    private long presenceCheckedAtMs;
 
     SpicyLyricBridgePublisher(Context context) {
         Context app = context.getApplicationContext();
@@ -57,6 +65,11 @@ final class SpicyLyricBridgePublisher {
 
     synchronized void enable() {
         enabled = true;
+        // A fresh enable starts a fresh ladder and re-probes the consumer, so toggling the setting
+        // is never answered with a backoff earned before it.
+        failureAttempts = 0;
+        retryAtMs = 0;
+        presenceCheckedAtMs = 0;
         Diagnostics.setHyperGlowBridgeStatus("connecting");
         Diagnostics.event("hyperglow_bridge", "connection_state",
                 Diagnostics.context("status", "connecting"));
@@ -66,6 +79,9 @@ final class SpicyLyricBridgePublisher {
     private synchronized void connect() {
         if (!enabled) return;
         if (bridge != null || binding || providerFallback) return;
+        long now = SystemClock.elapsedRealtime();
+        if (!SpicyBridgeBackoff.attemptDue(now, retryAtMs)) return;
+        if (!consumerReady(now)) return;
         binding = true;
         try {
             Intent intent = new Intent().setComponent(BRIDGE_COMPONENT);
@@ -75,15 +91,78 @@ final class SpicyLyricBridgePublisher {
                 Diagnostics.setHyperGlowBridgeStatus("provider_fallback");
                 Diagnostics.event("hyperglow_bridge", "connection_state",
                         Diagnostics.context("status", "provider_fallback"));
-                XpLog.log("[SpotifyPlusBridge] bindService returned false");
+                noteAttemptFailure(now, "bindService returned false",
+                        "component=" + BRIDGE_COMPONENT.flattenToShortString()
+                                + " hyperglow=" + (consumerPresent ? "present" : "absent"), null);
                 publishPendingLocked();
             } else {
                 bound = true;
             }
         } catch (Throwable t) {
             binding = false;
-            log("bind failed", t);
+            noteAttemptFailure(now, "bindService threw",
+                    "component=" + BRIDGE_COMPONENT.flattenToShortString(), t);
         }
+    }
+
+    /**
+     * True when the consumer package may be attempted, false while it is known absent.
+     *
+     * <p>A refused bind and an unknown provider uri are the same fact - the companion app is not
+     * installed - so one probe of the package list answers both, instead of two failing IPC calls
+     * per publication. The negative answer is cached for a minute, which is also how quickly
+     * installing the companion later is noticed.
+     */
+    private boolean consumerReady(long nowMs) {
+        if (!SpicyBridgeBackoff.presenceCheckDue(nowMs, presenceCheckedAtMs)) return consumerPresent;
+        presenceCheckedAtMs = nowMs;
+        boolean present = isConsumerInstalled();
+        if (present != consumerPresent || !present) {
+            XpLog.log("[SpotifyPlusBridge] consumer " + (present ? "present" : "absent")
+                    + " package=" + CONSUMER_PACKAGE
+                    + (present ? "" : " retryInMs=" + SpicyBridgeBackoff.PRESENCE_TTL_MS));
+        }
+        consumerPresent = present;
+        return present;
+    }
+
+    /** The package list, not an IPC call: the cheap half of the diagnosis. */
+    private boolean isConsumerInstalled() {
+        try {
+            context.getPackageManager().getPackageInfo(CONSUMER_PACKAGE, 0);
+            return true;
+        } catch (Throwable absent) {
+            return false;
+        }
+    }
+
+    /**
+     * Records a failed attempt: it schedules the next one and emits one line that names the call
+     * site, the argument that was rejected and the exception's own message.
+     *
+     * <p>The message used to be discarded, which is why a run of identical lines said only that
+     * something was refused. {@code IllegalArgumentException} from a provider call is Android's
+     * "Unknown URI" - the authority has no registered provider - and that text is the diagnosis.
+     */
+    private synchronized void noteAttemptFailure(long nowMs, String what, String detail, Throwable t) {
+        failureAttempts++;
+        long delay = SpicyBridgeBackoff.delayMs(failureAttempts - 1);
+        retryAtMs = nowMs + delay;
+        XpLog.log("[SpotifyPlusBridge] " + what + " " + detail
+                + " attempt=" + failureAttempts
+                + " retryInMs=" + delay
+                + " msg=" + describeMessage(t));
+        Diagnostics.event("hyperglow_bridge", "publication_result", t,
+                Diagnostics.context("result", "error", "status", "attempt_failed"));
+    }
+
+    /** A successful exchange clears the ladder and says so, once. */
+    private synchronized void noteAttemptSuccess(String what) {
+        if (failureAttempts > 0) {
+            XpLog.log("[SpotifyPlusBridge] " + what + " recovered afterAttempts=" + failureAttempts);
+        }
+        failureAttempts = 0;
+        retryAtMs = 0;
     }
 
     synchronized void publish(Bundle state) {
@@ -260,8 +339,14 @@ final class SpicyLyricBridgePublisher {
     }
 
     private void callProvider(String method, Bundle payload) {
+        long now = SystemClock.elapsedRealtime();
+        if (!SpicyBridgeBackoff.attemptDue(now, retryAtMs)) return;
+        // Known absent: no IPC is attempted at all, and the presence probe paces the retries, so a
+        // device without the companion app gets one line a minute instead of a failing call each.
+        if (!consumerReady(now)) return;
         try {
             context.getContentResolver().call(BRIDGE_URI, method, null, payload);
+            noteAttemptSuccess("provider call");
             Diagnostics.setHyperGlowBridgeStatus("provider_connected");
             Diagnostics.event("hyperglow_bridge", "publication_result",
                     Diagnostics.context("result", "success", "status", "provider"));
@@ -272,16 +357,30 @@ final class SpicyLyricBridgePublisher {
                 }
             }
         } catch (Throwable t) {
-            log("provider call failed", t);
+            // Deliberately no rebind here. Reconnecting on the spot is what turned two failures
+            // into a cycle: the bind refused, the provider call failed, the bind was attempted
+            // again from inside the failure handler, and the pair repeated per publication.
+            noteAttemptFailure(now, "provider call failed",
+                    "site=callProvider method=" + method + " uri=" + BRIDGE_URI
+                            + " bytes=" + (payload == null ? 0 : payloadSize(payload)), t);
             Diagnostics.setHyperGlowBridgeStatus("provider_failed");
             Diagnostics.event("hyperglow_bridge", "publication_result", t,
                     Diagnostics.context("result", "error", "status", "provider"));
-            synchronized (this) {
-                if (enabled && providerFallback) {
-                    providerFallback = false;
-                    connect();
-                }
+        }
+    }
+
+    /** Rough payload size for the failure line; the parcel is not rewritten to measure it. */
+    private static int payloadSize(Bundle payload) {
+        try {
+            android.os.Parcel parcel = android.os.Parcel.obtain();
+            try {
+                parcel.writeBundle(payload);
+                return parcel.dataSize();
+            } finally {
+                parcel.recycle();
             }
+        } catch (Throwable unmeasurable) {
+            return -1;
         }
     }
 
@@ -359,6 +458,22 @@ final class SpicyLyricBridgePublisher {
     };
 
     private static void log(String message, Throwable t) {
-        XpLog.log("[SpotifyPlusBridge] " + message + ": " + t.getClass().getSimpleName());
+        XpLog.log("[SpotifyPlusBridge] " + message + ": " + t.getClass().getSimpleName()
+                + " msg=" + describeMessage(t));
+    }
+
+    /**
+     * The exception's own message, flattened and bounded.
+     *
+     * <p>It is the half of a failure that names what was rejected - Android answers a provider call
+     * with no registered authority with {@code IllegalArgumentException: Unknown URI ...} - and it
+     * used to be dropped, leaving a run of identical lines that said only "IllegalArgumentException".
+     */
+    private static String describeMessage(Throwable t) {
+        if (t == null) return "";
+        String message = t.getMessage();
+        if (message == null) return "";
+        String flat = message.replace('\n', ' ').trim();
+        return flat.length() <= 160 ? flat : flat.substring(0, 160);
     }
 }
