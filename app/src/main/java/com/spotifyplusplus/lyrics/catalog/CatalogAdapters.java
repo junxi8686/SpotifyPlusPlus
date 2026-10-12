@@ -188,6 +188,11 @@ public final class CatalogAdapters {
             if (stored) {
                 doc.catalogCandidateId = candidate.candidateId;
                 doc.catalogDelivery = new CatalogDelivery(source, providerItemId, method, true);
+                // One line per arrival, after the write, so the log shows the round progressing:
+                // what landed, what it scores against everything stored so far, and whether it took
+                // the seat. Progressive re-ranking is otherwise invisible until the round ends.
+                CatalogDecisions.traceArrival(committed.before, policy, candidate,
+                        committed.change);
             }
             return stored;
         } catch (Throwable ignored) {

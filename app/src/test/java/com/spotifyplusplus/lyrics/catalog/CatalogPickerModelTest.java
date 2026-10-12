@@ -6,7 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.spotifyplusplus.lyrics.catalog.CatalogPickerModel.Row;
 import com.spotifyplusplus.lyrics.catalog.CatalogPickerModel.RowKind;
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver.Resolution;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.MatchMethod;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.ProviderStatus;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SelectionMode;
@@ -32,7 +32,7 @@ public class CatalogPickerModelTest {
     }
 
     private static Resolution auto(CatalogCandidate winner) {
-        return CatalogResolver.resolve(Collections.singletonList(winner), null);
+        return CatalogResolver.resolve(Collections.singletonList(winner), null, null);
     }
 
     private static Row sourceRow(List<Row> rows, SourceId source) {
@@ -116,6 +116,41 @@ public class CatalogPickerModelTest {
         assertEquals("Failed · tap to retry", lrclib.subtitle);
         assertTrue(lrclib.checkable);
         assertEquals(CatalogPickerModel.DataMark.EMPTY, lrclib.mark);
+    }
+
+    @Test
+    public void aStoredDocumentOutranksAFailedRefreshAttempt() {
+        // The row used to render the persisted per-source attempt record, so a single failed
+        // background refresh repainted a source whose document was on screen as "Failed" - which
+        // is what the owner saw: lyrics playing from SpicyLyrics.org while its row said it had
+        // failed. The row reports the document it holds now; a failure survives only where it is
+        // the truth, which is having nothing stored or holding something the renderer refuses.
+        CatalogCandidate lrclib = cand(SourceId.LRCLIB, TimingLevel.LINE);
+        Map<SourceId, ProviderStatus> states = new HashMap<>();
+        states.put(SourceId.LRCLIB, ProviderStatus.TRANSIENT_ERROR);
+
+        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(lrclib), states, null,
+                null);
+
+        Row row = sourceRow(rows, SourceId.LRCLIB);
+        assertTrue(row != null);
+        assertTrue("a stored document must not read as failed, got: " + row.subtitle,
+                row.subtitle.startsWith("Available"));
+        assertTrue(row.checkable == false);
+        assertEquals(CatalogPickerModel.DataMark.HAVE, row.mark);
+    }
+
+    @Test
+    public void aStoredDocumentWithNoAttemptRecordReadsAsAvailable() {
+        // The other half of the same rule: no record at all is not a failure either.
+        CatalogCandidate lrclib = cand(SourceId.LRCLIB, TimingLevel.LINE);
+        List<Row> rows = CatalogPickerModel.build(Collections.singletonList(lrclib),
+                Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
+
+        Row row = sourceRow(rows, SourceId.LRCLIB);
+        assertTrue(row != null);
+        assertTrue("a stored document must read as available, got: " + row.subtitle,
+                row.subtitle.startsWith("Available"));
     }
 
     @Test

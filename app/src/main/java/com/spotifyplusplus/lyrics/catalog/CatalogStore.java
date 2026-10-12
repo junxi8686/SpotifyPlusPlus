@@ -51,7 +51,7 @@ public final class CatalogStore {
             this.change = change;
         }
 
-        public CatalogResolver.Resolution resolution() {
+        public CatalogRanker.Resolution resolution() {
             return change == null ? null : change.resolution;
         }
     }

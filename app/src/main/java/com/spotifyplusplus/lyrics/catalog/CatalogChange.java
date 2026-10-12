@@ -1,6 +1,6 @@
 package com.spotifyplusplus.lyrics.catalog;
 
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver.Resolution;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
 
 import java.util.ArrayList;
 import java.util.Collections;

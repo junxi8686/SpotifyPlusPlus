@@ -26,6 +26,11 @@ public final class CatalogPolicy {
     public final boolean syncUpgradeEnabled;
     public final boolean spicyOrgTerminated;
     public final long spicyOrgAccessRevision;
+    /**
+     * True when the owner asked for a Chinese translation to count as a language match even though
+     * the track is not Chinese. Off means "prefer the original", the default.
+     */
+    public final boolean preferChineseTranslation;
 
     public CatalogPolicy(List<SourceId> enabledOrder, boolean sourceOrderMode) {
         this(enabledOrder, sourceOrderMode, false);
@@ -51,6 +56,15 @@ public final class CatalogPolicy {
     CatalogPolicy(List<SourceId> enabledOrder, boolean sourceOrderMode,
                   boolean karaokeOriginalLyrics, boolean syncUpgradeEnabled,
                   long spicyOrgKeyEpoch, boolean spicyOrgTerminated, long accessRevision) {
+        this(enabledOrder, sourceOrderMode, karaokeOriginalLyrics, syncUpgradeEnabled,
+                spicyOrgKeyEpoch, spicyOrgTerminated, accessRevision, false);
+    }
+
+    CatalogPolicy(List<SourceId> enabledOrder, boolean sourceOrderMode,
+                  boolean karaokeOriginalLyrics, boolean syncUpgradeEnabled,
+                  long spicyOrgKeyEpoch, boolean spicyOrgTerminated, long accessRevision,
+                  boolean preferChineseTranslation) {
+        this.preferChineseTranslation = preferChineseTranslation;
         this.spicyOrgTerminated = spicyOrgTerminated;
         this.spicyOrgAccessRevision = accessRevision;
         this.syncUpgradeEnabled = syncUpgradeEnabled;
@@ -81,6 +95,10 @@ public final class CatalogPolicy {
             // works". Automatic acquisition is a fresh request, not a cached replay, so it is
             // allowed to try and let the response decide; cached results stay hidden by
             // eligibleForDisplay() until the server confirms access again.
+            //
+            // Removing that skip was not enough on its own: sourceId() had no SPICY_ORG case, so
+            // the source the owner actually enables mapped to null here and never entered
+            // enabledOrder at all. See sourceId().
             if (mapped != null && !order.contains(mapped)) order.add(mapped);
         }
         return new CatalogPolicy(order, LyricsSourcePreferences.rankingMode(context)
@@ -90,7 +108,9 @@ public final class CatalogPolicy {
                 context != null && SpotifyPlusConfig.from(context).get(Settings.SYNC_UPGRADE),
                 com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore.epoch(context),
                 com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.isTerminated(context),
-                com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.revision(context));
+                com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.revision(context),
+                context != null && "Prefer Chinese translation".equals(
+                        SpotifyPlusConfig.from(context).get(Settings.LYRICS_LANGUAGE_PREFERENCE)));
     }
 
     public boolean enabled(SourceId source) {
@@ -144,6 +164,17 @@ public final class CatalogPolicy {
         if (source == null) return null;
         switch (source) {
             case SPICY:
+                // Retired desktop-token id that a stored order may still carry; it resolves to the
+                // one SpicyLyrics.org source that replaced it.
+                return SourceId.SPICY_ORG;
+            case SPICY_ORG:
+                // Was missing, so the only live SpicyLyrics.org preference fell through to null and
+                // was dropped from enabledOrder. That is the whole defect: the planner builds its
+                // source list from enabledOrder and eligibleForAuto() requires enabled(), so the
+                // source was never probed automatically and a stored result could never be elected -
+                // while the picker, which walks CatalogSource ids and never consults this mapping,
+                // checked it on tap and the fetch worked. One silent null, five sources competing
+                // and a sixth that only ever won a round it was alone in.
                 return SourceId.SPICY_ORG;
             case APPLE_MUSIC:
                 return SourceId.APPLE;
@@ -167,7 +198,14 @@ public final class CatalogPolicy {
         if (source == null) return null;
         switch (source) {
             case SPICY_ORG:
-                return LyricsSourcePreferences.Source.SPICY;
+                // Must be the live SPICY_ORG preference, not the retired SPICY alias.
+                //
+                // The repository turns this mapping back into a request label, and "Spicy" is the
+                // retired Apple Music (Lenerd) route while "Spicy Lyrics" is the personal-key v1
+                // request. With the alias in place, every automatic round that reached the ordered
+                // fetch asked Apple Music for SpicyLyrics.org's slot and stored the answer under
+                // APPLE - the source was in the plan and its result was attributed elsewhere.
+                return LyricsSourcePreferences.Source.SPICY_ORG;
             case APPLE:
                 return LyricsSourcePreferences.Source.APPLE_MUSIC;
             case SPOTIFY_NATIVE:

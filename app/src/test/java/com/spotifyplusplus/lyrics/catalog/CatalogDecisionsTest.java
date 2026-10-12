@@ -6,7 +6,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver.Resolution;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.MatchMethod;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.ProviderStatus;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SelectionMode;
@@ -152,6 +152,76 @@ public class CatalogDecisionsTest {
 
         assertEquals(first.candidateId, seat(after, AUTO));
         assertEquals(2, after.candidates.size());
+    }
+
+    // --- progressive re-ranking ---------------------------------------------------------------
+
+    /**
+     * The owner's progression rule, arrival by arrival: every stored answer is re-ranked against the
+     * whole round, the seat moves only for a strictly better one, and each step says what happened.
+     *
+     * <p>The totals are the table's, over a round where every row ends on the recording (duration
+     * rank 3) and none carries Han text: Apple 4 in-line + 3 + 1 complete + 2 exact = 10, AMLL 4 + 3 +
+     * 1 provider mapping = 9, LRCGET 2 line + 3 + 1 = 6, Spotify native 0 + 0 + 1 + 0 exempt = 1.
+     */
+    @Test
+    public void arrivalsReRankTheWholeRoundAndOnlyAStrictlyBetterOneMovesTheSeat() {
+        CatalogState state = CatalogState.empty(TRACK);
+
+        CatalogCandidate lrc = lrclib("lrc-1", "d1");
+        CatalogChange first = CatalogDecisions.providerSuccess(state, AUTO, lrc, null, NOW);
+        assertTrue(first.resolution.winner.candidateId.equals(lrc.candidateId));
+        assertEquals("the first answer is displayed at once, and says it took the seat",
+                "SpotifyPlusSpicy seat arrival source=lrclib total=6.00 rank=1/1 took=1"
+                        + " seat=lrclib previous=none moved=1 reason=" + first.resolution.reason,
+                CatalogDecisions.arrivalLine(state, AUTO, lrc, first));
+        state = apply(state, first);
+
+        CatalogCandidate amll = cand(SourceId.AMLL, TRACK, "d2", TimingLevel.WORD,
+                MatchMethod.EXACT_PROVIDER_MAPPING);
+        CatalogChange second = CatalogDecisions.providerSuccess(state, AUTO, amll, null, NOW);
+        assertTrue("a strictly better arrival takes the seat",
+                second.resolution.winner.candidateId.equals(amll.candidateId));
+        assertEquals("SpotifyPlusSpicy seat arrival source=amll total=9.00 rank=1/2 took=1"
+                        + " seat=amll previous=lrclib moved=1 reason=" + second.resolution.reason,
+                CatalogDecisions.arrivalLine(state, AUTO, amll, second));
+        state = apply(state, second);
+
+        CatalogCandidate best = apple("a1");
+        CatalogChange third = CatalogDecisions.providerSuccess(state, AUTO, best, null, NOW);
+        assertEquals("SpotifyPlusSpicy seat arrival source=apple total=10.00 rank=1/3 took=1"
+                        + " seat=apple previous=amll moved=1 reason=" + third.resolution.reason,
+                CatalogDecisions.arrivalLine(state, AUTO, best, third));
+        state = apply(state, third);
+
+        CatalogCandidate late = nativeStatic("n1");
+        CatalogChange fourth = CatalogDecisions.providerSuccess(state, AUTO, late, null, NOW);
+        assertTrue("a weaker late arrival is stored but does not displace the seat",
+                fourth.resolution.winner.candidateId.equals(best.candidateId));
+        assertEquals("and the line says exactly that: stored, ranked, and still behind",
+                "SpotifyPlusSpicy seat arrival source=spotify_native total=1.00 rank=4/4 took=0"
+                        + " seat=apple previous=apple moved=0 reason=" + fourth.resolution.reason,
+                CatalogDecisions.arrivalLine(state, AUTO, late, fourth));
+    }
+
+    /** A manual pin is displayed whatever arrives: the line reports the arrival, not a new seat. */
+    @Test
+    public void aManualPinIsNeverDisplacedByABetterAutomaticArrival() {
+        CatalogCandidate pinned = nativeStatic("n1");
+        CatalogState stored = success(CatalogState.empty(TRACK), AUTO, pinned);
+        CatalogSelection pin = new CatalogSelection(TRACK, SelectionMode.MANUAL,
+                pinned.candidateId, pinned.sourceId, TRACK, pinned.canonicalDigest);
+        CatalogState withPin = new CatalogState(TRACK, stored.candidates, stored.providers, pin,
+                null, true);
+
+        CatalogCandidate better = apple("a1");
+        CatalogChange change = CatalogDecisions.providerSuccess(withPin, AUTO, better, null, NOW);
+        assertEquals("the pin still renders", pinned.candidateId, change.resolution.winner.candidateId);
+        assertEquals("spotify_native", change.resolution.winner.sourceId.id);
+        assertTrue("while the better arrival is reported as scored and seated nowhere",
+                CatalogDecisions.arrivalLine(withPin, AUTO, better, change)
+                        .endsWith("took=0 seat=spotify_native previous=spotify_native moved=0"
+                                + " reason=" + change.resolution.reason));
     }
 
     // --- synced and unsynced bases ----------------------------------------------------------

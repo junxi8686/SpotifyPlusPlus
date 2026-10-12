@@ -1,6 +1,6 @@
 package com.spotifyplusplus.lyrics.catalog;
 
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver.Resolution;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.ProviderStatus;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SelectionMode;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId;
@@ -144,7 +144,7 @@ public final class CatalogPickerModel {
             rows.add(new Row(RowKind.AUTO, t.get("picker_row_auto_empty", "Auto · nothing stored yet"),
                     "", !manual, false, false, DataMark.NONE, "", null));
         }
-        Map<SourceId, CatalogCandidate> bestBySource = bestBySource(candidates);
+        Map<SourceId, CatalogCandidate> bestBySource = bestBySource(candidates, policy);
         if (manual && selection != null) {
             CatalogCandidate pinned = candidateById(candidates, selection.candidateId);
             if (pinned != null && pinned.sourceId != null) {
@@ -166,7 +166,7 @@ public final class CatalogPickerModel {
             if (best != null) {
                 rows.add(new Row(RowKind.SOURCE,
                         displaySource(source, t) + " · " + displayTiming(best, t),
-                        statusLine(best, status, t),
+                        statusLine(best, storedStatus(policy, best, status), t),
                         selected, true, false, DataMark.HAVE, best.candidateId, source));
             } else {
                 rows.add(new Row(RowKind.SOURCE, displaySource(source, t),
@@ -289,6 +289,29 @@ public final class CatalogPickerModel {
         }
     }
 
+    /**
+     * The status a row with a stored candidate reports: the document it holds.
+     *
+     * <p>The persisted record is only the outcome of the most recent attempt, and an attempt that
+     * failed does not remove the document an earlier success stored. Reading the record alone put
+     * "Failed" beside the SpicyLyrics.org row whose 54 syllable lines were the ones on screen - the
+     * background refresh had failed, the document it was refreshing was stored and rendering, and
+     * the row contradicted the lyrics under it. The row answers "does this source have lyrics for
+     * this track", and a displayable document answers Available whatever the last attempt returned.
+     *
+     * <p>The record still decides the rows for sources that stored nothing, where a failure is the
+     * whole truth - and for a stored document the renderer itself would refuse, which is not usable
+     * and must not be advertised as such. A null policy means the caller did not supply one, so the
+     * candidate's own gate stands in for it.
+     */
+    static ProviderStatus storedStatus(CatalogPolicy policy, CatalogCandidate candidate,
+                                       ProviderStatus attempted) {
+        if (candidate == null || candidate.normalizedDocument.isEmpty()) return attempted;
+        boolean displayable = policy == null ? candidate.hasValidProviderTiming()
+                : policy.eligibleForDisplay(candidate);
+        return displayable ? ProviderStatus.AVAILABLE : attempted;
+    }
+
     static String statusLine(CatalogCandidate candidate, ProviderStatus status) {
         return statusLine(candidate, status, Text.RAW);
     }
@@ -324,10 +347,21 @@ public final class CatalogPickerModel {
         }
     }
 
+    /**
+     * Each source's best stored candidate, under the same rule that decides the seat.
+     *
+     * <p>Routed through {@code CatalogRanker} so the row the picker marks best and the row Auto
+     * seats cannot come from different rules. They did once, while a setting chose between two
+     * algorithms: the seat followed the setting and the menu did not, so the owner saw two different
+     * answers for one track. One rule ships now, and the routing stays because it is what keeps that
+     * true if a second one ever returns.
+     */
     private static Map<SourceId, CatalogCandidate> bestBySource(
-            List<CatalogCandidate> candidates) {
+            List<CatalogCandidate> candidates, CatalogPolicy policy) {
         Map<SourceId, CatalogCandidate> best = new EnumMap<>(SourceId.class);
-        for (CatalogCandidate candidate : CatalogResolver.ranked(candidates)) {
+        List<CatalogCandidate> ranked = CatalogRanker.ranked(candidates,
+                policy == null ? null : policy.enabledOrder);
+        for (CatalogCandidate candidate : ranked) {
             if (candidate.sourceId != null && !best.containsKey(candidate.sourceId)) {
                 best.put(candidate.sourceId, candidate);
             }

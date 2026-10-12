@@ -1,6 +1,7 @@
 package com.spotifyplusplus.lyrics.catalog;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import com.spotifyplusplus.lyrics.LyricsDocument;
@@ -13,15 +14,19 @@ import com.spotifyplusplus.lyrics.session.CanonicalSourceCodec;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Collections;
 
 /**
  * The edition chosen between providers follows the script its lyrics are actually written in.
  *
- * <p>Translation comes first, as it did - {@code providedTextCount} leads the comparison. This is
- * the criterion that used to be missing: the per-provider ranking reads the script of the *title*,
- * but a catalogue can serve a Simplified track name and Traditional lines, and it is the lines that
- * get read. Without this the enum order decided, so whichever provider sat earlier won regardless
- * of what its text looked like.
+ * <p>The script leads it, and the graded component is why: a document with no Traditional-only
+ * character takes three points, a trace of them two, a fifth one, a Traditional edition none - while
+ * a complete provider translation is worth two. A fully translated Traditional edition therefore
+ * still finishes behind a plain Simplified one, which is the owner's intent: what gets read first is
+ * the text, and the translation is a companion to it. What is pinned here is also the criterion that
+ * used to be missing: the per-provider ranking reads the script of the *lines*, where a catalogue can
+ * serve a Simplified track name over Traditional lyrics. Without it the enum order decided, so
+ * whichever provider sat earlier won regardless of what its text looked like.
  */
 public class CatalogLyricsScriptTest {
 
@@ -34,35 +39,59 @@ public class CatalogLyricsScriptTest {
      * CanonicalSourceCodec record, so that was never the string the code reads - and when the
      * code began decoding, these tests failed, which is precisely the mistake they were meant to
      * catch. Building the real document is the only way they test anything.
+     *
+     * <p>{@code translation} writes a provider translation onto every line, because the ranking
+     * measures what a provider translated rather than whether one did: a row that claimed the flag
+     * with nothing behind it would score nothing for translation and these tests would be asserting
+     * the opposite of what they say.
      */
-    private static String encode(String lyrics) {
+    private static String encode(String lyrics, boolean translation) {
         LyricsDocument document = new LyricsDocument();
         document.trackId = "track";
         for (String part : lyrics.split("\n")) {
             LyricsLine line = new LyricsLine();
             line.text = part;
+            if (translation) {
+                line.providerTranslatedText = "translated: " + part;
+                line.providerTranslationLanguage = "en";
+            }
             document.lines.add(line);
         }
         return CanonicalSourceCodec.encode(document, 1, "digest", 0L);
     }
 
     private static CatalogCandidate cand(SourceId source, String lyrics, boolean translation) {
+        return cand(source, lyrics, translation, translation);
+    }
+
+    /**
+     * As above, with the provider translation flag stated separately from the coverage.
+     *
+     * <p>{@code translation} is what the row claims; {@code translatedDocument} is whether its lines
+     * actually carry one. The two differ so that the script grade can be measured with the
+     * translation portion of the total held equal between the pair being compared; otherwise a row
+     * that claimed a translation it does not have would make the comparison about the translation
+     * component instead of about the script.
+     */
+    private static CatalogCandidate cand(SourceId source, String lyrics, boolean translation,
+                                         boolean translatedDocument) {
         String id = source.id + "|item|d" + (nextId++) + "#" + nextId;
         return new CatalogCandidate(id, "track", source, "item", MatchMethod.STRONG_SEARCH, 0.9, 0L,
                 TimingLevel.WORD, true, true, translation, false, false, false, false,
-                "digest" + nextId, encode(lyrics), "[]", new byte[0], 1, 1, 0L);
+                "digest" + nextId, encode(lyrics, translatedDocument), "[]", new byte[0], 1, 1, 0L);
     }
 
     private static String winner(CatalogCandidate a, CatalogCandidate b) {
-        return CatalogResolver.resolve(Arrays.asList(a, b), null).winner.candidateId;
+        return CatalogResolver.resolve(Arrays.asList(a, b), null,
+                Collections.<SourceId>emptyList()).winner.candidateId;
     }
 
     @Test
     public void simplifiedLyricsBeatTraditionalOnesWhoseProviderRanksEarlier() {
         // QQ sits earlier in the enum than NetEase, so before this criterion QQ's Traditional text
         // won on provider order alone.
-        CatalogCandidate traditional = cand(SourceId.QQ, "[00:01.00]離開地球表面", false);
-        CatalogCandidate simplified = cand(SourceId.NETEASE, "[00:01.00]离开地球表面", false);
+        CatalogCandidate traditional = cand(SourceId.QQ, "[00:01.00]離開地球表面說好的幸福呢", false);
+        CatalogCandidate simplified = cand(SourceId.NETEASE, "[00:01.00]离开地球表面说好的幸福呢", false);
         assertEquals("the Simplified edition must win",
                 simplified.candidateId, winner(traditional, simplified));
         assertEquals("and symmetrically",
@@ -72,18 +101,42 @@ public class CatalogLyricsScriptTest {
     @Test
     public void aPartlyTraditionalEditionLosesToAFullySimplifiedOne() {
         // Both contain some Traditional text; only the share can order them.
-        CatalogCandidate partly = cand(SourceId.QQ, "[00:01.00]離開地球表面 我们都一样", false);
-        CatalogCandidate clean = cand(SourceId.NETEASE, "[00:01.00]离开地球表面 我们都一样", false);
+        CatalogCandidate partly = cand(SourceId.QQ, "[00:01.00]離開地球表面說好的幸福呢 我们都一样", false);
+        CatalogCandidate clean = cand(SourceId.NETEASE, "[00:01.00]离开地球表面说好的幸福呢 我们都一样", false);
         assertEquals(clean.candidateId, winner(partly, clean));
     }
 
     @Test
-    public void translationStillOutranksScript() {
-        // The owner asked for translation first, and that order must not be disturbed by this.
-        CatalogCandidate translated = cand(SourceId.QQ, "[00:01.00]離開地球表面", true);
-        CatalogCandidate plain = cand(SourceId.NETEASE, "[00:01.00]离开地球表面", false);
-        assertEquals("translation wins even when its script is the less preferred one",
-                translated.candidateId, winner(translated, plain));
+    public void scriptOutranksAFullTranslation() {
+        // The worked pair for the two components between them. A fully translated Traditional
+        // document scores 4 fill + 0 script + 2 translation + 3 duration + 1 complete = 10 against
+        // the untranslated Simplified one's 4 + 5 + 0 + 3 + 1 = 13, so the script grade wins even
+        // against a complete translation - the ordering the owner set when the script component
+        // became worth up to five and the translation stayed worth two. Both rows are search
+        // matches, so neither collects the match points.
+        CatalogCandidate translated = cand(SourceId.QQ, "[00:01.00]離開地球表面說好的幸福呢", true);
+        CatalogCandidate plain = cand(SourceId.NETEASE, "[00:01.00]离开地球表面说好的幸福呢", false);
+        assertEquals("the plain Simplified row is three points ahead",
+                CatalogResolver.score(translated) + 3, CatalogResolver.score(plain), 0.0001d);
+        assertEquals("so it wins even though the translated row carries a full translation",
+                plain.candidateId, winner(translated, plain));
+    }
+
+    @Test
+    public void scriptOnlyDecidesWhenTheRestOfTheTableIsLevel() {
+        // The script grade is the only thing between these two, because both editions carry the same
+        // full translation and the same source - so the whole grade is the difference, and the seat
+        // is the Simplified edition's whichever provider serves it.
+        CatalogCandidate traditional = cand(SourceId.NETEASE, "[00:01.00]離開地球表面說好的幸福呢", true, true);
+        CatalogCandidate simplified = cand(SourceId.NETEASE, "[00:01.00]离开地球表面说好的幸福呢", true, true);
+        assertTrue(CatalogResolver.lyricsTraditionalShare(traditional) > 0d);
+        assertEquals(0.0d, CatalogResolver.lyricsTraditionalShare(simplified), 0.0001d);
+        assertEquals("the whole script grade, nothing else",
+                CatalogResolver.score(simplified) - CatalogResolver.POINTS_SIMPLIFIED_MAX,
+                CatalogResolver.score(traditional), 0.0001d);
+        assertEquals("so the Simplified edition takes the seat",
+                simplified.candidateId, winner(traditional, simplified));
+        assertEquals("and symmetrically", simplified.candidateId, winner(simplified, traditional));
     }
 
     @Test
@@ -92,16 +145,28 @@ public class CatalogLyricsScriptTest {
         // lose to everything. 0 here means "nothing to prefer".
         assertTrue(CatalogResolver.lyricsTraditionalShare(
                 cand(SourceId.QQ, "[00:01.00]Darling won't you break my heart", false)) == 0.0d);
-        // It is also what a fully Simplified document measures, so those two are indistinguishable
-        // on script and the remaining criteria decide between them. Stated here rather than left
-        // implicit, because it is a real consequence: an English edition and a Simplified one are
-        // not ordered against each other by this criterion, only a Traditional one is pushed down.
         assertTrue(CatalogResolver.lyricsTraditionalShare(
-                cand(SourceId.NETEASE, "[00:01.00]离开地球表面", false)) == 0.0d);
+                cand(SourceId.NETEASE, "[00:01.00]离开地球表面说好的幸福呢", false)) == 0.0d);
+
+        // What that zero does and does not buy. A Latin document pays nothing for script even though
+        // it measures the same zero share, while a Simplified one takes the full grade - so an
+        // English edition and a Simplified one are level on the measurement and three points apart
+        // on the component: 0 is "no preference against you", not "the same as the preferred
+        // script", and certainly not a perfect score for having no Han character to measure.
         CatalogCandidate english = cand(SourceId.QQ, "[00:01.00]Take me hand", false);
-        CatalogCandidate simplified = cand(SourceId.NETEASE, "[00:01.00]离开地球表面", false);
-        assertEquals("with no script reason to choose, the earlier provider still decides",
-                english.candidateId, winner(english, simplified));
+        CatalogCandidate simplified = cand(SourceId.NETEASE, "[00:01.00]离开地球表面说好的幸福呢", false);
+        assertFalse("Latin text is not Simplified Chinese",
+                CatalogResolver.isSimplifiedChinese(english));
+        assertEquals("so its script component pays nothing", 0,
+                CatalogResolver.points(english).script);
+        assertEquals("and the Simplified row's takes the maximum",
+                CatalogResolver.POINTS_SIMPLIFIED_MAX, CatalogResolver.points(simplified).script);
+        assertEquals("which is the only component between them",
+                CatalogResolver.score(english) + CatalogResolver.POINTS_SIMPLIFIED_MAX,
+                CatalogResolver.score(simplified), 0.0001d);
+        assertEquals("so the Simplified edition wins even though QQ leads the provider list",
+                simplified.candidateId, winner(english, simplified));
+        assertEquals("and symmetrically", simplified.candidateId, winner(simplified, english));
     }
 
     @Test

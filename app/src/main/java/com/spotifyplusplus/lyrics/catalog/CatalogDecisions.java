@@ -1,14 +1,16 @@
 package com.spotifyplusplus.lyrics.catalog;
 
 import com.spotifyplusplus.lyrics.catalog.CatalogLegacyImport.LegacyPick;
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver.Resolution;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.ProviderStatus;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SelectionMode;
 import com.spotifyplusplus.lyrics.catalog.CatalogSource.SourceId;
+import com.spotifyplusplus.xposed.XpLog;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * The catalog's only decision logic. Every event (provider answer, user command, settings change,
@@ -36,7 +38,7 @@ public final class CatalogDecisions {
         if (selection != null && selection.mode == SelectionMode.MANUAL) {
             CatalogCandidate pinned = byId(candidates, selection.candidateId);
             if (p.eligibleForDisplay(pinned)) {
-                return CatalogResolver.resolve(Collections.singletonList(pinned), selection);
+                return CatalogRanker.resolve(Collections.singletonList(pinned), selection, null, p);
             }
             if (selection.candidateId.isEmpty() && selection.sourceId != null) {
                 // A source-level pin (imported from a per-track source override) renders that
@@ -45,7 +47,7 @@ public final class CatalogDecisions {
                 for (CatalogCandidate candidate : candidates) {
                     if (candidate.sourceId == selection.sourceId && p.eligibleForDisplay(candidate)) fromSource.add(candidate);
                 }
-                Resolution best = CatalogResolver.resolve(fromSource, null);
+                Resolution best = CatalogRanker.resolve(fromSource, null, null, p);
                 if (best.winner != null) {
                     return new Resolution(best.winner, "manual-source:" + best.reason, false);
                 }
@@ -81,13 +83,20 @@ public final class CatalogDecisions {
             return CatalogChange.refused(render(state, policy), "invalid-candidate");
         }
         if (candidate.sourceId == SourceId.SPICY_ORG) {
-            if (policy != null && policy.spicyOrgTerminated)
+            if (policy != null && policy.spicyOrgTerminated) {
+                XpLog.log("SpotifyPlusSpicy store refused source=spicy_org reason=org-access-terminated"
+                        + " track=" + candidate.trackId);
                 return CatalogChange.refused(render(state, policy), "org-access-terminated");
+            }
             if (com.spotifyplusplus.lyrics.providers.SpicyOrgPolicy.expiredAt(candidate.fetchedAtMs, nowMs)) {
+                XpLog.log("SpotifyPlusSpicy store refused source=spicy_org reason=expired-org-response"
+                        + " track=" + candidate.trackId);
                 return CatalogChange.refused(render(state, policy), "expired-org-response");
             }
             for (CatalogCandidate existing : state.candidates) {
                 if (existing.sourceId == SourceId.SPICY_ORG && existing.fetchedAtMs > candidate.fetchedAtMs) {
+                    XpLog.log("SpotifyPlusSpicy store refused source=spicy_org"
+                            + " reason=stale-org-response track=" + candidate.trackId);
                     return CatalogChange.refused(render(state, policy), "stale-org-response");
                 }
             }
@@ -253,16 +262,132 @@ public final class CatalogDecisions {
     private static Resolution auto(List<CatalogCandidate> candidates, CatalogCandidate incumbent,
                                    CatalogPolicy policy) {
         List<CatalogCandidate> eligible = new ArrayList<>();
+        List<String> dropped = new ArrayList<>();
         if (candidates != null) {
             for (CatalogCandidate candidate : candidates) {
-                if (policy.eligibleForAuto(candidate)) eligible.add(candidate);
+                if (policy.eligibleForAuto(candidate)) {
+                    eligible.add(candidate);
+                } else if (candidate.sourceId != null
+                        && !containsSource(dropped, candidate.sourceId)) {
+                    // A stored result the automatic seat refuses, with the reason. Without this the
+                    // decision trace simply omits the source and the round is indistinguishable
+                    // from one where it was never configured or never answered.
+                    dropped.add(candidate.sourceId + ":" + ineligibleReason(policy, candidate));
+                }
             }
         }
         CatalogCandidate eligibleIncumbent = incumbent != null && policy.eligibleForAuto(incumbent)
                 ? incumbent : null;
-        return CatalogResolver.resolveConfigured(eligible, CatalogSelection.auto(""), eligibleIncumbent,
-                policy.enabledOrder, policy.sourceOrderMode);
+        if (!dropped.isEmpty()) traceIneligible(eligible, dropped);
+        return CatalogRanker.resolveConfigured(eligible, CatalogSelection.auto(""), eligibleIncumbent,
+                policy, policy.enabledOrder, policy.sourceOrderMode);
     }
+
+    private static boolean containsSource(List<String> dropped, SourceId source) {
+        for (String entry : dropped) {
+            if (entry.startsWith(source + ":")) return true;
+        }
+        return false;
+    }
+
+    /** The first policy rule that excluded this candidate, in the order {@code eligibleForAuto} applies. */
+    private static String ineligibleReason(CatalogPolicy policy, CatalogCandidate candidate) {
+        if (!candidate.hasValidProviderTiming()) return "provider-timing-invalid";
+        if (candidate.sourceId == SourceId.SPICY_ORG && policy.spicyOrgTerminated) {
+            return "org-access-terminated";
+        }
+        if (!policy.enabled(candidate.sourceId)) return "not-enabled";
+        return "karaoke-substitution-off";
+    }
+
+    private static void traceIneligible(List<CatalogCandidate> eligible, List<String> dropped) {
+        try {
+            StringBuilder line = new StringBuilder("SpotifyPlusSpicy auto dropped=");
+            for (int i = 0; i < dropped.size(); i++) {
+                if (i > 0) line.append(' ');
+                line.append(dropped.get(i));
+            }
+            line.append(" eligible=").append(eligible.size());
+            String text = line.toString();
+            // Resolving is frequent - every render, commit, and picker tick - and a round that
+            // drops the same sources again is not new information. Only a change is printed.
+            if (text.equals(lastDroppedLine)) return;
+            lastDroppedLine = text;
+            XpLog.log(text);
+        } catch (Throwable ignored) {
+            // A trace must never change the decision it describes.
+        }
+    }
+
+    /** Last line printed by {@link #traceIneligible}; identical repeats are suppressed. */
+    private static volatile String lastDroppedLine = "";
+
+    /**
+     * One line per provider answer, so the owner can watch the round progress: what arrived, what it
+     * scores against everything stored so far, where it placed, and whether the seat moved.
+     *
+     * <p>The seat is defended by {@link CatalogResolver#strictlyBetterRank}, which is why a later
+     * arrival can score higher and still not move it - a provider listed earlier only takes the seat
+     * at an equal total, and never at a lower one. The line prints both halves of that: {@code took}
+     * says whether this arrival is the seat now, {@code moved} whether the seat changed source.
+     *
+     * <p>Printed after the transaction commits, so a refused or failed write prints nothing rather
+     * than a seat that was never stored.
+     */
+    static String arrivalLine(CatalogState before, CatalogPolicy policy, CatalogCandidate arriving,
+                              CatalogChange change) {
+        if (arriving == null) return "";
+        CatalogPolicy p = policy == null ? new CatalogPolicy(null, false) : policy;
+        List<CatalogCandidate> round = new ArrayList<>();
+        if (before != null && before.candidates != null) round.addAll(before.candidates);
+        boolean known = false;
+        for (CatalogCandidate candidate : round) {
+            if (candidate != null && arriving.candidateId.equals(candidate.candidateId)) known = true;
+        }
+        if (!known) round.add(arriving);
+        List<CatalogResolver.Points> sorted = CatalogResolver.sortedPoints(round, p.enabledOrder);
+        int rank = 0;
+        double total = 0d;
+        for (int i = 0; i < sorted.size(); i++) {
+            if (arriving.candidateId.equals(sorted.get(i).candidate.candidateId)) {
+                rank = i + 1;
+                total = sorted.get(i).total;
+                break;
+            }
+        }
+        CatalogRanker.Resolution resolution = change == null ? null : change.resolution;
+        CatalogCandidate winner = resolution == null ? null : resolution.winner;
+        CatalogSelection previous = before == null ? null : before.selection;
+        boolean took = winner != null && arriving.candidateId.equals(winner.candidateId);
+        boolean moved = winner != null
+                && (previous == null || !winner.candidateId.equals(previous.candidateId));
+        return "SpotifyPlusSpicy seat arrival source=" + arriving.sourceId
+                + " total=" + String.format(Locale.ROOT, "%.2f", total)
+                + " rank=" + rank + "/" + sorted.size()
+                + " took=" + (took ? 1 : 0)
+                + " seat=" + (winner == null ? "none" : winner.sourceId.id)
+                + " previous=" + (previous == null || previous.sourceId == null
+                        ? "none" : previous.sourceId.id)
+                + " moved=" + (moved ? 1 : 0)
+                + " reason=" + (resolution == null ? "" : resolution.reason);
+    }
+
+    static void traceArrival(CatalogState before, CatalogPolicy policy, CatalogCandidate arriving,
+                             CatalogChange change) {
+        try {
+            String line = arrivalLine(before, policy, arriving, change);
+            // The same answer re-stored for the same seat is not new information, and a cache replay
+            // can commit an identical candidate repeatedly.
+            if (line.isEmpty() || line.equals(lastArrivalLine)) return;
+            lastArrivalLine = line;
+            XpLog.log(line);
+        } catch (Throwable ignored) {
+            // A trace must never change the decision it describes.
+        }
+    }
+
+    /** Last line printed by {@link #traceArrival}; identical repeats are suppressed. */
+    private static volatile String lastArrivalLine = "";
 
     private static CatalogCandidate byId(List<CatalogCandidate> candidates, String candidateId) {
         if (candidates == null || candidateId == null || candidateId.isEmpty()) return null;

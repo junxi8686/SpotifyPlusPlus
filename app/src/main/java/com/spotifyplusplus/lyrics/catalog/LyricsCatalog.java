@@ -4,7 +4,7 @@ import android.content.Context;
 
 import com.spotifyplusplus.SpotifyTrack;
 import com.spotifyplusplus.lyrics.LyricsDocument;
-import com.spotifyplusplus.lyrics.catalog.CatalogResolver.Resolution;
+import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
 import com.spotifyplusplus.lyrics.session.CanonicalSourceCache;
 import com.spotifyplusplus.lyrics.session.CanonicalSourceCodec;
 import com.spotifyplusplus.lyrics.session.LyricsSourcePreferences;

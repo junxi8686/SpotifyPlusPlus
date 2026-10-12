@@ -17,8 +17,11 @@ public final class CatalogSource {
     }
 
     /**
-     * Provider identity. Declaration order is the automatic tie-break order: Apple, Spotify
-     * native, AMLL, LRCLIB, QQ, NetEase.
+     * Provider identity. Declaration order here is not the automatic tie-break: a tie falls to the
+     * owner's configured source order, and behind it to the fixed list in {@code CatalogResolver} -
+     * SpicyLyrics.org, Spotify native, AMLL, LRCLIB, QQ, NetEase - which is v1.1's order with the
+     * slot the retired Apple route held at the head taken by SpicyLyrics.org. {@code APPLE} stays a
+     * constant for stored routes, pins and orders, and is on neither list.
      */
     public enum SourceId {
         SPICY_ORG("spicy_org"),
@@ -51,7 +54,11 @@ public final class CatalogSource {
         }
     }
 
-    /** Actual timing a candidate carries. Ordinal is comparison rank: lower wins. */
+    /**
+     * Actual timing a candidate carries. Declaration order is the document-type order, syllable to
+     * unsynced, and it is the automatic ranking for every document except one written in Han - see
+     * {@link #comparisonRank(boolean)}.
+     */
     public enum TimingLevel {
         SYLLABLE,
         WORD,
@@ -65,16 +72,37 @@ public final class CatalogSource {
             return UNSYNCED;
         }
 
+        /** True for the two tiers whose fill advances span by span inside the line. */
+        public boolean isInLine() {
+            return this == SYLLABLE || this == WORD;
+        }
+
+        /**
+         * The rank the automatic comparison orders this tier by, for a document whose own text is
+         * either Han or not.
+         *
+         * <p>For a Han document the two in-line tiers are one rank: both name a fill that advances
+         * one character at a time, which is what every provider here emits and what the picker's
+         * Chinese label already calls 逐字. If {@code hanText} is false the declaration order stands,
+         * because Latin word timing is genuinely finer than Latin syllable timing. The caller
+         * supplies the script rather than this enum reading the document, which is what keeps the
+         * decision where the document is.
+         */
+        public int comparisonRank(boolean hanText) {
+            if (hanText && isInLine()) return SYLLABLE.ordinal();
+            return ordinal();
+        }
+
         /**
          * Whether a seat at this timing is good enough to stop searching.
          *
-         * <p>The threshold is {@link #WORD}, not {@link #LINE}. Apple is asked first and is the
-         * strongest source, so a track where Apple did not reach {@link #SYLLABLE} has nothing
-         * better than {@link #WORD} behind it, and word-level spans are near-equivalent to
-         * syllable-level for karaoke fill. Stopping at {@code LINE} instead parked the majority of
-         * tracks on line timing and made the four-level ranking a three-level one: a
-         * {@code LINE} seat sealed the search, so a {@code WORD} or {@code SYLLABLE} document from
-         * another source was never requested. Devices showed the same song at different quality
+         * <p>The threshold is {@link #WORD}, not {@link #LINE}. SpicyLyrics.org is asked first and
+         * holds the head of the provider tie-break list, so a track where it did not reach
+         * {@link #SYLLABLE} has nothing better than {@link #WORD} behind it, and word-level spans
+         * are near-equivalent to syllable-level for karaoke fill. Stopping at {@code LINE} instead
+         * parked the majority of tracks on line timing and made the four-level ranking a three-level
+         * one: a {@code LINE} seat sealed the search, so a {@code WORD} or {@code SYLLABLE} document
+         * from another source was never requested. Devices showed the same song at different quality
          * purely because a different source happened to answer first.
          *
          * <p>{@link #LINE} and {@link #UNSYNCED} therefore keep the search open. They are still
@@ -85,7 +113,14 @@ public final class CatalogSource {
         }
     }
 
-    /** How a candidate was matched to the track. */
+    /**
+     * How a candidate was matched to the track.
+     *
+     * <p>The resolver reads this for two things and nothing else: a {@link #WEAK} match is refused
+     * before scoring, and the ranking pays for an exact match on every source except Spotify's own,
+     * which is handed the Spotify id and looks the track up by it. See
+     * {@code CatalogResolver.matchPoints} and {@code CatalogResolver.exactMatchIsEvidence}.
+     */
     public enum MatchMethod {
         EXACT_SPOTIFY_ID,
         EXACT_PROVIDER_MAPPING,

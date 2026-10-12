@@ -50,13 +50,54 @@ public class AcquisitionPlannerTest {
         assertEquals(Collections.singletonList(SourceId.APPLE), backup.scope.sources);
     }
 
-    @Test public void completeOrgLineAndStaticSuppressAllOtherSourcesFreshOrCached() {
+    @Test public void aHeldSeatDoesNotSuppressTheRemainingDueSources() {
+        // The reported bug, as a rule: the first answer used to take the seat and mark every other
+        // source settled-behind-seat for a day, so a wrong-language, untranslated winner stayed on
+        // screen with nothing else ever asked. A seat is now only a reason to have something to
+        // display while the round keeps running, so the next due source in the owner's order is
+        // asked even though a seat is held.
         for (TimingLevel timing : TimingLevel.values()) {
             CatalogCandidate org = candidate(SourceId.SPICY_ORG, timing, true);
-            assertFalse(plan(state(org), AUTO, true).fetches());
-            assertFalse(plan(state(org, answered(SourceId.SPICY_ORG, ProviderStatus.AVAILABLE,
-                    NOW, 0)), AUTO, false).fetches());
+            CatalogState seated = state(org);
+            assertEquals("a seated org answer still leaves every other source to ask",
+                    Collections.singletonList(SourceId.APPLE), plan(seated, AUTO, true).scope.sources);
+            assertEquals("and the walk says why it is asking",
+                    "seat-refresh", plan(seated, AUTO, true).reason);
+            Plan racing = AcquisitionPlanner.racePlan(seated, AUTO,
+                    CatalogDecisions.render(seated, AUTO), NOW, true, Collections.emptySet());
+            assertTrue("the race asks every source that has not answered: " + racing.scope.sources,
+                    racing.scope.sources.contains(SourceId.APPLE));
+            assertTrue(racing.scope.sources.contains(SourceId.LRCLIB));
+            assertTrue(racing.scope.sources.contains(SourceId.QQ));
+            assertFalse("but never the source that already answered",
+                    racing.scope.sources.contains(SourceId.SPICY_ORG));
         }
+    }
+
+    @Test public void everyEnabledSourceIsAskedButEachOnlyOncePerRound() {
+        // Progressive acquisition multiplied by a round: the race asks all unanswered sources, and a
+        // source that has answered is not asked again - its own record makes it due only at its
+        // refresh horizon. Nothing about this loop can spin: after the round every source is either
+        // answered, refused with a horizon, or attempted.
+        CatalogCandidate org = candidate(SourceId.SPICY_ORG, TimingLevel.LINE, true);
+        CatalogState stored = state(org);
+        Plan race = AcquisitionPlanner.racePlan(stored, AUTO, CatalogDecisions.render(stored, AUTO),
+                NOW, true, Collections.emptySet());
+        assertEquals(Arrays.asList(SourceId.APPLE, SourceId.SPOTIFY_NATIVE, SourceId.LRCLIB,
+                SourceId.AMLL, SourceId.QQ, SourceId.NETEASE), race.scope.sources);
+        assertEquals("race-due-sources", race.reason);
+
+        // The same round once every one of them has answered.
+        Plan done = AcquisitionPlanner.racePlan(state(org,
+                        answered(SourceId.APPLE, ProviderStatus.AVAILABLE, NOW, 0),
+                        answered(SourceId.SPOTIFY_NATIVE, ProviderStatus.AVAILABLE, NOW, 0),
+                        answered(SourceId.LRCLIB, ProviderStatus.AVAILABLE, NOW, 0),
+                        answered(SourceId.AMLL, ProviderStatus.AVAILABLE, NOW, 0),
+                        answered(SourceId.QQ, ProviderStatus.AVAILABLE, NOW, 0),
+                        answered(SourceId.NETEASE, ProviderStatus.AVAILABLE, NOW, 0)),
+                AUTO, CatalogDecisions.render(state(org), AUTO), NOW, false, Collections.emptySet());
+        assertFalse("nothing is left to ask", done.fetches());
+        assertEquals("round-complete", done.reason);
     }
 
     @Test public void lowerCachedSeatCannotSuppressEarlierEligiblePrimary() {
@@ -68,34 +109,43 @@ public class AcquisitionPlannerTest {
                 plan(state(fallback), AUTO, true).scope.sources);
     }
 
-    @Test public void completeBackupStopsOnceEarlierRouterUnavailable() {
+    @Test public void aSeatedBackupNoLongerStopsTheRestOfTheRoundButItsRetryHorizonSurvives() {
+        // The seat used to end the round here. It no longer does: the source still in its transient
+        // backoff is not due, and the next enabled source that has never been asked is.
         CatalogCandidate apple = candidate(SourceId.APPLE, TimingLevel.UNSYNCED, true);
-        Plan after = plan(state(apple, answered(SourceId.SPICY_ORG,
-                ProviderStatus.TRANSIENT_ERROR, NOW, 1)), AUTO, true);
-        assertFalse(after.fetches());
-        assertEquals(NOW + AcquisitionPlanner.TRANSIENT_BASE_RETRY_MS, after.retryAtMs);
+        Plan after = plan(state(apple,
+                answered(SourceId.APPLE, ProviderStatus.AVAILABLE, NOW, 0),
+                answered(SourceId.SPICY_ORG, ProviderStatus.TRANSIENT_ERROR, NOW, 1)), AUTO, true);
+        assertEquals(Collections.singletonList(SourceId.SPOTIFY_NATIVE), after.scope.sources);
+        assertEquals("and the failed source's own horizon is still reported",
+                NOW + AcquisitionPlanner.TRANSIENT_BASE_RETRY_MS, after.retryAtMs);
     }
 
-    @Test public void syncUpgradeOnlyProbesEligibleDonorsAndNeverReasksAvailableDonor() {
+    @Test public void syncUpgradeNoLongerGatesAcquisitionAndNeverReasksAnAnsweredDonor() {
+        // The setting decides whether donor timing is used, not whether donor candidates are
+        // fetched: with progressive re-ranking every enabled source is a candidate for the seat, and
+        // a source that has answered is only due again at its own refresh horizon.
         CatalogPolicy enabled = new CatalogPolicy(AUTO.enabledOrder, false, false, true);
         CatalogCandidate org = candidate(SourceId.SPICY_ORG, TimingLevel.LINE, true);
-        assertFalse(plan(state(org), AUTO, true).fetches());
-        assertEquals(Collections.singletonList(SourceId.QQ), plan(state(org), enabled, true).scope.sources);
-        Plan next = plan(state(org, answered(SourceId.QQ, ProviderStatus.AVAILABLE, NOW, 0)), enabled, true);
-        assertEquals(Collections.singletonList(SourceId.NETEASE), next.scope.sources);
-        assertFalse(plan(state(org, answered(SourceId.QQ, ProviderStatus.AVAILABLE, NOW, 0),
-                answered(SourceId.NETEASE, ProviderStatus.AVAILABLE, NOW, 0)), enabled, true).fetches());
+        assertEquals("the next unasked source in order, setting or not",
+                Collections.singletonList(SourceId.APPLE), plan(state(org), enabled, true).scope.sources);
+        assertEquals(Collections.singletonList(SourceId.APPLE), plan(state(org), AUTO, true).scope.sources);
+        assertEquals("an answered donor is behind its horizon, so the walk moves past it",
+                Collections.singletonList(SourceId.APPLE),
+                plan(state(org, answered(SourceId.QQ, ProviderStatus.AVAILABLE, NOW, 0)),
+                        enabled, true).scope.sources);
     }
 
-    @Test public void partialPrimaryStaysSeatedDuringOptInTimingUpgrade() {
+    @Test public void partialPrimaryKeepsTheSeatWhileTheRoundContinues() {
         CatalogCandidate org = candidate(SourceId.SPICY_ORG, TimingLevel.WORD, false);
         CatalogState stored = state(org);
-        assertFalse(plan(stored, AUTO, true).fetches());
+        assertEquals("the incomplete org answer is still displayed",
+                Collections.singletonList(SourceId.APPLE), plan(stored, AUTO, true).scope.sources);
         CatalogPolicy upgrade = new CatalogPolicy(AUTO.enabledOrder, false, false, true);
         Plan next = plan(stored, upgrade, true);
-        assertEquals(Collections.singletonList(SourceId.QQ), next.scope.sources);
-        assertEquals("sync-upgrade-probe", next.reason);
-        assertSame(org, CatalogDecisions.render(stored, upgrade).winner);
+        assertEquals(Collections.singletonList(SourceId.APPLE), next.scope.sources);
+        assertEquals("seat-refresh", next.reason);
+        assertSame("and it is not displaced by a plan", org, CatalogDecisions.render(stored, upgrade).winner);
     }
 
     @Test public void manualPinSuppressesAutomaticAcquisition() {
@@ -187,12 +237,17 @@ public class AcquisitionPlannerTest {
                 AUTO, CatalogDecisions.render(failed, AUTO), NOW, false, attempted).scope.sources);
     }
 
-    @Test public void completedOrgStillSuppressesUnattemptedBackupsDuringDueRefreshRetry() {
+    @Test public void anOrgRefreshStillRunsOnceTheOtherSourcesAreSettled() {
+        // The org soft refresh is unchanged by the seat rule. What changed is the company it keeps:
+        // an unattempted backup is now asked first, which is the progressive behaviour the owner
+        // asked for, so the refresh runs when nothing else is left due.
+        CatalogPolicy two = new CatalogPolicy(Arrays.asList(SourceId.SPICY_ORG, SourceId.APPLE), false);
         CatalogCandidate org = candidate(SourceId.SPICY_ORG, TimingLevel.LINE, true,
                 NOW - 22L * 24 * 60 * 60 * 1000);
-        CatalogState stored = state(org, answered(SourceId.SPICY_ORG,
-                ProviderStatus.TRANSIENT_ERROR, NOW - 60_000, 1));
-        Plan next = AcquisitionPlanner.plan(stored, AUTO, CatalogDecisions.render(stored, AUTO),
+        CatalogState stored = state(org,
+                answered(SourceId.APPLE, ProviderStatus.AVAILABLE, NOW, 0),
+                answered(SourceId.SPICY_ORG, ProviderStatus.TRANSIENT_ERROR, NOW - 60_000, 1));
+        Plan next = AcquisitionPlanner.plan(stored, two, CatalogDecisions.render(stored, two),
                 NOW, true, EnumSet.of(SourceId.SPICY_ORG));
         assertEquals(Collections.singletonList(SourceId.SPICY_ORG), next.scope.sources);
         assertEquals("org-refresh", next.reason);
