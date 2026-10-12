@@ -109,6 +109,11 @@ final class NativeLyricsNetworkHook {
             }
             XpHooks.hookAllMethods(body, "string", "lyrics:net:ResponseBody#string",
                     (XpHooks.After) param -> capture(param.thisObject, param.getResult()));
+            // Spotify does not always read a lyrics body: a cached or superseded response is just
+            // closed, and then nothing clears the pairing entry - the map keeps the whole
+            // ResponseBody alive for the process lifetime, once per unread response.
+            XpHooks.hookAllMethods(body, "close", "lyrics:net:ResponseBody#close",
+                    (XpHooks.After) param -> forgetPending(param.thisObject));
             XpHooks.hookAllMethods(body, "bytes", "lyrics:net:ResponseBody#bytes",
                     (XpHooks.After) param -> {
                         Object result = param.getResult();
@@ -121,6 +126,11 @@ final class NativeLyricsNetworkHook {
         } catch (Throwable t) {
             XpLog.log(TAG + " response body hook failed: " + t);
         }
+    }
+
+    /** Releases a paired body when the host closes it without reading the payload. */
+    static void forgetPending(Object body) {
+        if (body != null) PENDING.remove(body);
     }
 
     private static void capture(Object body, Object payload) {

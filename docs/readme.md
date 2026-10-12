@@ -12,7 +12,7 @@
 
 **简体中文** · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
 
-![版本 1.4](https://img.shields.io/badge/release-1.4-blue) ![许可 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![版本 1.5](https://img.shields.io/badge/release-1.5-blue) ![许可 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -21,7 +21,7 @@
 ## 目录
 
 - [这是什么](#这是什么)
-- [1.4 新增与修复](#14-新增与修复)
+- [1.5 新增与修复](#15-新增与修复)
 - [歌词是怎么选出来的](#歌词是怎么选出来的)
 - [分级比较与打分比较](#分级比较与打分比较)
 - [功能](#功能)
@@ -39,7 +39,7 @@
 
 ## 这是什么
 
-Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 [Spicy EX](https://github.com/amarinne/spicy-ex)（作者 [amarinne](https://github.com/amarinne)）修改而来，主要面向中文用户。它接管 Spotify 的歌词界面：同时向多个歌词来源发起查询，按一套打分规则挑出最合适的一份，然后渲染出来 —— 逐字或逐词的时间轴、翻译、罗马音，以及全屏、桌面、Android Auto 等显示方式。
+Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 Spicy EX（作者 amarinne）修改而来，主要面向中文用户。它接管 Spotify 的歌词界面：同时向多个歌词来源发起查询，按一套打分规则挑出最合适的一份，然后渲染出来 —— 逐字或逐词的时间轴、翻译、罗马音，以及全屏、桌面、Android Auto 等显示方式。
 
 选哪一份歌词是这个模块的重点。Spotify 自带的歌词只有一份，中文常常是繁体、行级时间轴；同一首歌在别的来源上可能有简体、逐字、带翻译的版本。模块不预先规定哪个来源最好，而是把每个候选都量一遍，再比总分。
 
@@ -47,10 +47,12 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 [Spicy EX
 
 ---
 
-## 1.4 新增与修复
+## 1.5 新增与修复
 
 ### 新增功能
 
+- **布局可以实时调整** —— 在编辑器里改布局当场生效，不用关掉重开；每个元素都能单独隐藏或显示
+- **歌词显示文字**（可选，默认「不转换」）—— 可以把中文歌词在显示时统一按简体呈现，按词组判断，所以「頭髮」和「出發」各自正确；**默认关闭，不设置的话不会有任何变化**
 - **全新的歌词排序算法** —— 逐字优先、简体优先、翻译越全越好、时长越贴合越好、语言与歌曲一致，综合打分选出最合适的一份；规则见[下一节](#歌词是怎么选出来的)
 - **自动选择会问遍所有来源** —— 不再问到一个就停下；后续来源返回时会重新比较，谁的分高用谁的
 - **新增一个可选的机器翻译接口** —— 在设置里填写自己的 AppID 与密钥即可启用；默认仍是不需要账号的在线翻译
@@ -58,14 +60,21 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 [Spicy EX
 
 ### 修复的问题
 
+- 悬浮窗歌词在 Spotify 9.1.90 之后弹出来立刻消失
+- Spotify 关掉宿主窗口时，悬浮窗被一起关掉
+- AI 翻译被打断后，已经保存的结果被当成完整结果，歌词少了几行
+- AI 翻译重试时丢掉已经付过费的结果，重复计费
+- 歌词渐变和字间距不够平滑
+- 歌词位置显示成 Spotify 内部的界面名称，而不是歌词；已经存进缓存的这类内容也会被读出来
 - 中文歌曲的歌词翻译被整体丢掉、一句都翻不出来
 - 歌词一直卡在「翻译中」，界面上什么都点不动
 - 翻译失败时没有任何提示
 - 重复出现的歌词行（比如副歌反复唱的那几句）拿不到翻译
-- Spotify 9.1.90 之后悬浮窗歌词弹出来立刻消失
 - 需要密钥的那个来源一直选不上、也搜不到歌词
 - 来源列表里取不到歌词的来源看起来能用，点下去却没有反应
 - 恢复备份会覆盖掉本机已经能用的密钥
+- 跨来源歌词混合已取消 —— 它把一份歌词的时间轴和另一份的文本拼在一起，行数对不上就会错位，看着没问题但唱着唱着就偏了
+- 日文和韩文界面的部分文案补齐了，之前这些地方显示的是英文
 - 歌词下面不再显示「歌词来源」那一行
 
 ---
@@ -216,7 +225,7 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 [Spicy EX
 | 系统 | Android 8.1 及以上（minSdk 27，targetSdk 35） |
 | 模块框架 | **Xposed / LSPosed**（推荐，需 root）或 **LSPatch**（无 root，需自行给 Spotify 打补丁）；模块使用 Xposed API 102 |
 | Spotify | 本版针对 **9.1.88 – 9.1.90** 适配；更早的版本、Beta 版或第三方改版可能不工作 |
-| 模块版本 | 1.4（versionCode 7） |
+| 模块版本 | 1.5（versionCode 8） |
 
 > 模块依赖 Xposed 框架注入，**未打补丁的 Spotify 上无法工作**。
 
@@ -297,7 +306,7 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 [Spicy EX
 - 比当前版本更新的备份会被拒绝，而不是猜测
 - 恢复后曲库与翻译缓存**要等 Spotify 重启才生效**
 
-相关文档：[MODIFICATIONS.md](MODIFICATIONS.md)（AGPL 修改声明）、[FEATURES_USER.md](FEATURES_USER.md)（功能清单）。
+相关文档：[MODIFICATIONS.md](MODIFICATIONS.md)（AGPL 修改声明）、[FEATURES_USER.md](FEATURES_USER.md)（功能清单）、[READINGS.md](READINGS.md)（读音与转写指南）。
 
 ---
 
@@ -427,7 +436,7 @@ Windows 用 `gradlew.bat`。
 
 ## 相对上游做了什么
 
-本仓库把 [Spicy EX](https://github.com/amarinne/spicy-ex) **v2.0.0** 合并到本项目的 **v1.1** 之上，1.4 又换掉了其中的排序规则：
+本仓库在本项目的 **v1.1** 之上持续合并上游 Spicy EX 的改动：1.4 换掉了歌词排序规则，1.5 合并到上游 **v2.0.41**，并做了以下调整：
 
 ### 简体中文
 
@@ -461,8 +470,8 @@ Windows 用 `gradlew.bat`。
 
 ## 鸣谢与许可
 
-- 上游项目：[amarinne/spicy-ex](https://github.com/amarinne/spicy-ex)
-- 歌词渲染思路参考：[Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics)（Spicetify 扩展）
+- 上游项目：Spicy EX（作者 amarinne）
+- 歌词渲染思路参考：Spicy Lyrics（Spicetify 扩展）
 - 图标：[Lucide](https://github.com/lucide-icons/lucide)（ISC / MIT）
 - 歌词来自 Spotify 自带歌词与若干第三方来源；本页不逐一列出
 

@@ -105,3 +105,17 @@ This product includes software developed at The Apache Software Foundation
 Upstream: https://tika.apache.org/
 The dependency's META-INF/NOTICE is retained in the Full APK. The Apache License,
 Version 2.0 is available at https://www.apache.org/licenses/LICENSE-2.0.
+
+OpenCC Chinese character and phrase data
+----------------------------------------
+This product bundles three OpenCC dictionaries under app/src/main/resources/chinese-script/
+(TSCharacters.txt, TSPhrases.txt and CJK_Compatibility_Ideographs.txt), from the opencc-data
+package of the OpenCC project.
+Copyright (c) 2020-2021 The nk2028 Project.
+Dictionary data is licensed under the Apache License, Version 2.0 and is used unmodified except
+that the per-file header comment naming the upstream serialization was replaced with an
+attribution line, which is the change statement section 4(b) of that licence asks for.
+The matching, segmentation and ideographic-description handling is adapted from opencc-js (MIT),
+Copyright (c) 2020-2021 The nk2028 Project; the trie and the code-point projection are this
+module's own.
+The Apache License, Version 2.0 is available at https://www.apache.org/licenses/LICENSE-2.0.

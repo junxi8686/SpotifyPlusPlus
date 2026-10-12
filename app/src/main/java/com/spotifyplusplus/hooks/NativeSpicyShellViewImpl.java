@@ -260,13 +260,14 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     private LyricsShareCardController shareCardController;
     private LyricsRowMountController rowMountController;
     private LinearLayout contentColumn;
-    /** Non-null only in the adaptive two-column landscape mode; owns header/lyrics/status. */
+    /** Allocated on first two-column use and retained for later live transitions; owns
+     *  header/lyrics/status while two columns are attached. */
     private LinearLayout landscapeRightColumn;
-    /** Non-null only in the adaptive two-column landscape mode; hosts the readout's column
-     *  placement (cover + song info) beside the lyrics column. */
+    /** Allocated on first two-column use and retained for later live transitions; hosts the
+     *  readout's column placement (cover + song info) beside the lyrics column while attached. */
     private LinearLayout landscapeLeftColumn;
-    /** Construction-time two-column decision (rotation remounts, same as the readout). */
-    private final boolean twoColumn;
+    /** Effective fullscreen layout; preference changes reparent the existing presentation. */
+    private boolean twoColumn;
     private ViewGroup chromeHeader;
     private LyricsShellChromeController.ChromeViews chromeViews;
     private LyricsLayoutEditController.EditorHandle layoutEditorHandle;
@@ -510,6 +511,9 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     void refreshPreferences() {
         preferenceRefreshPosted = false;
         if (!running) return;
+        // First: every apply below reads the layout it decides, and a live switch reparents the
+        // very views the rest of this method then re-styles.
+        boolean layoutChanged = applyLandscapeLayoutPreference();
         applyStatusBarPreference();
         likedMode = config.get(Settings.LIKED_SONGS_BUTTON);
         refreshLikedButton(currentTrackThrottled());
@@ -529,7 +533,15 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             refreshChromeClusterSpacing();
             applyBackVisibility();
         }
+        if (layoutChanged && demoModeActive && trackInfoController != null) {
+            // A reparented demo readout would otherwise show the real track: the demo track is
+            // painted by hand, so the new column has to be told about it again.
+            trackInfoController.showDemoTrack(demoTrack, demoArtBitmap);
+        }
         revealChrome();
+        if (layoutChanged && layoutEditorHandle != null) {
+            layoutEditorHandle.onLayoutChanged(twoColumn);
+        }
     }
 
     /** Top readout owns the top corners: art top-left, controls top-right, no Back. */
@@ -757,7 +769,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 .mountedRowsHostSupplier(() -> mountedRowsHost)
                 .chromeClusterSupplier(() -> chromeViews == null ? null : chromeViews.configCluster)
                 .backButtonSupplier(() -> chromeViews == null ? null : chromeViews.back)
-                .landscape(isLandscape() || twoColumn)
+                .landscape(editorLandscape(isLandscape(), twoColumn))
                 .twoColumn(twoColumn)
                 .focusFraction(this::resolveFocusAnchorFraction)
                 .artSizeMaxDp(() -> twoColumn && trackInfoController != null
@@ -1199,8 +1211,120 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         }
     }
 
+    /**
+     * Whether the layout editor should lay itself out as a wide (landscape) screen.
+     *
+     * <p>Not the same question as the window's reported orientation. The editor's landscape layout
+     * exists because the screen is wide, and two-column engages on an aspect ratio - including on a
+     * large near-square screen held upright, which {@link #twoColumnEngaged} accepts on purpose
+     * ("whichever way it is held"). Answering with the orientation alone sent exactly that window
+     * back to portrait geometry while the screen behind it was in two columns. Pure, unit-tested:
+     * see LayoutEditorGeometryContractTest.
+     */
+    static boolean editorLandscape(boolean orientationLandscape, boolean twoColumn) {
+        return orientationLandscape || twoColumn;
+    }
+
+    /**
+     * Switches between the stacked and the two-column fullscreen layout in place: the views that
+     * move are reparented, so the lyrics session, the mounted rows and the layout editor (while it
+     * is open) all survive the change instead of waiting for the next time the screen is opened.
+     *
+     * <p>PiP keeps its fixed window layout: its shape was decided when the window was created and
+     * its album-art policy is separate, so a preference change must not touch it.
+     *
+     * <p>The lyrics column and its rows are the shell's own children, so nothing here rebuilds a
+     * row or restarts playback: this is a re-host, not a re-render.
+     *
+     * @return true when the layout actually changed
+     */
+    private boolean applyLandscapeLayoutPreference() {
+        if (pipLayout != PIP_LAYOUT_NONE) return false;
+        android.content.res.Configuration screen = getResources().getConfiguration();
+        boolean next = twoColumnEngaged(screen.screenWidthDp, screen.screenHeightDp,
+                Boolean.TRUE.equals(config.get(Settings.ADAPTIVE_LANDSCAPE_LAYOUT)));
+        if (next == twoColumn) return false;
+        // Read the old container before flipping the flag: rowContainer() consults it.
+        LinearLayout previous = rowContainer();
+        java.util.List<View> rows = new java.util.ArrayList<>();
+        for (int i = 0; i < previous.getChildCount(); i++) rows.add(previous.getChildAt(i));
+        twoColumn = next;
+        contentColumn.setOrientation(next ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        contentColumn.setGravity(next ? Gravity.CENTER_VERTICAL : Gravity.CENTER_HORIZONTAL);
+        if (next) attachLandscapeColumns();
+        // The rows were collected before the columns were added, so they are the lyric stack and
+        // nothing else; the two column boxes are never in that list.
+        for (View row : rows) movePresentationView(row, rowContainer());
+        if (!next) {
+            contentColumn.removeView(landscapeLeftColumn);
+            contentColumn.removeView(landscapeRightColumn);
+        }
+        trackInfoController.setTwoColumn(next);
+        if (next) {
+            movePresentationView(trackInfoController.columnView(), landscapeLeftColumn);
+            landscapeLeftColumn.setVisibility(trackInfoController.columnView().getVisibility());
+        }
+        // The floating chips sit on the shell in two-column mode and inside the lyrics frame
+        // otherwise, which is also how they are first attached.
+        FrameLayout chipHost = next ? this : lyricsFrame;
+        movePresentationView(jumpToCurrentController.view(), chipHost);
+        movePresentationView(skipGapController.view(), chipHost);
+        applyContentColumnPadding();
+        applyChromeHeaderPadding();
+        applyLyricsScrollPadding();
+        chromeLayoutApplied = false;
+        contentColumn.requestLayout();
+        return true;
+    }
+
+    /** Moves a view to another host with its own layout params, so a chip's frame gravity and a
+     *  row's width survive the move and nothing re-measures against a default. */
+    private static void movePresentationView(View view, ViewGroup target) {
+        if (view == null || view.getParent() == target) return;
+        ViewGroup.LayoutParams params = view.getLayoutParams();
+        if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
+        if (params == null) target.addView(view);
+        else target.addView(view, params);
+    }
+
+    /**
+     * Builds the two columns once, then re-attaches the same boxes on every later switch, so the
+     * mounted lyric rows and the readout's column placement survive a round trip.
+     */
+    private void attachLandscapeColumns() {
+        if (landscapeLeftColumn == null) {
+            landscapeLeftColumn = new LinearLayout(activity);
+            landscapeLeftColumn.setOrientation(LinearLayout.VERTICAL);
+            landscapeLeftColumn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            landscapeLeftColumn.setClipChildren(false);
+            landscapeLeftColumn.setClipToPadding(false);
+            LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 0.8f);
+            // Equal screen-edge gutters: 40dp above the art matches the 24dp column
+            // gutter + 16dp landscape content padding below the song info. This screen
+            // is fully ours, so insets stay out of it - the chrome floats above.
+            leftLp.setMargins(0, dp(40), dp(20), dp(24));
+            leftLp.gravity = Gravity.CENTER_VERTICAL;
+            contentColumn.addView(landscapeLeftColumn, leftLp);
+            // The cover and song info themselves are the readout's column placement (see
+            // TrackInfoReadoutController#columnView): it is added below, once the readout is
+            // attached, so all four placements are built by one component.
+            landscapeRightColumn = new LinearLayout(activity);
+            landscapeRightColumn.setOrientation(LinearLayout.VERTICAL);
+            landscapeRightColumn.setGravity(Gravity.CENTER_HORIZONTAL);
+            landscapeRightColumn.setClipChildren(false);
+            landscapeRightColumn.setClipToPadding(false);
+            contentColumn.addView(landscapeRightColumn, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1.15f));
+            return;
+        }
+        // Re-attach in order: the left column must stay first so the art stays on the left.
+        contentColumn.addView(landscapeLeftColumn);
+        contentColumn.addView(landscapeRightColumn);
+    }
+
     private LinearLayout rowContainer() {
-        return landscapeRightColumn != null ? landscapeRightColumn : contentColumn;
+        return twoColumn && landscapeRightColumn != null ? landscapeRightColumn : contentColumn;
     }
 
     private int chromeButtonDp() {
@@ -1487,8 +1611,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             }
         });
         this.config = SpotifyPlusConfig.from(activity);
-        // Construction-time layout decision: rotation remounts the shell, and the adaptive
-        // toggle takes effect on the next open (same contract as PR9's landscape layout).
+        // Seed the layout; preference refreshes switch fullscreen columns in place.
         // A PiP landscape window gets the two-column art column only when the album-art
         // toggle is also on; off keeps every PiP shape lyrics-only. Fullscreen is unaffected.
         android.content.res.Configuration screen = activity.getResources().getConfiguration();
@@ -1571,31 +1694,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         applyContentColumnPadding();
         addView(contentColumn, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        if (twoColumn) {
-            landscapeLeftColumn = new LinearLayout(activity);
-            landscapeLeftColumn.setOrientation(LinearLayout.VERTICAL);
-            landscapeLeftColumn.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-            landscapeLeftColumn.setClipChildren(false);
-            landscapeLeftColumn.setClipToPadding(false);
-            LinearLayout.LayoutParams leftLp = new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.MATCH_PARENT, 0.8f);
-            // Equal screen-edge gutters: 40dp above the art matches the 24dp column
-            // gutter + 16dp landscape content padding below the song info. This screen
-            // is fully ours, so insets stay out of it — the chrome floats above.
-            leftLp.setMargins(0, dp(40), dp(20), dp(24));
-            leftLp.gravity = Gravity.CENTER_VERTICAL;
-            contentColumn.addView(landscapeLeftColumn, leftLp);
-            // The cover and song info themselves are the readout's column placement (see
-            // TrackInfoReadoutController#columnView): it is added below, once the readout is
-            // attached, so all four placements are built by one component.
-            landscapeRightColumn = new LinearLayout(activity);
-            landscapeRightColumn.setOrientation(LinearLayout.VERTICAL);
-            landscapeRightColumn.setGravity(Gravity.CENTER_HORIZONTAL);
-            landscapeRightColumn.setClipChildren(false);
-            landscapeRightColumn.setClipToPadding(false);
-            contentColumn.addView(landscapeRightColumn, new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.MATCH_PARENT, 1.15f));
-        }
+        if (twoColumn) attachLandscapeColumns();
 
         int chromeButton = chromeButtonDp();
         likedMode = config.get(Settings.LIKED_SONGS_BUTTON);
@@ -2351,8 +2450,16 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         }
         LyricsRenderConfig next = LyricsRenderConfig.read(activity, config, pipTextBoost());
         LyricsRenderConfig.Diff diff = renderConfig == null ? null : renderConfig.diff(next);
+        // The display form is not part of LyricsRenderConfig: it changes the text of every row
+        // rather than a style, so it replans the mounted document here. setChineseCharacterForm()
+        // returns false when the form did not change - which is every refresh but the one that
+        // flips it - and it returns false for ORIGINAL without touching a dictionary, so the off
+        // state costs nothing and re-renders nothing.
+        boolean characterFormChanged = document != null
+                && LyricTimeline.setChineseCharacterForm(document, chineseCharacterForm());
         if (diff == null || !diff.hasChanges) {
             renderConfig = next;
+            if (characterFormChanged) rebuildWithReflow(this::renderDocument);
             return;
         }
 
@@ -2433,6 +2540,17 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         });
     }
 
+    /**
+     * The configured display form. Only the explicit "simplified" value converts anything;
+     * anything else - the default, an unknown stored value, a torn read - reads as ORIGINAL, which
+     * is the state in which the renderer draws exactly what the source provided.
+     */
+    private com.spotifyplusplus.lyrics.language.ChineseCharacterForm chineseCharacterForm() {
+        return "simplified".equals(config.get(Settings.CHINESE_CHARACTER_FORM))
+                ? com.spotifyplusplus.lyrics.language.ChineseCharacterForm.SIMPLIFIED
+                : com.spotifyplusplus.lyrics.language.ChineseCharacterForm.ORIGINAL;
+    }
+
     private void prepareAndScheduleDocument(String trackUri, LyricsDocument doc) {
         String id = trackIdFromUri(trackUri);
         LyricsSurfaceDocumentGate.Candidate candidate = documentGate.offer(id);
@@ -2446,6 +2564,9 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         if (LyricsDocumentProcessor.needsSurfaceLocalRomanization(doc)) {
             populateLocalSegmentRomanization(doc, loadRomanization, loadOptions);
         }
+        // Stamped before the rows are planned, so applySyncedRows() builds the display text in the
+        // form the owner has chosen rather than converting a row that was already laid out.
+        doc.chineseCharacterForm = chineseCharacterForm();
         LyricTimeline.applySyncedRows(doc);
         handler.post(() -> {
             SpotifyTrack current = host.getCurrentTrackSafely();
@@ -2494,6 +2615,20 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 LyricsDocumentProcessor.mergeDerivedPublication(mounted, doc);
         if (merge != LyricsDocumentProcessor.DerivedMergeResult.DIFFERENT_BASE) {
             loadingTrackId = "";
+            // A same-base publication can change the language evidence this projection depends on
+            // (a detection artifact, a new reading), and the incoming document carries the form it
+            // was prepared with. Reconcile both against the document already on screen, and
+            // re-render only when a row's display text actually moved.
+            boolean projectionChanged = LyricTimeline.setChineseCharacterForm(mounted, doc.chineseCharacterForm);
+            projectionChanged |= LyricTimeline.refreshChineseCharacterProjection(mounted);
+            if (projectionChanged) {
+                LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.LAYER_LOCAL_UPDATE);
+                rebuildWithReflow(this::renderDocument);
+                updateToggleVisuals();
+                observeAiRequestFeedback(mounted);
+                observeTranslationFailure(mounted);
+                return;
+            }
             if (merge == LyricsDocumentProcessor.DerivedMergeResult.CHANGED) {
                 LyricPipelineMetrics.increment(LyricPipelineMetrics.Counter.LAYER_LOCAL_UPDATE);
                 refreshSecondaryRows("");

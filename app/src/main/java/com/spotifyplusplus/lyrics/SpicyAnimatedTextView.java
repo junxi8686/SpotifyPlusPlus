@@ -104,6 +104,53 @@ public class SpicyAnimatedTextView extends TextView {
      * keeps the hint of where the sweep is heading.
      */
     private boolean softSweep;
+    /** True when this view owns a sentence-wide gradient independently of its own token fill. */
+    private boolean sentenceGradientBase;
+    private float sentenceGradient = LyricAnimations.GRADIENT_UNSUNG;
+    private int sentenceWidth;
+    private float sentenceOffset;
+
+    /**
+     * Makes this view carry the broad sentence gradient itself, on top of whatever its own token
+     * fill is doing, instead of tracking the container gradient callers push into it.
+     *
+     * <p>Caller: {@code auto.AutoLyricsView.applyNativeTypeface}, which sets it to
+     * {@code !lineLevel}. On that surface a word-level fill and the sentence sweep run at the same
+     * time, and without a separate owner the two motions cut each other off at every word
+     * boundary. The fullscreen renderer never sets it, so it keeps the container gradient.
+     */
+    public void setSentenceGradientBase(boolean enabled) {
+        if (sentenceGradientBase == enabled) return;
+        sentenceGradientBase = enabled;
+        cachedShader = null;
+        invalidate();
+    }
+
+    /**
+     * The sentence geometry's own entry point, separate from this token's fill and glow: the sweep
+     * spans the sentence's printed row, so a caller that has measured that row does not have to
+     * teach this view about its own width first.
+     *
+     * <p>A view that owns a sentence-wide gradient ({@link #setSentenceGradientBase}) keeps it
+     * whatever its own token fill is doing; every other view lands on the container gradient this
+     * call has always applied, so both surfaces share one call site.
+     */
+    public void setSentenceGradientPosition(float gradient, float glow, int width, float offset) {
+        if (!sentenceGradientBase) {
+            setSoftSweep(true);
+            setContainerGradientPosition(gradient, glow, width, offset);
+            return;
+        }
+        int safeWidth = Math.max(1, width);
+        if (Math.abs(sentenceGradient - gradient) < .5f && sentenceWidth == safeWidth
+                && Math.abs(sentenceOffset - offset) < .5f) return;
+        sentenceGradient = gradient;
+        sentenceWidth = safeWidth;
+        sentenceOffset = offset;
+        cachedShader = null;
+        invalidate();
+    }
+
     /** Full-brightness run just behind the sung position, in em. */
     private static final float FILL_HOT_EM = 0.3f;
     /** Soft fade from the sung position into the unsung colour, in em. */
@@ -256,28 +303,23 @@ public class SpicyAnimatedTextView extends TextView {
         int sungColor = Color.argb(startAlpha, baseR, baseG, baseB);
         int hotColor = Color.argb(Math.round(255f * brightnessMultiplier), baseR, baseG, baseB);
         int unsungColor = Color.argb(endAlpha, baseR, baseG, baseB);
+        // A sentence-owned view draws its own broad sweep whatever its token fill is doing, so the
+        // two motions cannot cut each other off at a word boundary (see setSentenceGradientBase).
+        boolean layered = sentenceGradientBase && sentenceWidth > 0 && !verticalGradient;
         float origin = verticalGradient
                 ? (verticalContainerSpace ? -offset : getPaddingTop())
                 : getPaddingLeft() - offset;
         float far = origin + shaderExtent;
-        if (gradientPosition <= LyricAnimations.GRADIENT_UNSUNG + 0.5f) {
+        if (layered) {
+            cachedShader = softSweepShader(sentenceGradient, sentenceWidth,
+                            getPaddingLeft() - sentenceOffset, false, horizontalRtl, base);
+        } else if (gradientPosition <= LyricAnimations.GRADIENT_UNSUNG + 0.5f) {
             cachedShader = solidShader(unsungColor);
         } else if (gradientPosition >= 99.5f) {
             cachedShader = solidShader(sungColor);
         } else if (softSweep) {
-            float progress = (gradientPosition - LyricAnimations.GRADIENT_UNSUNG)
-                    / LyricAnimations.GRADIENT_RANGE;
-            float start = SoftLyricSweep.start(shaderExtent, progress);
-            float end = start + SoftLyricSweep.band(shaderExtent);
-            int middle = Color.argb(Math.round(255f * SoftLyricSweep.MIDDLE_ALPHA * brightnessMultiplier),
-                    baseR, baseG, baseB);
-            cachedShader = new LinearGradient(
-                    verticalGradient ? 0f : horizontalRtl ? far - start : origin + start,
-                    verticalGradient ? origin + start : 0f,
-                    verticalGradient ? 0f : horizontalRtl ? far - end : origin + end,
-                    verticalGradient ? origin + end : 0f,
-                    new int[]{sungColor, middle, unsungColor},
-                    new float[]{0f, 0.45f, 1f}, Shader.TileMode.CLAMP);
+            cachedShader = softSweepShader(gradientPosition, shaderExtent, origin,
+                    verticalGradient, horizontalRtl, base);
         } else {
             float textSize = Math.max(1f, getTextSize());
             float hot = FILL_HOT_EM * textSize;
@@ -310,6 +352,29 @@ public class SpicyAnimatedTextView extends TextView {
         shaderVertical = verticalGradient;
         shaderRtl = horizontalRtl;
         return cachedShader;
+    }
+
+    /** The soft-sweep gradient for one extent: hot at the sung position, fading into the unsung
+     *  colour ahead of it. Shared by the token fill and a sentence-owned view's own width. */
+    private Shader softSweepShader(float gradient, int extent, float origin,
+                                  boolean vertical, boolean rtl, int base) {
+        int sung = Color.argb(Math.round(255f * brightnessMultiplier),
+                Color.red(base), Color.green(base), Color.blue(base));
+        int unsung = Color.argb(Math.round(255f * SoftLyricSweep.UNSUNG_ALPHA * brightnessMultiplier),
+                Color.red(base), Color.green(base), Color.blue(base));
+        if (gradient <= LyricAnimations.GRADIENT_UNSUNG + .5f) return solidShader(unsung);
+        if (gradient >= 99.5f) return solidShader(sung);
+        float progress = (gradient - LyricAnimations.GRADIENT_UNSUNG) / LyricAnimations.GRADIENT_RANGE;
+        float start = SoftLyricSweep.start(extent, progress);
+        float end = start + SoftLyricSweep.band(extent);
+        float far = origin + extent;
+        int middle = Color.argb(Math.round(255f * SoftLyricSweep.MIDDLE_ALPHA * brightnessMultiplier),
+                Color.red(base), Color.green(base), Color.blue(base));
+        return new LinearGradient(vertical ? 0f : rtl ? far - start : origin + start,
+                vertical ? origin + start : 0f,
+                vertical ? 0f : rtl ? far - end : origin + end,
+                vertical ? origin + end : 0f,
+                new int[]{sung, middle, unsung}, new float[]{0f, .45f, 1f}, Shader.TileMode.CLAMP);
     }
 
     private static Shader solidShader(int color) {

@@ -261,7 +261,7 @@
     <string name="settings_label_lyrics_track_info_text_size_custom">Свой размер</string>
     <string name="settings_option_scroll">Прокрутка</string>
     <string name="settings_label_lyrics_track_info_art_size">Размер обложки в информации о треке</string>
-    <string name="settings_label_lyrics_adaptive_landscape_layout">Адаптивный интерфейс в горизонтальном режиме</string>
+    <string name="settings_label_lyrics_adaptive_landscape_layout">Две колонки на широких экранах</string>
     <string name="settings_label_lyrics_panel_media_controls">Панель управления медиа</string>
     <string name="settings_label_lyric_apple_fade_passed_lines">Fade passed lines</string>
     <string name="settings_label_lyric_apple_compact_text">Пропорции текста Apple Music</string>
@@ -275,7 +275,6 @@
 
     <!-- SpicyLyrics.org -->
     <string name="settings_label_lyrics_spicy_org_client_key">Клиентский ключ SpicyLyrics.org</string>
-    <string name="settings_label_lyrics_sync_upgrade">Улучшить синхронизацию текста</string>
     <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
     <string name="source_picker_spicy_key_required">Укажите свой личный клиентский ключ в настройках</string>
     <string name="settings_spicy_key_help">Получите личный клиентский ключ на https://developers.spicylyrics.org/catalog/spicy-ex</string>

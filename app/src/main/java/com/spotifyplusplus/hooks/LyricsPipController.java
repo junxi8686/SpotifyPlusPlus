@@ -133,6 +133,17 @@ final class LyricsPipController {
         // pushes its own window params. For our host: its PiP callbacks don't run at all, it is
         // told it isn't in PiP, and only our params reach the window.
         hookHostPipCallbacks(loader);
+        // Spotify's playback subscriber can close a non-video host directly, without going through
+        // any PiP callback - suppressing the callbacks alone would still leave the window dismissed.
+        // Our own exit paths all release ownership first (closeForLyrics, adopt's timeout,
+        // onModeChanged, and leave, which only ever finishes the opener), so this can only refuse a
+        // close aimed at a host we still own.
+        try {
+            XpHooks.findBefore(PIP_HOST_ACTIVITY, loader, "finish",
+                    "pip:NowPlayingActivity#finish", this::beforeHostFinish);
+        } catch (Throwable t) {
+            XpLog.log(NativeSpicyLyricsHook.TAG + " lyrics PiP: host finish hook unavailable " + t);
+        }
         // Entering PiP is a configuration change the host handles itself, so every text view in
         // the shell sees onConfigurationChanged - and the platform's TextView (Samsung's, at least)
         // puts the system typeface back on views that never named a font family. The lyrics lost
@@ -220,6 +231,11 @@ final class LyricsPipController {
             }
         }
         return true;
+    }
+
+    /** Refuses a direct close while this activity is still the PiP host we are drawing lyrics in. */
+    void beforeHostFinish(XpHooks.XpParam param) {
+        if (hosts.containsKey(param.thisObject)) param.setResult(null);
     }
 
     /** An explicit button opens PiP; a normal close or back press keeps its old behavior. */

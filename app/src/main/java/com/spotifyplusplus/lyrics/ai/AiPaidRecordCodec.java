@@ -134,6 +134,11 @@ final class AiPaidRecordCodec {
         out.addProperty("inputTokens", chunk.inputTokens);
         out.addProperty("outputTokens", chunk.outputTokens);
         out.addProperty("usageEstimated", chunk.usageEstimated);
+        if (!chunk.fallbackRowIds.isEmpty()) {
+            JsonArray fallback = new JsonArray();
+            for (String row : chunk.fallbackRowIds) fallback.add(row);
+            out.add("fallbackRowIds", fallback);
+        }
         if (chunk.failure != null) {
             JsonObject failure = new JsonObject();
             failure.addProperty("reason", chunk.failure.reason.name());
@@ -160,6 +165,13 @@ final class AiPaidRecordCodec {
         chunk.inputTokens = intOf(source, "inputTokens", 0);
         chunk.outputTokens = intOf(source, "outputTokens", 0);
         chunk.usageEstimated = boolOf(source, "usageEstimated");
+        if (source.has("fallbackRowIds") && source.get("fallbackRowIds").isJsonArray()) {
+            List<String> fallback = new ArrayList<>();
+            for (JsonElement row : source.getAsJsonArray("fallbackRowIds")) {
+                if (row.isJsonPrimitive()) fallback.add(row.getAsString());
+            }
+            chunk.setFallbackRowIds(fallback);
+        }
         if (source.has("failure") && source.get("failure").isJsonObject()) {
             JsonObject failure = source.getAsJsonObject("failure");
             AiFailureReason reason = failureReasonOf(stringOf(failure, "reason"));

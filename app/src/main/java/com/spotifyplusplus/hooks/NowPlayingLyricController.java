@@ -526,6 +526,27 @@ final class NowPlayingLyricController {
     private void refreshPreferences() {
         preferenceRefreshPosted = false;
         if (running && refreshConfig()) lastIdx = Integer.MIN_VALUE;
+        if (running) refreshCharacterForm();
+    }
+
+    /** Only the explicit "simplified" value converts; anything else reads as the inert original. */
+    private com.spotifyplusplus.lyrics.language.ChineseCharacterForm chineseCharacterForm() {
+        return "simplified".equals(config.get(com.spotifyplusplus.Settings.CHINESE_CHARACTER_FORM))
+                ? com.spotifyplusplus.lyrics.language.ChineseCharacterForm.SIMPLIFIED
+                : com.spotifyplusplus.lyrics.language.ChineseCharacterForm.ORIGINAL;
+    }
+
+    /**
+     * A display-form change replans both mounted projections in place and repaints on the next
+     * pass. Each call returns false when the form did not move - every refresh but the one that
+     * flips it - and returns false for ORIGINAL without loading a dictionary, so the ordinary
+     * preference path costs nothing and this surface never repaints for an unchanged form.
+     */
+    private void refreshCharacterForm() {
+        com.spotifyplusplus.lyrics.language.ChineseCharacterForm form = chineseCharacterForm();
+        boolean changed = LyricTimeline.setChineseCharacterForm(cardDocument, form);
+        changed |= LyricTimeline.setChineseCharacterForm(artworkDocument, form);
+        if (changed) lastIdx = Integer.MIN_VALUE;
     }
 
     private void schedulePreferenceRefresh() {
@@ -614,6 +635,12 @@ final class NowPlayingLyricController {
                 LyricsDocument nextArtworkDocument = LyricsDocument.copyOf(nextCardDocument);
                 if (nextArtworkDocument == null) return;
                 if (isProjectionStale(id, generation, revision)) return;
+                // Stamped here rather than inherited from the session: whichever surface plans its
+                // rows first must not leave the other's copy frozen in the form it happened to
+                // carry when it was copied.
+                com.spotifyplusplus.lyrics.language.ChineseCharacterForm form = chineseCharacterForm();
+                nextCardDocument.chineseCharacterForm = form;
+                nextArtworkDocument.chineseCharacterForm = form;
                 LyricTimeline.applySyncedRows(nextCardDocument);
                 if (isProjectionStale(id, generation, revision)) return;
                 LyricTimeline.applySyncedRows(nextArtworkDocument);

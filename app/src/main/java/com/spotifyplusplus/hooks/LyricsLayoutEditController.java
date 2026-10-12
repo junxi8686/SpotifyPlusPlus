@@ -81,6 +81,13 @@ final class LyricsLayoutEditController {
         /** Runs an editor action; the command channel requires confirmation for reset all. */
         boolean agentAction(String action, String argument);
 
+        /**
+         * The real screen switched between the stacked and the two-column layout while the editor
+         * stays open. The editor keeps its sheet, scroll, selection, tab and demo state and only
+         * re-traces the elements that moved.
+         */
+        void onLayoutChanged(boolean twoColumn);
+
         /** Adds the editor's own geometry and state to a probe reading. */
         void agentReport(LayoutProbeReport report);
     }
@@ -399,7 +406,9 @@ final class LyricsLayoutEditController {
         private final EditableChip followChip;
         private final boolean startInCardMode;
         private final boolean landscape;
-        private final boolean twoColumn;
+        /** Whether the real screen is two-column now. {@link #landscape} is fixed for the
+         *  session; this one follows {@link #onLayoutChanged}. */
+        private boolean twoColumn;
         private final java.util.function.IntSupplier artSizeMaxDp;
         private final java.util.function.DoubleSupplier focusFraction;
         /** True while the focus line follows a finger; capture sync then leaves it alone. */
@@ -442,6 +451,8 @@ final class LyricsLayoutEditController {
         private View toolbarDone;
         private View toolbarReset;
         private View toolbarDemo;
+        /** The recall pill, present only while the options sheet is hidden. */
+        private View toolbarOptions;
         private View cardCaption;
         private boolean demoActive;
         /** Outline -> real view it is tracing. Re-synced every frame by {@link #syncCaptures()}. */
@@ -958,6 +969,10 @@ final class LyricsLayoutEditController {
                     optionsCard.offsetDescendantRectToMyCoords(target, bounds);
                     optionsScroll.scrollTo(0, bounds.top);
                     return true;
+                case "options":
+                    if (!"show".equals(value) && !"hide".equals(value)) return false;
+                    if ("show".equals(value)) showOptions(); else hideOptions();
+                    return true;
                 case "tab":
                     if (cardMode) return false;
                     switch (value) {
@@ -975,11 +990,34 @@ final class LyricsLayoutEditController {
         }
 
         @Override
+        public void onLayoutChanged(boolean twoColumn) {
+            if (overlay.getParent() == null || this.twoColumn == twoColumn) return;
+            this.twoColumn = twoColumn;
+            // The shell reparents its views in place; trace them once that layout has settled.
+            // Selecting without a reveal rebuilds the rows for the new layout and leaves a hidden
+            // sheet hidden. The list position, placement, tab, demo and card state are not touched.
+            afterNextLayout(() -> {
+                if (overlay.getParent() == null) return;
+                int scrollY = optionsScroll.getScrollY();
+                refreshAllCaptures();
+                repaintFocusHandle();
+                selectElement(selected, false);
+                optionsScroll.scrollTo(0, scrollY);
+                optionsScroll.post(() -> optionsScroll.scrollTo(0, scrollY));
+            });
+        }
+
+        @Override
         public void agentReport(LayoutProbeReport report) {
             if (report == null) return;
             report.flag("card_mode", cardMode);
             report.flag("side_sheet", sideSheet);
             report.flag("demo_active", demoActive);
+            report.flag("options_visible", panelVisible);
+            report.number("editor_session", System.identityHashCode(overlay));
+            report.number("options_scroll_y", optionsScroll.getScrollY());
+            report.text("sheet_placement", sheetPlacement.name());
+            report.flag("sheet_moved", panelMovedByUser);
             report.text("text_tab", textTab == TAB_ANIMATION ? "animation"
                     : textTab == TAB_EFFECTS ? "effects" : "style");
             report.text("selected", agentNameFor(selected));
@@ -987,6 +1025,7 @@ final class LyricsLayoutEditController {
             report.rect("toolbar.done", screenRectOf(toolbarDone));
             report.rect("toolbar.reset", screenRectOf(toolbarReset));
             report.rect("toolbar.demo", screenRectOf(toolbarDemo));
+            report.rect("toolbar.options", screenRectOf(toolbarOptions));
             report.rect("capture.artwork", screenRectOf(artCapture));
             report.rect("capture.track_text", screenRectOf(trackTextCapture));
             report.rect("capture.dock", screenRectOf(dockCapture));
@@ -1976,6 +2015,7 @@ final class LyricsLayoutEditController {
             toolbarDone = null;
             toolbarReset = null;
             toolbarDemo = null;
+            toolbarOptions = null;
             int buttonSize = dp(44);
 
             LinearLayout row = new LinearLayout(activity);
@@ -2001,6 +2041,17 @@ final class LyricsLayoutEditController {
                 demoLp.leftMargin = dp(6);
                 row.addView(demoPill, demoLp);
                 toolbarDemo = demoPill;
+            }
+            // The recall exists only while the sheet is hidden; Done stays the one way to leave.
+            if (!panelVisible) {
+                TextView optionsPill = actionPill(s("show_options", "Show options"), this::showOptions);
+                optionsPill.setSingleLine(true);
+                optionsPill.setPadding(dp(10), 0, dp(10), 0);
+                LinearLayout.LayoutParams optionsLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, buttonSize);
+                optionsLp.leftMargin = dp(6);
+                row.addView(optionsPill, optionsLp);
+                toolbarOptions = optionsPill;
             }
             toolbarDone = save;
             toolbarReset = reset;
@@ -2531,8 +2582,21 @@ final class LyricsLayoutEditController {
 
         // -- options panel -------------------------------------------------------
 
+        /** The one owner of the Hide options and Show options actions, for taps and agent routes. */
+        private void showOptions() {
+            if (overlay.getParent() == null || panelVisible) return;
+            showPanelSheet(true);
+        }
+
+        private void hideOptions() {
+            if (overlay.getParent() == null || !panelVisible) return;
+            hidePanelSheet(true);
+        }
+
         private void showPanelSheet(boolean animate) {
             panelVisible = true;
+            // Every reveal path (tap on an element, Reset, Show options) drops the recall pill.
+            if (toolbarOptions != null) refreshBackButton();
             // Stop any fade-out still in flight first: its end action would park the panel as
             // INVISIBLE a frame after this reveal.
             panelContainer.animate().cancel();
@@ -2558,6 +2622,9 @@ final class LyricsLayoutEditController {
 
         private void hidePanelSheet(boolean animate) {
             panelVisible = false;
+            // Only a visible hide shows the recall: the silent hide is a relocation that re-shows
+            // at once, and card mode rebuilds the toolbar itself.
+            if (animate && toolbarOptions == null) refreshBackButton();
             panelContainer.animate().cancel();
             if (!animate) {
                 panelContainer.setAlpha(1f);
@@ -2785,6 +2852,14 @@ final class LyricsLayoutEditController {
         }
 
         private void buildArtworkOptions() {
+            // The layout switch lives with the artwork it arranges, and it applies live: flipping
+            // it here re-columns the screen behind the open editor instead of waiting for the next
+            // time the lyrics screen is opened.
+            beginGroup(s("layout", "Layout"));
+            addOption(toggleRow(Settings.ADAPTIVE_LANDSCAPE_LAYOUT,
+                    strings.setting(Settings.ADAPTIVE_LANDSCAPE_LAYOUT), null), matchWrap(0));
+
+            endGroup();
             if (twoColumn) {
                 // Two-column's left column is the readout's own column placement, so the only
                 // position choice that means anything there is whether it shows at all: the four
@@ -2792,7 +2867,10 @@ final class LyricsLayoutEditController {
                 // style as every other row, no new strings: On writes "Top" (any non-Off value
                 // shows the column, so the first stored one is as good as any), Off clears it.
                 beginGroup(strings.setting(Settings.TRACK_INFO_POSITION));
-                addOption(toggleRow(strings.setting(Settings.TRACK_INFO_POSITION),
+                // The setting's own name describes a four-way choice this layout does not have: the
+                // column is either shown or it is not. The row keeps writing Top/Off to that same
+                // setting, but is labelled for what the control does.
+                addOption(toggleRow(s("show_artwork_info", "Show artwork & song info"),
                         !"Off".equals(safeGetString(Settings.TRACK_INFO_POSITION)),
                         (toggle, on) -> put(Settings.TRACK_INFO_POSITION,
                                 on ? "Top" : "Off", () -> {
@@ -2829,9 +2907,7 @@ final class LyricsLayoutEditController {
             endGroup();
             beginGroup(strings.setting(Settings.PANEL_MEDIA_CONTROLS));
             addOption(chipRow(Settings.PANEL_MEDIA_CONTROLS,
-                    new String[]{"Off", "Single tap", "Double tap"}, null), matchWrap(12));
-            addOption(toggleRow(Settings.ADAPTIVE_LANDSCAPE_LAYOUT,
-                    strings.setting(Settings.ADAPTIVE_LANDSCAPE_LAYOUT), null), matchWrap(0));
+                    new String[]{"Off", "Single tap", "Double tap"}, null), matchWrap(0));
 
             endGroup();
             buildTrackTextOptions();

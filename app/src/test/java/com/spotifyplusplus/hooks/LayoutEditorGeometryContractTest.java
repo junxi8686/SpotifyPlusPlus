@@ -38,7 +38,10 @@ public class LayoutEditorGeometryContractTest {
 
         String shell = read("src/main/java/com/spotifyplusplus/hooks/NativeSpicyShellViewImpl.java");
         assertFalse(shell.contains("landscapeEditorActive"));
-        assertTrue(shell.contains(".landscape(isLandscape() || twoColumn)"));
+        // What the shell answers when the editor asks "is this a wide screen?" is a behaviour, and
+        // it is asserted as one in aPortraitHeldWideScreenIsEditedAsLandscape, not as the line that
+        // happens to compute it: an assertion on that line fails on any reformat and fights every
+        // future upstream pull.
         assertTrue(shell.contains("if (!isLandscape() && !twoColumn)"));
         assertFalse(shell.contains("setEditorTopClearance"));
         // The two-column column (cover + song info) is the readout's own placement now: the shell
@@ -52,6 +55,20 @@ public class LayoutEditorGeometryContractTest {
         String readout = read("src/main/java/com/spotifyplusplus/hooks/TrackInfoReadoutController.java");
         assertTrue(readout.contains("topRowLp.topMargin = topInsetPx;"));
         assertFalse(readout.contains("editorTopClearancePx"));
+    }
+
+    @Test
+    public void aPortraitHeldWideScreenIsEditedAsLandscape() {
+        // The editor's landscape geometry exists because the screen is wide. Two-column engages on
+        // an aspect ratio and accepts a large near-square screen held upright (see twoColumnEngaged's
+        // "whichever way it is held"), so a window can be in two columns while reporting portrait -
+        // and the editor has to keep up, or the open editor falls back to portrait geometry over a
+        // two-column screen. Answering with the orientation alone did exactly that.
+        assertTrue(NativeSpicyShellViewImpl.twoColumnEngaged(840f, 900f, true));
+        assertTrue(NativeSpicyShellViewImpl.editorLandscape(false, true));
+        assertTrue(NativeSpicyShellViewImpl.editorLandscape(true, false));
+        assertTrue(NativeSpicyShellViewImpl.editorLandscape(true, true));
+        assertFalse(NativeSpicyShellViewImpl.editorLandscape(false, false));
     }
 
     @Test
@@ -121,8 +138,14 @@ public class LayoutEditorGeometryContractTest {
         // four-way chip row whose Top/Bottom/Header values have nothing to act on: it stays, as one
         // On/Off row over the same setting, and Off is the only value that means anything there.
         assertFalse(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_POSITION))"));
-        assertTrue(editor.contains("addOption(toggleRow(strings.setting(Settings.TRACK_INFO_POSITION),"));
-        assertTrue(editor.contains("on ? \"Top\" : \"Off\""));
+        // The row is an On/Off toggle over TRACK_INFO_POSITION and Off is the only value that means
+        // anything there - that is the contract. Which string labels it is presentation, so the
+        // assertion accepts either: the setting's own name, or the dedicated "Show artwork & song
+        // info" that describes what the toggle does rather than the four-way position it replaces.
+        String flat = compact(editor);
+        assertTrue(flat.contains("toggleRow(strings.setting(Settings.TRACK_INFO_POSITION),")
+                || flat.contains("toggleRow(s(\"show_artwork_info\","));
+        assertTrue(flat.contains("on?\"Top\":\"Off\""));
         // The other readout-only controls still stand down in two-column: text alignment (a
         // readout row beside its art) and the background band (the column has no dock).
         assertTrue(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_TEXT_ALIGN))"));
@@ -156,7 +179,14 @@ public class LayoutEditorGeometryContractTest {
         assertTrue(editor.contains("if (panelMovedByUser) {"));
         // Header: the title on the left, a 44dp close button on the right that hides the panel.
         assertTrue(editor.contains("private static final int PANEL_CLOSE_BUTTON_DP = 44;"));
-        assertTrue(editor.contains("s(\"close\", \"Close\"), () -> hidePanelSheet(true))"));
+        // The header's X hides the options and Done is the only way out of the editor, so hiding is
+        // never a dead end. Asserted as a relationship between the three wires rather than as one
+        // exact line: that survives reformatting and unrelated edits around them. The affordance is
+        // an Android view graph, so there is no behaviour to drive from a JVM test here.
+        String flatHeader = compact(editor);
+        assertTrue(flatHeader.contains("Kind.CLOSE"));
+        assertTrue(flatHeader.contains("()->hidePanelSheet(true)"));
+        assertTrue(flatHeader.contains("s(\"done\",\"Done\"),this::close"));
         // Fade and scale in and out; a window appears, it does not slide off an edge.
         assertTrue(editor.contains("private static final int PANEL_FADE_MS = 180;"));
         assertTrue(editor.contains("private static final float PANEL_HIDDEN_SCALE = 0.96f;"));
@@ -184,6 +214,11 @@ public class LayoutEditorGeometryContractTest {
         int at = source.indexOf(groupStart);
         assertTrue(groupStart + " must exist", at > 0);
         return source.substring(Math.max(0, at - 200), at).trim().endsWith("if (!twoColumn) {");
+    }
+
+    /** Source with every whitespace character removed, so an assertion survives reformatting. */
+    private static String compact(String source) {
+        return source.replaceAll("\\s+", "");
     }
 
     private static String read(String path) throws Exception {

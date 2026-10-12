@@ -14,6 +14,7 @@ import com.spotifyplusplus.auto.AutoLyricPresentation;
 import com.spotifyplusplus.lyrics.AppliedLine;
 import com.spotifyplusplus.lyrics.LyricTimeline;
 import com.spotifyplusplus.lyrics.LyricsDocument;
+import com.spotifyplusplus.lyrics.language.ChineseCharacterForm;
 import java.util.concurrent.Executors;
 import java.util.ArrayList;
 import com.spotifyplusplus.lyrics.SyllableSegment;
@@ -31,6 +32,8 @@ final class AutoPrototypePublisher implements LyricsSessionManager.Listener {
     private LyricsSessionManager.SessionSubscription subscription;
     private LyricsSessionManager.PollingDemandLease lease;
     private LyricsDocument document;
+    /** Last published snapshot, so a preference change can republish without waiting for a poll. */
+    private LyricsSessionManager.Snapshot lastSnapshot;
     private int generation = -1;
     private String trackUri = "";
     private volatile Bundle latest;
@@ -42,6 +45,8 @@ final class AutoPrototypePublisher implements LyricsSessionManager.Listener {
             (preferences, key) -> {
                 if (com.spotifyplusplus.Settings.AUTO_ENABLED.key.equals(key))
                     main.post(this::readEnabled);
+                if (com.spotifyplusplus.Settings.CHINESE_CHARACTER_FORM.key.equals(key))
+                    main.post(this::refreshCharacterForm);
                 // The enabled heartbeat reads the secondary-text choice before publication.
             };
 
@@ -56,6 +61,37 @@ final class AutoPrototypePublisher implements LyricsSessionManager.Listener {
         main.post(this::readEnabled);
     }
     private void readEnabled() { setEnabled(settings.get(com.spotifyplusplus.Settings.AUTO_ENABLED)); }
+
+    /** Only the explicit "simplified" value converts; anything else reads as the inert original. */
+    private ChineseCharacterForm characterForm() {
+        return "simplified".equals(settings.get(com.spotifyplusplus.Settings.CHINESE_CHARACTER_FORM))
+                ? ChineseCharacterForm.SIMPLIFIED : ChineseCharacterForm.ORIGINAL;
+    }
+
+    /** Flips the form on the shared screen without waiting for the next poll to come round. */
+    private void refreshCharacterForm() {
+        if (!enabled || document == null || lastSnapshot == null) return;
+        ChineseCharacterForm form = characterForm();
+        if (document.chineseCharacterForm == form) return;
+        document.chineseCharacterForm = form;
+        LyricTimeline.applySyncedRows(document);
+        publish(lastSnapshot);
+    }
+
+    /**
+     * The document to publish, in the requested display form.
+     *
+     * <p>A copy, never the session's own document: the fullscreen shell, the cache and the next
+     * ranking all read that instance, so converting it here would change what the owner sees on
+     * their phone to suit the car.
+     */
+    static LyricsDocument projectDocument(LyricsDocument source, ChineseCharacterForm form) {
+        LyricsDocument copy = LyricsDocument.copyOf(source);
+        if (copy == null) return null;
+        copy.chineseCharacterForm = form;
+        LyricTimeline.applySyncedRows(copy);
+        return copy;
+    }
     private Bundle configuration(boolean on) {
         Bundle desired = new Bundle();
         desired.putBoolean("enabled", on);
@@ -101,7 +137,7 @@ final class AutoPrototypePublisher implements LyricsSessionManager.Listener {
             heartbeat = null;
             if (subscription != null) subscription.close();
             if (lease != null) lease.close();
-            subscription = null; lease = null; document = null; latest = null; generation = -1; trackUri = "";
+            subscription = null; lease = null; document = null; lastSnapshot = null; latest = null; generation = -1; trackUri = "";
             long deadline = SystemClock.elapsedRealtime() + 4000;
             worker.execute(() -> disable(version, deadline));
         }
@@ -110,12 +146,14 @@ final class AutoPrototypePublisher implements LyricsSessionManager.Listener {
         if (!enabled || s.generation < generation) return;
         if (!AutoPrototypePolicy.sameSession(generation, trackUri, s.generation, s.trackUri)) { generation = s.generation; document = null; }
         trackUri = s.trackUri;
+        lastSnapshot = s;
         publish(s);
     }
     @Override public void onDocumentChanged(LyricsSessionManager.Snapshot s, LyricsDocument d) {
         if (!enabled || !AutoPrototypePolicy.sameSession(generation, trackUri, s.generation, s.trackUri)) return;
-        document = com.spotifyplusplus.auto.AutoResponseCredit.documentAllowed(d, System.currentTimeMillis()) ? d : null;
-        if (document != null) LyricTimeline.applySyncedRows(document);
+        document = com.spotifyplusplus.auto.AutoResponseCredit.documentAllowed(d, System.currentTimeMillis())
+                ? projectDocument(d, characterForm()) : null;
+        lastSnapshot = s;
         publish(s);
     }
     private void publish(LyricsSessionManager.Snapshot s) {

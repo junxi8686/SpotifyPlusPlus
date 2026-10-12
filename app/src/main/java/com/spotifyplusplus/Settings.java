@@ -230,10 +230,10 @@ public final class Settings {
             "lyrics_spicy_org_client_key", LYRICS_SOURCES, "SpicyLyrics.org client key", ""
     );
 
-    /** Upgrade low-confidence sync from the SpicyLyrics.org source against a better timeline. */
-    public static final Setting<Boolean> SYNC_UPGRADE = boolSetting(
-            "lyrics_sync_upgrade", LYRICS_SOURCES, "Upgrade lyric sync", false
-    );
+    // The "Upgrade lyric sync" row was removed with the setting behind it: the cross-provider
+    // timing upgrade is gone from this build, so the switch had nothing left to turn on. A device
+    // that stored lyrics_sync_upgrade=true still holds that entry; nothing declares, renders or
+    // reads the key now, so it is inert and needs no migration.
 
     /**
      * What the language-match component counts as a match when the track's own language is not
@@ -550,9 +550,9 @@ public final class Settings {
     // genuinely wide (landscape with width/height >= 1.2, so near-square foldable screens stay
     // stacked), the fullscreen lyrics use a two-column layout with an artwork panel on the
     // left and the lyrics column on the right. The readout overlays stand down while it is
-    // engaged. Takes effect when the lyrics screen is (re)opened.
+    // engaged. Applies live, including while the layout editor is open.
     public static final Setting<Boolean> ADAPTIVE_LANDSCAPE_LAYOUT = boolSetting(
-            "lyrics_adaptive_landscape_layout", INTERNAL, "Adaptive landscape layout", true
+            "lyrics_adaptive_landscape_layout", INTERNAL, "Two-column on wide screens", true
     );
 
     // Media controls for artwork (two-column panel + readout art, same behavior): Off
@@ -730,6 +730,20 @@ public final class Settings {
             "lyrics_chinese_mode", TRANSLITERATION, "Chinese reading",
             "pinyin",
             "off", "pinyin", "jyutping", "cycle"
+    );
+
+    // Display-only, and deliberately two values rather than three. "original" is the default and
+    // the only state in which the feature is inert: the document is handed to the renderer exactly
+    // as the source provided it, and nothing is loaded from the bundled dictionaries. "simplified"
+    // converts Chinese display text to Simplified Chinese; the timings and the stored lyrics do not
+    // change. There is no Traditional direction on purpose - it needs OpenCC's
+    // Simplified-to-Traditional phrase table, which is about thirty times the size of the direction
+    // that ships, and per-character substitution without it renders phrase-sensitive words wrong
+    // (头发 as 頭发 rather than 頭髮). See ChineseCharacterForm for the full reasoning.
+    public static final Setting<String> CHINESE_CHARACTER_FORM = enumSetting(
+            "lyrics_chinese_character_form", TRANSLITERATION, "Lyric display text",
+            "original",
+            "original", "simplified"
     );
 
     public static final Setting<String> KOREAN_ROMANIZATION = enumSetting(

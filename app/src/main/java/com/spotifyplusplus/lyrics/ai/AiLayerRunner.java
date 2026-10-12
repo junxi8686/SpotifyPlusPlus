@@ -43,9 +43,14 @@ public final class AiLayerRunner {
         AiRecordStore store = args.store;
 
         // 1. Ask the store first. An identical finished answer must never be bought twice, and this
-        //    is the check that makes revisiting a track free.
+        //    is the check that makes revisiting a track free. A stored status is what the earlier run
+        //    believed, so a hit also has to hold still-valid text for exactly these rows: replaying
+        //    an answer that no longer meets the contract would display it rather than buy it again.
         AiPaidRecord stored = store == null ? null : store.read(config);
-        if (stored != null && stored.isComplete()) return AiRunOutcome.reused(stored);
+        if (stored != null && stored.isComplete()
+                && stored.hasCompleteItemsForRows(plannerInput(args).rows)) {
+            return AiRunOutcome.reused(stored);
+        }
 
         // On-demand mode still checks the paid store so revisiting an accepted answer is free, but
         // it must not turn ordinary background processing into a billable request. Only an
@@ -61,7 +66,14 @@ public final class AiLayerRunner {
         }
         if (plan.isEmpty()) return AiRunOutcome.nothingToDo();
 
+        AiChunkPlanner.Input input = plannerInput(args);
         AiPaidRecord record = stored != null ? stored : AiPaidRecord.begin(config, args.nowMs);
+        // A record whose chunked shape no longer matches this plan is not resumed: its completed
+        // chunks would skip work and map onto rows they were never asked about, which is a silent
+        // wrong answer rather than a lost saving. Only the bookkeeping goes; the paid output stays.
+        if (stored != null && !stored.hasValidRetainedPlan(plan, input)) {
+            record.dropRetainedChunks();
+        }
         // A record that failed before is resumable: its completed chunks stand, and only the failed
         // ones are reopened. An explicit retry is the only thing that reaches this line.
         record.reopenFailedChunks();
@@ -154,6 +166,9 @@ public final class AiLayerRunner {
 
             record.account(previous, execution.record);
             record.lastAccessedAtMs = args.nowMs;
+            // Which rows this attempt proved must fall back: recorded so a later run can treat the
+            // shortfall as finished instead of asking for those rows again.
+            execution.record.setFallbackRowIds(execution.fallbackRowIds);
             if (!execution.ok && execution.failure.reason == AiFailureReason.TRUNCATED
                     && chunk.items.size() > 1) {
                 execution.record.status = AiChunkRecord.Status.REPLANNED;
@@ -188,11 +203,14 @@ public final class AiLayerRunner {
         }
 
         boolean fellBack = false;
+        java.util.List<String> childFallbackRows = new java.util.ArrayList<>();
         for (AiPlannedChunk child : children) {
             ChunkRunResult childResult = runChunk(args, plannerInput, store, config, record, child,
                     durable);
             durable = childResult.durable;
             fellBack |= childResult.fellBack;
+            AiChunkRecord childRecord = record.chunk(child.id);
+            if (childRecord != null) childFallbackRows.addAll(childRecord.fallbackRowIds);
             if (childResult.cancelReason != null || childResult.failure != null) {
                 return new ChunkRunResult(durable, fellBack, childResult.failure,
                         childResult.cancelReason);
@@ -202,6 +220,9 @@ public final class AiLayerRunner {
         AiChunkRecord completedParent = record.chunk(chunk.id).copy();
         completedParent.status = fellBack ? AiChunkRecord.Status.COMPLETED_FALLBACK
                 : AiChunkRecord.Status.COMPLETE;
+        // The parent's proof is its children's: the rows they fell back for are exactly the rows the
+        // parent did not satisfy, and a terminal proof that says otherwise is refused.
+        completedParent.setFallbackRowIds(childFallbackRows);
         completedParent.failure = null;
         record.putChunk(chunk.id, completedParent);
         record.status = AiPaidRecord.Status.PARTIAL;

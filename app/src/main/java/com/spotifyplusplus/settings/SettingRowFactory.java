@@ -64,18 +64,12 @@ public final class SettingRowFactory {
     // --- Row construction ---
 
     /**
-     * Sub-line under a toggle. Most toggles explain themselves by their label, but two of them
-     * carry a consequence the label cannot state: the timing-upgrade switch changes which source
-     * the sync comes from without touching the text, and Android Auto needs root and a second
-     * scoped package before it can work at all.
+     * Sub-line under a toggle. Most toggles explain themselves by their label, but one of them
+     * carries a consequence the label cannot state: Android Auto needs root and a second scoped
+     * package before it can work at all.
      */
     private String switchSummary(Settings.Setting<?> setting, boolean unavailable) {
         if (unavailable) return host.unavailableSummary(setting);
-        if (setting == Settings.SYNC_UPGRADE) {
-            return host.strings().get("settings_sync_upgrade_summary",
-                    "This option uses timing from enabled QQ Music or NetEase sources when the "
-                            + "lyrics match. The lyric text does not change.");
-        }
         return setting == Settings.AUTO_ENABLED
                 ? host.strings().get("settings_auto_root_requirement",
                         "Requires root and LSPosed/Vector. Scope Spotify and Android Auto.")

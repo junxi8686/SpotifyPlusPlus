@@ -109,7 +109,7 @@
     <string name="settings_label_lyrics_track_info_text_overflow">トラック情報オーバーフロー</string>
     <string name="settings_option_scroll">スクロール</string>
     <string name="settings_label_lyrics_track_info_art_size">トラック情報アートサイズ</string>
-    <string name="settings_label_lyrics_adaptive_landscape_layout">適応型横向きレイアウト</string>
+    <string name="settings_label_lyrics_adaptive_landscape_layout">横長の画面では2カラム</string>
     <string name="settings_label_lyrics_panel_media_controls">パネルメディアコントロール</string>
     <string name="settings_label_lyric_animation_style">アニメーションスタイル</string>
     <string name="settings_label_lyric_apple_fade_passed_lines">過去の行をフェード</string>
@@ -147,6 +147,9 @@
     <string name="settings_label_lyric_aligned_per_word_romaji">各単語の下に音字を付ける</string>
     <string name="settings_label_lyrics_japanese_reading_mode">日本語読み</string>
     <string name="settings_label_lyrics_chinese_mode">中国語読み</string>
+    <string name="settings_label_lyrics_chinese_character_form">歌詞の表示文字</string>
+    <string name="settings_option_lyrics_chinese_character_form_original">変換しない — 歌詞は取得元のまま表示</string>
+    <string name="settings_option_lyrics_chinese_character_form_simplified">簡体字で表示 — 中国語の歌詞を簡体字に変換して表示</string>
     <string name="settings_label_lyrics_korean_romanization">韓国語読み</string>
     <string name="settings_label_lyrics_chinese_tones">中国語声調を表示</string>
     <string name="settings_label_lyrics_cyrillic_mode">キリル文字読み</string>
@@ -422,6 +425,9 @@
     <string name="settings_label_lyrics_show_fullscreen_back_button">戻るボタンを表示</string>
     <string name="settings_layout_editor_options_button">オプション</string>
     <string name="settings_layout_editor_close">閉じる</string>
+    <string name="settings_layout_editor_layout">レイアウト</string>
+    <string name="settings_layout_editor_show_artwork_info">アートワークと曲情報を表示</string>
+    <string name="settings_layout_editor_show_options">オプションを表示</string>
     <string name="settings_layout_editor_element_artwork">アートワーク</string>
     <string name="settings_layout_editor_element_track_text">トラック情報</string>
     <string name="settings_layout_editor_element_focus">フォーカス</string>
@@ -465,7 +471,6 @@
 
     <!-- SpicyLyrics.org -->
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org クライアントキー</string>
-    <string name="settings_label_lyrics_sync_upgrade">歌詞の同期をアップグレード</string>
     <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
     <string name="source_picker_spicy_key_required">設定で個人クライアントキーを入力してください</string>
     <string name="settings_spicy_key_help">https://developers.spicylyrics.org/catalog/spicy-ex で個人クライアントキーを取得してください</string>
@@ -482,4 +487,37 @@
 
     <!-- Picture-in-picture -->
     <string name="settings_label_lyrics_pip_album_art">アルバムアートを表示</string>
+    <!-- Spotify++ 1.4: translation backends, language preference, backup and font additions -->
+    <string name="settings_label_lyrics_translation_backend">翻訳エンジン</string>
+    <string name="settings_option_lyrics_translation_backend_google_unofficial">Google</string>
+    <string name="settings_option_lyrics_translation_backend_baidu_unofficial">Baidu</string>
+    <string name="settings_option_lyrics_translation_backend_provider">歌詞ソースのみ</string>
+    <string name="settings_label_lyrics_baidu_translate_appid">Baidu APP ID</string>
+    <string name="settings_label_lyrics_baidu_translate_secret">Baidu のキー</string>
+    <string name="settings_baidu_help">Baidu 翻訳のアカウントで APP ID とキーを取得してください：https://fanyi-api.baidu.com/</string>
+    <string name="settings_baidu_absent">未設定</string>
+    <string name="settings_baidu_appid_edit">APP ID を入力</string>
+    <string name="settings_baidu_appid_reveal">APP ID を表示</string>
+    <string name="settings_baidu_appid_delete">APP ID を削除</string>
+    <string name="settings_baidu_appid_rejected">保存しませんでした：APP ID は英数字で入力してください</string>
+    <string name="settings_baidu_secret_edit">キーを入力</string>
+    <string name="settings_baidu_secret_reveal">キーを表示</string>
+    <string name="settings_baidu_secret_delete">キーを削除</string>
+    <string name="settings_baidu_secret_rejected">保存しませんでした：Baidu が発行したキーを入力してください</string>
+    <string name="settings_label_lyrics_language_preference">歌詞の言語の優先</string>
+    <string name="settings_option_lyrics_language_preference_prefer_original">原文を優先</string>
+    <string name="settings_option_lyrics_language_preference_prefer_chinese_translation">中国語訳を優先</string>
+    <string name="lyrics_translation_failed_refused">翻訳に失敗しました：翻訳サービスがリクエストを拒否しました。</string>
+    <string name="lyrics_translation_failed_rate_limited">翻訳のリクエストが多すぎます。しばらくしてから再試行してください。</string>
+    <string name="lyrics_translation_failed_unreadable">翻訳に失敗しました：翻訳サービスの応答を解釈できませんでした。</string>
+    <string name="lyrics_translation_failed_network">翻訳に失敗しました：ネットワークリクエストが完了しませんでした。</string>
+    <string name="lyrics_translation_failed_not_configured">翻訳には設定で Baidu の APP ID とキーが必要です。</string>
+    <string name="lyrics_translation_failed_generic">翻訳に失敗しました。翻訳ボタンをタップすると再試行できます。</string>
+    <string name="settings_backup_cancelled">キャンセルしました</string>
+    <string name="settings_backup_credential_other">保存済みの認証情報</string>
+    <string name="settings_backup_credentials_kept">この端末で既に有効なキーはそのまま残しました：%1$s</string>
+    <string name="settings_backup_credentials_reenter">以下をもう一度入力してください。このバックアップを作成した端末で暗号化されているため、ここでは読み取れません：%1$s</string>
+    <string name="settings_backup_exported_count">%1$d 件を書き出しました</string>
+    <string name="settings_backup_restart_advice">復元したカタログとキャッシュを反映するには Spotify を再起動してください。</string>
+    <string name="settings_lyrics_font_file_missing">フォントファイルが見つかりません</string>
 </resources>

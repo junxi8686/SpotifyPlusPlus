@@ -147,6 +147,9 @@
     <string name="settings_label_lyric_aligned_per_word_romaji">단어마다 아래에 발음 표기</string>
     <string name="settings_label_lyrics_japanese_reading_mode">일본어 발음 표기</string>
     <string name="settings_label_lyrics_chinese_mode">중국어 발음 표기</string>
+    <string name="settings_label_lyrics_chinese_character_form">가사 표시 문자</string>
+    <string name="settings_option_lyrics_chinese_character_form_original">변환 안 함 — 가사를 원본 그대로 표시</string>
+    <string name="settings_option_lyrics_chinese_character_form_simplified">간체로 표시 — 중국어 가사를 간체자로 변환해 표시</string>
     <string name="settings_label_lyrics_korean_romanization">한국어 발음 표기</string>
     <string name="settings_label_lyrics_chinese_tones">성조 표시</string>
     <string name="settings_label_lyrics_cyrillic_mode">키릴 문자 발음 표기</string>
@@ -428,6 +431,9 @@
     <string name="settings_label_lyrics_show_fullscreen_back_button">뒤로 버튼 표시</string>
     <string name="settings_layout_editor_options_button">옵션</string>
     <string name="settings_layout_editor_close">닫기</string>
+    <string name="settings_layout_editor_layout">레이아웃</string>
+    <string name="settings_layout_editor_show_artwork_info">앨범 아트와 곡 정보 표시</string>
+    <string name="settings_layout_editor_show_options">옵션 표시</string>
     <string name="settings_layout_editor_element_artwork">앨범 아트</string>
     <string name="settings_layout_editor_element_track_text">곡 정보</string>
     <string name="settings_layout_editor_element_focus">현재 가사 위치</string>
@@ -484,7 +490,6 @@
 
     <!-- SpicyLyrics.org -->
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org 클라이언트 키</string>
-    <string name="settings_label_lyrics_sync_upgrade">가사 동기화 업그레이드</string>
     <string name="lyrics_source_name_spicy_org">SpicyLyrics.org</string>
     <string name="source_picker_spicy_key_required">설정에서 개인 클라이언트 키를 입력하세요</string>
     <string name="settings_spicy_key_help">https://developers.spicylyrics.org/catalog/spicy-ex 에서 개인 클라이언트 키를 발급받으세요</string>
@@ -501,4 +506,37 @@
 
     <!-- Picture-in-picture -->
     <string name="settings_label_lyrics_pip_album_art">앨범 아트 표시</string>
+    <!-- Spotify++ 1.4: translation backends, language preference, backup and font additions -->
+    <string name="settings_label_lyrics_translation_backend">번역 엔진</string>
+    <string name="settings_option_lyrics_translation_backend_google_unofficial">Google</string>
+    <string name="settings_option_lyrics_translation_backend_baidu_unofficial">바이두</string>
+    <string name="settings_option_lyrics_translation_backend_provider">가사 소스만</string>
+    <string name="settings_label_lyrics_baidu_translate_appid">바이두 APP ID</string>
+    <string name="settings_label_lyrics_baidu_translate_secret">바이두 키</string>
+    <string name="settings_baidu_help">바이두 번역 계정에서 APP ID와 키를 발급받으세요: https://fanyi-api.baidu.com/</string>
+    <string name="settings_baidu_absent">설정 안 됨</string>
+    <string name="settings_baidu_appid_edit">APP ID 입력</string>
+    <string name="settings_baidu_appid_reveal">APP ID 표시</string>
+    <string name="settings_baidu_appid_delete">APP ID 삭제</string>
+    <string name="settings_baidu_appid_rejected">저장하지 않았습니다: APP ID는 영문과 숫자여야 합니다</string>
+    <string name="settings_baidu_secret_edit">키 입력</string>
+    <string name="settings_baidu_secret_reveal">키 표시</string>
+    <string name="settings_baidu_secret_delete">키 삭제</string>
+    <string name="settings_baidu_secret_rejected">저장하지 않았습니다: 바이두가 발급한 키를 입력하세요</string>
+    <string name="settings_label_lyrics_language_preference">가사 언어 우선</string>
+    <string name="settings_option_lyrics_language_preference_prefer_original">원문 우선</string>
+    <string name="settings_option_lyrics_language_preference_prefer_chinese_translation">중국어 번역 우선</string>
+    <string name="lyrics_translation_failed_refused">번역 실패: 번역 서비스가 요청을 거부했습니다.</string>
+    <string name="lyrics_translation_failed_rate_limited">번역 요청이 너무 많습니다. 잠시 후 다시 시도하세요.</string>
+    <string name="lyrics_translation_failed_unreadable">번역 실패: 번역 서비스의 응답을 해석할 수 없습니다.</string>
+    <string name="lyrics_translation_failed_network">번역 실패: 네트워크 요청이 완료되지 않았습니다.</string>
+    <string name="lyrics_translation_failed_not_configured">번역하려면 설정에서 바이두 APP ID와 키를 입력하세요.</string>
+    <string name="lyrics_translation_failed_generic">번역에 실패했습니다. 번역 버튼을 눌러 다시 시도하세요.</string>
+    <string name="settings_backup_cancelled">취소됨</string>
+    <string name="settings_backup_credential_other">저장된 자격 증명</string>
+    <string name="settings_backup_credentials_kept">이 기기에서 이미 작동하는 키는 그대로 두었습니다: %1$s</string>
+    <string name="settings_backup_credentials_reenter">다음 항목을 다시 입력하세요. 이 백업을 만든 기기에서 암호화되어 여기에서는 읽을 수 없습니다: %1$s</string>
+    <string name="settings_backup_exported_count">%1$d개를 내보냈습니다</string>
+    <string name="settings_backup_restart_advice">복원한 카탈로그와 캐시를 적용하려면 Spotify를 다시 시작하세요.</string>
+    <string name="settings_lyrics_font_file_missing">글꼴 파일을 찾을 수 없습니다</string>
 </resources>

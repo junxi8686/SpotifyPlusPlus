@@ -64,7 +64,6 @@ public final class SettingsUiSchema {
             Settings.SPICY_ORG_CLIENT_KEY,
             Settings.LYRICS_SOURCE_ORDER,
             Settings.KARAOKE_ORIGINAL_LYRICS,
-            Settings.SYNC_UPGRADE,
             Settings.LYRICS_LANGUAGE_PREFERENCE,
             Settings.CACHE_SIZE,
             // Layout editor (tap behaviour stays in the panel; looks are edited on-screen)
@@ -85,6 +84,7 @@ public final class SettingsUiSchema {
             Settings.FURIGANA_BRIGHTNESS,
             Settings.FURIGANA_POSITION_PERCENT,
             Settings.CHINESE_MODE,
+            Settings.CHINESE_CHARACTER_FORM,
             Settings.KOREAN_ROMANIZATION,
             Settings.CHINESE_TONES,
             Settings.CYRILLIC_MODE,

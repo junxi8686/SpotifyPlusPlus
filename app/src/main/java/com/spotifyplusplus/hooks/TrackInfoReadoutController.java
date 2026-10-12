@@ -215,8 +215,9 @@ final class TrackInfoReadoutController {
     private final Runnable onRevealChrome;
     private final boolean landscape;
     /** When true this screen is the adaptive two-column layout: the column placement below owns
-     * the landscape art and every floating overlay stands down. */
-    private final boolean twoColumn;
+     * the landscape art and every floating overlay stands down. Follows the shell's live layout
+     * switch through {@link #setTwoColumn}. */
+    private boolean twoColumn;
     private final int artTopDp;
     private final int sideArtDp;
     private final float aspect;
@@ -665,8 +666,10 @@ final class TrackInfoReadoutController {
         // only the arrangement differs (a column, not a floating plane), so the shell hosts this
         // box inside its own left column instead of the overlay. It is built last, once the
         // controller exists, because the cover's measure and the column's centring both read
-        // settings off it.
-        if (twoColumn) {
+        // settings off it. Built on every layout, not only the two-column one: switching the
+        // layout live re-hosts this box, and a placement that does not exist cannot be hosted.
+        // setMode keeps it GONE while two-column is off, so it owns nothing until it is attached.
+        {
             // The shell's left column takes 0.8 of the width against the lyrics column's 1.15;
             // that ratio is where this size estimate comes from, so the first cover (fetched
             // before the column has ever been measured) is close to the real one.
@@ -852,11 +855,31 @@ final class TrackInfoReadoutController {
 
     // -- mode ---------------------------------------------------------------
 
-    /** The two-column placement's box, for the shell to add to its left column; null on every
-     *  layout that is not the adaptive two-column one. Not a child of the overlay, so the shell
-     *  owns where in its own hierarchy this lives. */
+    /** The column placement's box; the shell hosts it in its own left column while two-column
+     *  layout is on. Not a child of the overlay, so the shell owns where it lives. */
     View columnView() {
         return columnBox;
+    }
+
+    /**
+     * Switches placement while retaining track text, artwork and gesture ownership, so a live
+     * layout change does not drop the readout's state or re-fetch the cover.
+     *
+     * <p>The three floating placements are snapped back to full alpha first: one of them may be
+     * mid fade-out from the mode it was in, and its end action would otherwise park it INVISIBLE
+     * a frame after this switch decides it is the visible one.
+     */
+    void setTwoColumn(boolean value) {
+        if (twoColumn == value) return;
+        twoColumn = value;
+        for (View box : new View[]{topBox, bottomBox, sideBox}) {
+            box.animate().cancel();
+            box.animate().withEndAction(null);
+            box.setAlpha(1f);
+        }
+        lastArtAttemptMs = 0L;
+        lastMode = null; // re-apply as a first mount: snap visibilities instead of animating
+        onPreferenceChanged();
     }
 
     /** Largest cover the column fits, in px; -1 before its first measure. The layout editor's

@@ -45,6 +45,15 @@ public final class AiChunkRecord {
     /** True once any attempt's usage had to be estimated rather than read from the provider. */
     public boolean usageEstimated;
     public AiChunkFailure failure;
+    /**
+     * Rows this chunk proved it could not satisfy, after its targeted re-ask, so the run falls back
+     * to the baseline layer for exactly them.
+     *
+     * <p>Recorded rather than inferred: "some chunk fell back" is not proof that a specific row may
+     * be composed from the baseline, and only proof lets a later run treat a partial record as
+     * finished for those rows instead of buying them again.
+     */
+    public List<String> fallbackRowIds = Collections.emptyList();
 
     public AiChunkRecord(List<String> ids, String requestJson) {
         this.ids = Collections.unmodifiableList(
@@ -67,7 +76,14 @@ public final class AiChunkRecord {
         copy.outputTokens = outputTokens;
         copy.usageEstimated = usageEstimated;
         copy.failure = failure;
+        copy.fallbackRowIds = fallbackRowIds;
         return copy;
+    }
+
+    /** Records the rows proven to need the baseline layer; null and empty both mean none. */
+    public void setFallbackRowIds(List<String> rows) {
+        fallbackRowIds = Collections.unmodifiableList(
+                new ArrayList<>(rows == null ? Collections.<String>emptyList() : rows));
     }
 
     public boolean isComplete() {

@@ -31,6 +31,12 @@ public final class LyricsLineViewState {
             state(line).mainView.setSoftSweep(true);
             state(line).mainView.setSequentialLineFill(true);
         }
+        // A reading line shown under the lyric is part of the same sentence: one wash crosses both
+        // rows, so it takes the same soft sweep and line fill as the lyric it belongs to.
+        if (state(line).romanView != null) {
+            state(line).romanView.setSoftSweep(true);
+            state(line).romanView.setSequentialLineFill(true);
+        }
         applyLineLevelGradient(line, gradient, glow, brightness);
         if (line.words != null) for (SyllableSegment word : line.words) {
             LyricsSyllableViewState.applySentenceGradient(word, gradient, glow, brightness);

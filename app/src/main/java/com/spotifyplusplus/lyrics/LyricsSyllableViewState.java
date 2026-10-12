@@ -712,7 +712,10 @@ public final class LyricsSyllableViewState {
         int gradientWidth = gradientContainer == container
                 ? containerWidth : gradientContainer == null ? 0 : gradientContainer.getWidth();
         if (gradientContainer != null && gradientWidth > 0 && view.isAttachedToWindow()) {
-            view.setContainerGradientPosition(
+            // setSentenceGradientPosition, not setContainerGradientPosition: a view that owns a
+            // sentence-wide gradient (the Android Auto surface) keeps it, while every other view
+            // lands on exactly the container gradient this call has always applied.
+            view.setSentenceGradientPosition(
                     gradient, glow, gradientWidth, offsetWithin(view, gradientContainer));
         } else {
             view.setGradientPosition(gradient, glow);

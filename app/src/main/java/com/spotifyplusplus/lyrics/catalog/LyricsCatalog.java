@@ -5,6 +5,7 @@ import android.content.Context;
 import com.spotifyplusplus.SpotifyTrack;
 import com.spotifyplusplus.lyrics.LyricsDocument;
 import com.spotifyplusplus.lyrics.catalog.CatalogRanker.Resolution;
+import com.spotifyplusplus.lyrics.providers.NativeLyricsSource;
 import com.spotifyplusplus.lyrics.session.CanonicalSourceCache;
 import com.spotifyplusplus.lyrics.session.CanonicalSourceCodec;
 import com.spotifyplusplus.lyrics.session.LyricsSourcePreferences;
@@ -120,7 +121,22 @@ public final class LyricsCatalog {
         return (state, policy, now) -> CatalogDecisions.remove(state, policy, candidateId);
     }
 
-    /** Decodes a stored candidate into a render document stamped with its catalog identity. */
+    /**
+     * Decodes a stored candidate into a render document stamped with its catalog identity.
+     *
+     * <p>The capture guard against a document that is really a layout probe lives in
+     * {@code NativeLyricsSource} and only sees captures made after it existed. A row an older build
+     * stored from such a probe is still in the database, still decodes, and without this check would
+     * still render and could still hold the Auto seat - the write-side guard cannot reach backwards.
+     * The same predicate is applied here, at the read boundary, so one definition decides both
+     * directions.
+     *
+     * <p>Returning null is enough to close every consumer at once: {@link #readableState} drops the
+     * candidate from the state that renders and elects, and, because the source then has stored rows
+     * and none readable, marks its provider record {@code NEEDS_REFRESH} so the next round fetches
+     * proper lyrics for it. The row itself is left where it is: a heuristic must not delete stored
+     * data, and it is invisible until it is replaced or removed from the picker.
+     */
     public static CanonicalSourceCodec.Record decode(CatalogCandidate candidate) {
         if (candidate == null || candidate.normalizedDocument.isEmpty()
                 || !candidate.hasValidProviderTiming()) return null;
@@ -130,6 +146,10 @@ public final class LyricsCatalog {
             if (record == null || record.document == null || record.document.lines.isEmpty()) {
                 return null;
             }
+            if (!NativeLyricsSource.looksLikeLyrics(record.document.lines)) {
+                traceRejectedText(candidate);
+                return null;
+            }
             CatalogAdapters.applyProviderTransliteration(candidate, record.document);
             record.document.catalogCandidateId = candidate.candidateId;
             return record;
@@ -137,6 +157,27 @@ public final class LyricsCatalog {
             return null;
         }
     }
+
+    /**
+     * One line the first time a stored document is refused for its shape, then only when the
+     * refused candidate changes. Decoding runs on every read - the ranking's own trace showed about
+     * nineteen a second - so repeating this per read would be the flooding bug again, while a
+     * silent refusal would leave the owner with a track that simply never shows lyrics.
+     */
+    private static void traceRejectedText(CatalogCandidate candidate) {
+        try {
+            String line = "SpotifyPlusSpicy catalog refused stored text that is not lyrics source="
+                    + candidate.sourceId + " candidate=" + candidate.candidateId;
+            if (line.equals(lastRejectedLine)) return;
+            lastRejectedLine = line;
+            com.spotifyplusplus.xposed.XpLog.log(line);
+        } catch (Throwable ignored) {
+            // A trace must never affect the decision it describes.
+        }
+    }
+
+    /** Last line printed by {@link #traceRejectedText}; identical repeats are suppressed. */
+    private static volatile String lastRejectedLine = "";
 
     private static View readView(Context context, String trackId, boolean includeLocal,
                                  boolean durable, String outcome) {

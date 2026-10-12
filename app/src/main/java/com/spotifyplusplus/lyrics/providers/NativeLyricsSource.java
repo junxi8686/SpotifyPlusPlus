@@ -124,7 +124,7 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
 
     public void captureCandidate(SpotifyTrack track, Object candidate, Object[] ctorArgs, String sourceTag) {
         // Bare lists omit the owning message's language and provider metadata.
-        if (candidate instanceof java.util.Collection) return;
+        if (candidate instanceof java.util.Collection || isFrameworkObject(candidate)) return;
         dbg("captureCandidate", "source=" + safe(sourceTag) + " class=" + (candidate == null ? "null" : candidate.getClass().getName()) + " args=" + (ctorArgs == null ? 0 : ctorArgs.length));
         try {
             LyricsDocument doc = buildNativeLyricsDocument(track, candidate, ctorArgs, sourceTag);
@@ -247,7 +247,11 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
             dbMisses.remove(trackId);
         }
         LyricsDocument fromDb = readNativeLyricsFromDb(track);
-        if (fromDb != null && !fromDb.lines.isEmpty()) {
+        // The store guard below only sees captures made after it existed: a row Spotify stored
+        // before this build - or one written straight into its own lyrics table by an earlier
+        // probe - would otherwise be served as this track's lyrics forever. Same predicate, so a
+        // document is refused here for exactly the reason it would be refused in store().
+        if (fromDb != null && !fromDb.lines.isEmpty() && looksLikeLyrics(fromDb.lines)) {
             store(fromDb);
             return fromDb;
         }
@@ -300,8 +304,12 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
      * snake_case identifiers, which is what a resource or view id list looks like. A single line
      * of that shape disqualifies the whole document - a real document never contains one - and
      * ordinary prose, including a single word or a line of CJK, always passes.
+     *
+     * <p>Public because the catalogue applies the same predicate at its read boundary: a document
+     * an older build stored before this guard existed is refused when it is decoded, not only when
+     * it is captured. One definition, used by both, so the two cannot drift apart.
      */
-    static boolean looksLikeLyrics(java.util.List<LyricsLine> lines) {
+    public static boolean looksLikeLyrics(java.util.List<LyricsLine> lines) {
         if (lines == null || lines.isEmpty()) return false;
         int usable = 0;
         for (LyricsLine entry : lines) {
@@ -927,10 +935,10 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
 
     private static List<?> readNativeLinesContainer(Object candidate, Object[] ctorArgs) {
         dbg("readNativeLinesContainer", "candidate=" + (candidate == null ? "null" : candidate.getClass().getName()) + " args=" + (ctorArgs == null ? 0 : ctorArgs.length));
-        if (candidate instanceof List && !((List<?>) candidate).isEmpty()) return (List<?>) candidate;
+        if (candidate instanceof List && isNativeLineList((List<?>) candidate, true)) return (List<?>) candidate;
         if (ctorArgs != null && ctorArgs.length > 1 && ctorArgs[1] instanceof List) {
             List<?> list = (List<?>) ctorArgs[1];
-            if (!list.isEmpty()) return list;
+            if (isNativeLineList(list, true)) return list;
         }
         List<?> fromObject = readListFieldByElementHint(candidate, "Line");
         if (fromObject != null && !fromObject.isEmpty()) return fromObject;
@@ -940,7 +948,8 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
             List<?> list = (List<?>) arg;
             if (list.isEmpty()) continue;
             Object first = list.get(0);
-            if (first != null && first.getClass().getName().contains("Line")) return list;
+            if (first != null && first.getClass().getName().contains("Line")
+                    && isNativeLineList(list, true)) return list;
         }
         // Obfuscated builds rename the line class, so a name hint cannot find it: accept any
         // list whose elements are structured objects that look like a lyric line.
@@ -961,9 +970,10 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
         if (value == null) return null;
         if (value instanceof List) {
             List<?> list = (List<?>) value;
-            if (!list.isEmpty() && looksLikeLineObject(list.get(0))) return list;
+            if (isNativeLineList(list, false)) return list;
             return null;
         }
+        if (isFrameworkObject(value)) return null;
         for (Field field : allFields(value.getClass())) {
             if (Modifier.isStatic(field.getModifiers())) continue;
             if (!List.class.isAssignableFrom(field.getType())) continue;
@@ -972,7 +982,7 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
                 Object raw = field.get(value);
                 if (!(raw instanceof List)) continue;
                 List<?> list = (List<?>) raw;
-                if (list.isEmpty() || !looksLikeLineObject(list.get(0))) continue;
+                if (!isNativeLineList(list, false)) continue;
                 if (list.size() > 1) return list;
             } catch (Throwable ignored) {
             }
@@ -981,11 +991,49 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
     }
 
     /**
+     * Validates every element of a list offered as a line container, including lists handed over
+     * as constructor arguments. Upstream validated only the first element, so one real-looking
+     * line was enough to adopt a list whose remaining entries were framework objects.
+     */
+    private static boolean isNativeLineList(List<?> list, boolean allowNamedUntimed) {
+        if (list == null || list.isEmpty()) return false;
+        boolean found = false;
+        for (Object line : list) {
+            if (line == null) continue;
+            if (!looksLikeLineObject(line, allowNamedUntimed)) return false;
+            found = true;
+        }
+        return found;
+    }
+
+    /**
+     * Whether a value comes from the platform rather than from Spotify's lyric model.
+     *
+     * <p>Framework types carry no lyric fields but plenty of String and numeric ones (a File's
+     * path, a Bundle's keys), so shape alone cannot tell them from a line. They reach this class
+     * because a hook matches a constructor by argument count, and one of Spotify's model
+     * constructors takes an object whose only resemblance to a lyrics payload is its size.
+     */
+    private static boolean isFrameworkObject(Object value) {
+        if (value == null) return false;
+        for (Class<?> type = value.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+            String name = type.getName();
+            if (name.startsWith("java.") || name.startsWith("android.")
+                    || name.startsWith("androidx.") || name.startsWith("kotlin.")) return true;
+        }
+        return false;
+    }
+
+    /**
      * A line-like object: it exposes at least one String field and at least one numeric or
      * nested-list field, which separates lyric lines from unrelated payloads.
+     *
+     * <p>{@code allowNamedUntimed} admits an untimed line whose class is still called something
+     * with "Line" in it: a genuinely unsynced lyric carries text and no timing at all, and
+     * dropping it would lose the lyrics of every Static document.
      */
-    private static boolean looksLikeLineObject(Object candidate) {
-        if (candidate == null) return false;
+    private static boolean looksLikeLineObject(Object candidate, boolean allowNamedUntimed) {
+        if (candidate == null || isFrameworkObject(candidate)) return false;
         if (candidate instanceof String || candidate instanceof Number) return false;
         boolean text = false;
         boolean timing = false;
@@ -997,7 +1045,7 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
                     || type == Integer.class || type == double.class || type == float.class
                     || List.class.isAssignableFrom(type)) timing = true;
         }
-        return text && timing;
+        return text && (timing || (allowNamedUntimed && candidate.getClass().getName().contains("Line")));
     }
 
     private static String extractTrackIdFromObjects(Object[] values) {
@@ -1169,7 +1217,8 @@ public final class NativeLyricsSource implements LyricsRepository.NativeLyricsPr
                 List<?> list = (List<?>) raw;
                 if (list.isEmpty()) continue;
                 Object first = list.get(0);
-                if (first == null || safe(first.getClass().getName()).contains(elementHint)) return list;
+                if ((first == null || safe(first.getClass().getName()).contains(elementHint))
+                        && (!"Line".equals(elementHint) || isNativeLineList(list, true))) return list;
             } catch (Throwable ignored) {
             }
         }

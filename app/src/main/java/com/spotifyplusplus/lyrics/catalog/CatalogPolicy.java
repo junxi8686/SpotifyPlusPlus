@@ -105,7 +105,11 @@ public final class CatalogPolicy {
                 == LyricsSourcePreferences.RankingMode.SOURCE_ORDER,
                 context != null && SpotifyPlusConfig.from(context)
                         .get(Settings.KARAOKE_ORIGINAL_LYRICS),
-                context != null && SpotifyPlusConfig.from(context).get(Settings.SYNC_UPGRADE),
+                // The cross-provider timing upgrade was removed from this build, so the flag is
+                // always false. The parameter itself stays: the ranking files pass it through and
+                // touching that call chain would reach into another member's scoring work. A device
+                // that stored lyrics_sync_upgrade=true keeps an inert entry nothing reads.
+                false,
                 com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore.epoch(context),
                 com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.isTerminated(context),
                 com.spotifyplusplus.lyrics.providers.SpicyOrgAccessState.revision(context),

@@ -40,8 +40,6 @@
     <string name="settings_label_lyrics_source_override">Lyrics source</string>
     <string name="settings_label_lyrics_spicy_manual_token">Spicy manual token</string>
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org client key</string>
-    <string name="settings_label_lyrics_sync_upgrade">Upgrade lyric sync</string>
-    <string name="settings_sync_upgrade_summary">This option uses timing from enabled QQ Music or NetEase sources when the lyrics match. The lyric text does not change.</string>
     <string name="settings_auto_root_requirement">Requires root and LSPosed/Vector. Scope Spotify and Android Auto.</string>
     <string name="settings_label_lyrics_source_order">Lyrics source order</string>
     <string name="settings_label_lyrics_language_preference">Lyrics language preference</string>
@@ -125,7 +123,7 @@
     <string name="settings_label_lyrics_track_info_text_overflow">Track info overflow</string>
     <string name="settings_option_scroll">Scroll</string>
     <string name="settings_label_lyrics_track_info_art_size">Track info art size</string>
-    <string name="settings_label_lyrics_adaptive_landscape_layout">Adaptive landscape layout</string>
+    <string name="settings_label_lyrics_adaptive_landscape_layout">Two-column on wide screens</string>
     <string name="settings_label_lyrics_panel_media_controls">Panel media controls</string>
     <string name="settings_label_lyric_animation_style">Animation style</string>
     <string name="settings_label_lyrics_transition_feel">Transition feel</string>
@@ -158,6 +156,9 @@
     <string name="settings_label_lyric_aligned_per_word_romaji">Attach transliteration under each word</string>
     <string name="settings_label_lyrics_japanese_reading_mode">Japanese reading</string>
     <string name="settings_label_lyrics_chinese_mode">Chinese reading</string>
+    <string name="settings_label_lyrics_chinese_character_form">Lyric display text</string>
+    <string name="settings_option_lyrics_chinese_character_form_original">Keep as written - lyrics exactly as the source provides them</string>
+    <string name="settings_option_lyrics_chinese_character_form_simplified">Show in Simplified - Chinese lyrics displayed in Simplified Chinese</string>
     <string name="settings_label_lyrics_korean_romanization">Korean reading</string>
     <string name="settings_label_lyrics_chinese_tones">Show Chinese tones</string>
     <string name="settings_label_lyrics_cyrillic_mode">Cyrillic reading</string>
@@ -554,6 +555,9 @@
     <string name="settings_layout_editor_reset_confirm_message">Reset the layout editor changes to their defaults?</string>
     <string name="settings_layout_editor_done">Done</string>
     <string name="settings_layout_editor_close">Close</string>
+    <string name="settings_layout_editor_layout">Layout</string>
+    <string name="settings_layout_editor_show_artwork_info">Show artwork &amp; song info</string>
+    <string name="settings_layout_editor_show_options">Show options</string>
     <string name="settings_layout_editor_options_button">Options</string>
     <string name="settings_layout_editor_element_artwork">Artwork</string>
     <string name="settings_layout_editor_element_track_text">Track text</string>

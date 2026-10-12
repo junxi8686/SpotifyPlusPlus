@@ -58,6 +58,9 @@
     <string name="settings_label_lyric_aligned_per_word_romaji">在每个词下附加转写</string>
     <string name="settings_label_lyrics_japanese_reading_mode">日语读音</string>
     <string name="settings_label_lyrics_chinese_mode">中文读音</string>
+    <string name="settings_label_lyrics_chinese_character_form">歌词显示文字</string>
+    <string name="settings_option_lyrics_chinese_character_form_original">不转换 — 歌词按来源原样显示</string>
+    <string name="settings_option_lyrics_chinese_character_form_simplified">以简体显示 — 中文歌词转为简体显示</string>
     <string name="settings_label_lyrics_korean_romanization">韩语读音</string>
     <string name="settings_label_lyrics_chinese_tones">显示中文声调</string>
     <string name="settings_label_lyrics_cyrillic_mode">西里尔文字读音</string>
@@ -340,8 +343,6 @@
     <string name="settings_label_lyrics_source_overrides">按曲目指定歌词来源</string>
     <string name="settings_label_lyrics_spicy_manual_token">Spicy 手动令牌</string>
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org 客户端密钥</string>
-    <string name="settings_label_lyrics_sync_upgrade">升级歌词同步</string>
-    <string name="settings_sync_upgrade_summary">开启后，当歌词匹配时，会使用已启用的 QQ 音乐或网易云来源的时间轴。歌词文本本身不会改变。</string>
     <string name="settings_auto_root_requirement">需要 root 与 LSPosed/Vector，并在作用域中勾选 Spotify 和 Android Auto。</string>
     <string name="settings_section_android_auto">Android Auto</string>
     <string name="settings_label_auto_enabled">启用 Android Auto 歌词</string>
@@ -397,6 +398,9 @@
     <string name="settings_layout_editor_options_button">选项</string>
     <string name="settings_layout_editor_done">完成</string>
     <string name="settings_layout_editor_close">关闭</string>
+    <string name="settings_layout_editor_layout">布局</string>
+    <string name="settings_layout_editor_show_artwork_info">显示封面与歌曲信息</string>
+    <string name="settings_layout_editor_show_options">显示选项</string>
     <string name="settings_layout_editor_cancel">取消</string>
     <string name="settings_layout_editor_reset">重置</string>
     <string name="settings_layout_editor_reset_confirm_title">重置布局？</string>
@@ -456,7 +460,7 @@
     <string name="settings_label_lyrics_track_info_text_overflow">歌曲信息溢出方式</string>
     <string name="settings_option_scroll">滚动</string>
     <string name="settings_label_lyrics_track_info_art_size">歌曲信息封面大小</string>
-    <string name="settings_label_lyrics_adaptive_landscape_layout">自适应横屏布局</string>
+    <string name="settings_label_lyrics_adaptive_landscape_layout">宽屏双栏布局</string>
     <string name="settings_label_lyrics_panel_media_controls">面板播放控件</string>
     <string name="settings_label_lyrics_transition_feel">过渡手感</string>
     <string name="settings_option_lyrics_transition_feel_instant">瞬间</string>

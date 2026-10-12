@@ -12,7 +12,7 @@ Unofficial project, not affiliated with Spotify or any lyrics provider.
 
 [简体中文](readme.md) · **English** · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
 
-![release 1.4](https://img.shields.io/badge/release-1.4-blue) ![licence AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![release 1.5](https://img.shields.io/badge/release-1.5-blue) ![licence AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -21,7 +21,7 @@ Unofficial project, not affiliated with Spotify or any lyrics provider.
 ## Contents
 
 - [What this is](#what-this-is)
-- [What is new in 1.4](#what-is-new-in-14)
+- [What is new in 1.5](#what-is-new-in-15)
 - [How the lyrics source is chosen](#how-the-lyrics-source-is-chosen)
 - [The tiered rule and the weighted score](#the-tiered-rule-and-the-weighted-score)
 - [Features](#features)
@@ -39,7 +39,7 @@ Unofficial project, not affiliated with Spotify or any lyrics provider.
 
 ## What this is
 
-Spotify++ is a lyrics module that runs inside the Spotify process, **based on [Spicy EX](https://github.com/amarinne/spicy-ex)** by [amarinne](https://github.com/amarinne), aimed primarily at Chinese-language listeners. It takes over Spotify's lyrics surface: it queries several lyric sources at once, picks the most suitable document with one scoring rule, and renders it — word- or syllable-timed, translated, romanized, on the full-screen page, on the desktop or in Android Auto.
+Spotify++ is a lyrics module that runs inside the Spotify process, **based on Spicy EX** by amarinne, aimed primarily at Chinese-language listeners. It takes over Spotify's lyrics surface: it queries several lyric sources at once, picks the most suitable document with one scoring rule, and renders it — word- or syllable-timed, translated, romanized, on the full-screen page, on the desktop or in Android Auto.
 
 Choosing which lyrics to show is the point of the module. Spotify offers one document, and for a Chinese song it is often Traditional and line-timed; the same song may exist elsewhere as a Simplified, word-timed, translated edition. The module does not decide in advance which source is best — it measures every candidate and compares the totals.
 
@@ -47,10 +47,12 @@ Choosing which lyrics to show is the point of the module. Spotify offers one doc
 
 ---
 
-## What is new in 1.4
+## What is new in 1.5
 
 ### New features
 
+- **The layout can be edited live** — a change takes effect in the editor straight away, with no need to close and reopen it, and every element can be hidden or shown on its own
+- **Lyric display script** (optional; "no conversion" by default) — Chinese lyrics can be shown in Simplified at display time, converted by phrase, so `頭髮` and `出發` each come out right; **off by default, and it changes nothing for anyone who does not set it**
 - **A new ranking algorithm for lyrics** — word timing first, Simplified ahead of Traditional, more translation is better, a closer duration is better, and the document's language should match the song; a weighted score picks the most suitable document. The rule is described in [the next section](#how-the-lyrics-source-is-chosen)
 - **Automatic selection asks every source** — it no longer stops at the first answer; when a later source returns, the round is compared again and the higher score wins
 - **A new optional machine-translation backend** — enter your own AppID and secret under Settings to use it; the default remains an online translator that needs no account
@@ -58,14 +60,21 @@ Choosing which lyrics to show is the point of the module. Spotify offers one doc
 
 ### Fixed problems
 
+- The floating-window lyrics vanished immediately after Spotify 9.1.90
+- When Spotify closed the host window, the floating window was closed with it
+- After an interrupted AI translation, a saved result was treated as complete and the lyrics were missing rows
+- An AI translation retry threw away a result that had already been paid for, and billed for it again
+- Lyric gradients and word spacing were not smooth enough
+- The lyric position showed one of Spotify's internal view names instead of lyrics, and such content already in the cache was still read out
 - Translations for Chinese lyrics were dropped entirely — not a single line came through
 - Lyrics could stick on "translating", with the screen unresponsive
 - A failed translation produced no message at all
 - Repeated lines (the chorus, sung again and again) did not get translations
-- The floating-window lyrics vanished immediately after Spotify 9.1.90
 - The source that needs a key was never selected and found nothing
 - In the picker, a source that could not deliver looked usable but did nothing when tapped
 - Restoring a backup overwrote a credential that was still working on the device
+- Cross-source lyric blending was removed — it paired one document's timing with another's text, and when the row counts disagreed the result drifted out of alignment while looking fine
+- Parts of the Japanese and Korean interface were filled in; those locales previously showed English there
 - The source-attribution row is no longer shown under the lyrics
 
 ---
@@ -216,7 +225,7 @@ With no key, or with a key the service rejects, that source is skipped automatic
 | System | Android 8.1 or newer (minSdk 27, targetSdk 35) |
 | Module framework | **Xposed / LSPosed** (recommended, needs root) or **LSPatch** (no root; you patch Spotify yourself). The module uses Xposed API 102 |
 | Spotify | This build is adapted to **9.1.88 – 9.1.90**; older versions, betas and third-party rebuilds may not work |
-| Module version | 1.4 (versionCode 7) |
+| Module version | 1.5 (versionCode 8) |
 
 > The module relies on Xposed framework injection and **cannot work on an unpatched Spotify**.
 
@@ -297,7 +306,7 @@ If the device already holds a credential it can still read, a restore **never re
 - A backup written by a newer version is refused rather than guessed at
 - The catalogue and the translation cache **take effect after Spotify restarts**
 
-Related documents: [MODIFICATIONS.md](MODIFICATIONS.md) (the AGPL change notice) and [FEATURES_USER.md](FEATURES_USER.md) (the feature list).
+Related documents: [MODIFICATIONS.md](MODIFICATIONS.md) (the AGPL change notice), [FEATURES_USER.md](FEATURES_USER.md) (the feature list) and [READINGS.md](READINGS.md) (the readings and transliteration guide).
 
 ---
 
@@ -427,7 +436,7 @@ Report problems in [Issues](https://github.com/junxi8686/SpotifyPlusPlus/issues)
 
 ## What this fork changes
 
-This repository merges [Spicy EX](https://github.com/amarinne/spicy-ex) **v2.0.0** onto this project's **v1.1**, and 1.4 replaced its ranking rule again:
+This repository keeps merging upstream Spicy EX onto this project's **v1.1**: 1.4 replaced the ranking rule, and 1.5 ports upstream **v2.0.41**, with these adjustments:
 
 ### Simplified Chinese
 
@@ -461,8 +470,8 @@ See [MODIFICATIONS.md](MODIFICATIONS.md) and [FEATURES_USER.md](FEATURES_USER.md
 
 ## Credits and licence
 
-- Upstream: [amarinne/spicy-ex](https://github.com/amarinne/spicy-ex)
-- Rendering approach informed by [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics) (a Spicetify extension)
+- Upstream: Spicy EX by amarinne
+- Rendering approach informed by Spicy Lyrics (a Spicetify extension)
 - Icons: [Lucide](https://github.com/lucide-icons/lucide) (ISC / MIT)
 - Lyrics come from Spotify's own lyrics and several third-party sources; this page does not list them one by one
 
