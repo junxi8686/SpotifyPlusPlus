@@ -5978,6 +5978,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         // An ad (or any non-song, e.g. a podcast episode) can never be saved - showing the button
         // there just invites a tap that does nothing but pop the "unavailable" toast.
         if (kind == null || (track != null && !SpotifyCollectionAction.isSong(track))) {
+            logLikedButtonVisibility("hidden", kind == null ? "setting_off" : "not_a_song", track);
             if (likeButton.getVisibility() != View.GONE) {
                 likeButton.setVisibility(View.GONE);
                 chromeLayoutApplied = false;
@@ -5988,6 +5989,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             pendingLikedUri = "";
             return;
         }
+        logLikedButtonVisibility("shown", "setting_" + safe(likedMode), track);
         if (likeButton.getVisibility() != View.VISIBLE) {
             likeButton.setVisibility(View.VISIBLE);
             chromeLayoutApplied = false;
@@ -6011,6 +6013,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         com.spotifyplusplus.ui.ActionIconDrawable.Kind kind =
                 com.spotifyplusplus.ui.ActionIconDrawable.likedSongsKind(likedMode);
         if (kind == null) {
+            logLikedButtonVisibility("hidden", "setting_off", null);
             likeButton.setVisibility(View.GONE);
             lastLikedSaved = null;
             lastLikedKind = null;
@@ -6028,6 +6031,25 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         likeButton.setContentDescription(saved
                 ? uiText("lyrics_like_remove", "Remove from Liked Songs")
                 : uiText("lyrics_like_add", "Add to Liked Songs"));
+    }
+
+    /** The last liked-button visibility decision, so a change is logged once with its reason. */
+    private String loggedLikedButtonState = "";
+
+    /**
+     * States the like button's visibility whenever it changes, and why.
+     *
+     * <p>The owner reported a button that disappears, and nothing on screen says which of the two
+     * rules hid it: the setting reading Off, or a track that cannot be saved. Both are silent, so
+     * one line per change is what makes the next report readable from a log.
+     */
+    private void logLikedButtonVisibility(String visibility, String reason, SpotifyTrack track) {
+        String token = visibility + ":" + reason;
+        if (token.equals(loggedLikedButtonState)) return;
+        loggedLikedButtonState = token;
+        com.spotifyplusplus.xposed.XpLog.log(TAG + " liked-songs button " + visibility
+                + " reason=" + reason
+                + " track=" + (track == null ? "none" : safe(track.uri)));
     }
 
     private void setToggleVisibility(View toggle, int targetVisibility) {

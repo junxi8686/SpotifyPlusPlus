@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="../assets/demo.gif" alt="Spotify++ 가사 화면" width="180">
+<img src="../assets/icon.svg" alt="Spotify++" width="140">
 
 # Spotify++
 

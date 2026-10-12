@@ -132,4 +132,112 @@ public class SpotifyCollectionActionTest {
         assertFalse(SpotifyCollectionAction.dispatch("Heart", expected, flapping, () -> session));
         assertNull(session.dispatched.get());
     }
+
+    // --- Why a tap did nothing, and the spellings a build may use ---
+
+    /**
+     * The reason token is what the shell logs. Without it a dead button leaves a toast and nothing
+     * else, which is how the previous reports arrived.
+     */
+    @Test
+    public void everyRefusalNamesTheCheckThatRefused() {
+        SpotifyTrack expected = track("spotify:track:abc", false);
+
+        FakeSession session = new FakeSession();
+        session.trackUri = "spotify:track:abc";
+        session.actions = Collections.singletonList(action("x", "Add to collection"));
+
+        assertEquals("mode_off", SpotifyCollectionAction.outcome(
+                "Off", expected, () -> expected, () -> session).reason);
+        assertEquals("not_a_song", SpotifyCollectionAction.outcome(
+                "Heart", track("spotify:episode:1", false), () -> expected, () -> session).reason);
+        assertEquals("track_changed", SpotifyCollectionAction.outcome(
+                "Heart", expected, () -> track("spotify:track:other", false), () -> session).reason);
+        assertEquals("no_session", SpotifyCollectionAction.outcome(
+                "Heart", expected, () -> expected, () -> null).reason);
+
+        FakeSession noAction = new FakeSession();
+        noAction.trackUri = "spotify:track:abc";
+        noAction.actions = Collections.singletonList(action("play", "Play"));
+        assertEquals("no_collection_action", SpotifyCollectionAction.outcome(
+                "Heart", expected, () -> expected, () -> noAction).reason);
+
+        FakeSession otherApp = new FakeSession();
+        otherApp.packageName = "com.other.app";
+        otherApp.trackUri = "spotify:track:abc";
+        otherApp.actions = Collections.singletonList(action("x", "collection"));
+        assertEquals("not_spotify", SpotifyCollectionAction.outcome(
+                "Heart", expected, () -> expected, () -> otherApp).reason);
+
+        SpotifyCollectionAction.Outcome ok = SpotifyCollectionAction.outcome(
+                "Heart", expected, () -> expected, () -> session);
+        assertTrue(ok.dispatched);
+        assertEquals("dispatched", ok.reason);
+    }
+
+    /** A moved action id must still be recognized: the token is the contract, not the spelling. */
+    @Test
+    public void recognizesTheSpellingsASpotifyBuildMayUse() {
+        String[] accepted = {
+                "com.spotify.music.playback.action.LIKE",
+                "com.spotify.music.playback.action.ADD_TO_COLLECTION",
+                "Add to Liked Songs",
+                "Save to Library",
+                "收藏",
+                "喜欢",
+                "com.spotify.heart"
+        };
+        for (String value : accepted) {
+            assertTrue(value, SpotifyCollectionAction.isCollectionAction(value));
+        }
+        String[] refused = {
+                "Play", "Skip Next", "SHUFFLE", "SAVE_OFFLINE", "DOWNLOAD", "Repeat", "x", "", null
+        };
+        for (String value : refused) {
+            assertFalse(String.valueOf(value), SpotifyCollectionAction.isCollectionAction(value));
+        }
+    }
+
+    /**
+     * A session that publishes no media id is not evidence of a mismatch: a build that stopped
+     * publishing it left the button dead while the session was healthy. A reported, different id
+     * still refuses.
+     */
+    @Test
+    public void anUnknownSessionTrackDoesNotBlockTheAction() {
+        SpotifyTrack expected = track("spotify:track:abc", false);
+
+        assertTrue(dispatchWithSessionTrackUri(expected, null));
+        assertTrue(dispatchWithSessionTrackUri(expected, ""));
+        // A metadata field that carries the bare id matches the full uri for the same track.
+        assertTrue(dispatchWithSessionTrackUri(expected, "abc"));
+        // A padded uri is the same track; a different id never is.
+        assertTrue(dispatchWithSessionTrackUri(expected, "spotify:track:abc?si=0123"));
+        assertFalse(dispatchWithSessionTrackUri(expected, "spotify:track:other"));
+        assertFalse(dispatchWithSessionTrackUri(expected, "spotify:episode:abc"));
+    }
+
+    @Test
+    public void theOfferedActionsAreReportedForTheLog() {
+        String described = SpotifyCollectionAction.describeActions(Arrays.asList(
+                action("com.spotify.music.playback.action.PLAY", "Play"),
+                action("com.spotify.music.playback.action.LIKE", null)));
+
+        assertTrue(described, described.contains("\"com.spotify.music.playback.action.PLAY\""));
+        assertTrue(described, described.contains("name=\"Play\""));
+        assertTrue(described, described.contains("\"com.spotify.music.playback.action.LIKE\""));
+        assertEquals("none", SpotifyCollectionAction.describeActions(null));
+        assertEquals("none", SpotifyCollectionAction.describeActions(Collections.emptyList()));
+        assertTrue(SpotifyCollectionAction.wantedTokens().contains("collection"));
+    }
+
+    private static boolean dispatchWithSessionTrackUri(SpotifyTrack expected, String sessionTrackUri) {
+        FakeSession session = new FakeSession();
+        session.trackUri = sessionTrackUri;
+        session.actions = Collections.singletonList(action("x", "Add to collection"));
+        boolean dispatched =
+                SpotifyCollectionAction.dispatch("Heart", expected, () -> expected, () -> session);
+        if (dispatched) assertEquals("x", session.dispatched.get());
+        return dispatched;
+    }
 }

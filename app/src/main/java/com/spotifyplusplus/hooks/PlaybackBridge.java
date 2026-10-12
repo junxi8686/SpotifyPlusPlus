@@ -189,7 +189,82 @@ final class PlaybackBridge {
 
     boolean toggleSpotifySaved(String mode, SpotifyTrack expected,
                                java.util.function.Supplier<SpotifyTrack> currentTrack) {
-        return SpotifyCollectionAction.dispatch(mode, expected, currentTrack, this::collectionSession);
+        SpotifyCollectionAction.Outcome outcome =
+                SpotifyCollectionAction.outcome(mode, expected, currentTrack, this::collectionSession);
+        if (!outcome.dispatched) logSavedOutcome(outcome.reason);
+        return outcome.dispatched;
+    }
+
+    /** The last refused reason, so a repeated tap logs once instead of once per attempt. */
+    private volatile String loggedSavedRefusal = "";
+
+    /**
+     * One line per distinct refusal, naming everything needed to diagnose a moved action: what the
+     * scan wanted, what the session actually offered, whether a session was captured at all,
+     * whether it published a track uri, and the host version. Before this the only trace of a dead
+     * button was a toast, which is why locating the failing branch took three attempts.
+     *
+     * <p>Only Spotify's own action ids and labels travel here - values Spotify publishes, not the
+     * owner's data.
+     */
+    private void logSavedOutcome(String reason) {
+        if (reason == null) return;
+        if (reason.equals(loggedSavedRefusal)) return;
+        loggedSavedRefusal = reason;
+        String session = "no";
+        String offered = "none";
+        String mediaId = "no_session";
+        try {
+            SpotifyCollectionAction.Session live = collectionSession();
+            if (live != null) {
+                session = "yes";
+                offered = SpotifyCollectionAction.describeActions(live.advertisedActions());
+                String uri = live.trackUri() == null ? "" : live.trackUri().trim();
+                mediaId = uri.isEmpty() ? "absent" : uri.indexOf(':') < 0 ? "bare" : "present";
+            }
+        } catch (Throwable ignored) {
+        }
+        XpLog.log(NativeSpicyLyricsHook.TAG + " liked-songs action unavailable reason=" + reason
+                + " wanted=" + SpotifyCollectionAction.wantedTokens()
+                + " session=" + session
+                + " offered=[" + offered + "]"
+                + " mediaId=" + mediaId
+                + " spotify=" + hostVersion());
+    }
+
+    /** The host app's version at most once per process: a moved symbol needs it to be diagnosable. */
+    private volatile String cachedHostVersion = "";
+
+    private String hostVersion() {
+        String version = cachedHostVersion;
+        if (!version.isEmpty()) return version;
+        version = "unknown";
+        try {
+            android.content.Context context = hostApplication();
+            android.content.pm.PackageInfo info = context == null ? null
+                    : context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            if (info != null && info.versionName != null) version = info.versionName;
+        } catch (Throwable unavailable) {
+            version = "unknown";
+        }
+        cachedHostVersion = version;
+        return version;
+    }
+
+    /** The host application, found the way the other hook-side classes find it. */
+    private static android.content.Context hostApplication() {
+        android.app.Activity activity = References.currentActivity();
+        if (activity != null) return activity.getApplicationContext();
+        try {
+            Object app = com.spotifyplusplus.xposed.XpReflect.callStaticMethod(
+                    com.spotifyplusplus.xposed.XpReflect.findClass("android.app.ActivityThread", null),
+                    "currentApplication");
+            if (app instanceof android.content.Context) {
+                return ((android.content.Context) app).getApplicationContext();
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
     }
 
     private SpotifyCollectionAction.Session collectionSession() {
@@ -202,8 +277,11 @@ final class PlaybackBridge {
 
             @Override public String trackUri() {
                 android.media.MediaMetadata metadata = controller.getMetadata();
-                return metadata == null ? null
-                        : metadata.getString(android.media.MediaMetadata.METADATA_KEY_MEDIA_ID);
+                if (metadata == null) return "";
+                // Empty, not null, when the build does not publish one: the resolver reads absence
+                // as "unknown" and keeps the guards that still apply, instead of refusing outright.
+                String mediaId = metadata.getString(android.media.MediaMetadata.METADATA_KEY_MEDIA_ID);
+                return mediaId == null ? "" : mediaId;
             }
 
             @Override public java.util.List<SpotifyCollectionAction.AdvertisedAction> advertisedActions() {

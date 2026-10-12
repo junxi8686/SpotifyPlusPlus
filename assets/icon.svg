@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The module's own launcher icon, as a standalone SVG so a project page can render it.
+
+  This is a transcription of the adaptive icon the app actually ships:
+    app/src/main/res/drawable/ic_launcher_background.xml
+    app/src/main/res/drawable/ic_launcher_foreground.xml
+  Same 108x108 viewport, same paths, same colours, background then foreground.
+
+  Keep this file in step with those two: if the drawables change, this is stale.
+  It exists because GitHub renders SVG but not an Android vector drawable, and the
+  adaptive icon is assembled by the launcher from the two files rather than shipped
+  as one image.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108"
+     role="img" aria-label="Spotify++">
+
+  <title>Spotify++</title>
+
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1ED760"/>
+      <stop offset="1" stop-color="#0A4A22"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background: a deep green field with the two brand greens washed across it. -->
+  <path d="M0,0 h108 v108 h-108 z" fill="url(#field)"/>
+  <!-- A soft highlight so the flat field reads as a surface rather than a swatch. -->
+  <path d="M0,0 h108 v54 c-30,14 -78,14 -108,0 z" fill="#FFFFFF" fill-opacity="0.1"/>
+
+  <!-- Foreground: a music note with two plus signs - the module's job, and the reason it is
+       not the official app. Kept inside the 72dp safe zone (18..90) so no launcher mask
+       clips it. -->
+  <g fill="#FFFFFF">
+    <!-- Note head, stem and flag. -->
+    <path d="M36,64 m-11,0 a11,11 0 1,0 22,0 a11,11 0 1,0 -22,0"/>
+    <path d="M44,64 L44,30 L50,28 L50,62 Z"/>
+    <path d="M50,28 C58,30 64,36 65,45 C60,40 55,38 50,38 Z"/>
+  </g>
+
+  <!-- The two pluses: one solid, one outlined, reading as "more than the original". -->
+  <path d="M72,26 h7 v7 h7 v7 h-7 v7 h-7 v-7 h-7 v-7 h7 z" fill="#FFFFFF"/>
+  <path d="M76,52 h6 v6 h6 v6 h-6 v6 h-6 v-6 h-6 v-6 h6 z" fill="#0A4A22"/>
+  <path d="M82,52 h6 v6 h6 v6 h-6 v6 h-6 v-6 h-6 v-6 h6 z" fill="#FFFFFF"/>
+</svg>
