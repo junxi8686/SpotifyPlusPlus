@@ -223,7 +223,11 @@ public final class CatalogPickerModel {
         }
         switch (status) {
             case AVAILABLE:
-                return t.get("picker_hint_check", "Tap to check");
+                // A source that answered is not an unchecked source. This row had no stored
+                // candidate to show, so it used the check hint too, and after a successful check
+                // the panel read exactly like one that had never been asked - the owner's report
+                // was "it says it cannot find lyrics while the page is showing them".
+                return t.get("picker_hint_available", "Found · tap to retry");
             case NOT_FOUND:
                 return t.get("picker_hint_not_found", "Not found · tap to retry");
             case TRANSIENT_ERROR:

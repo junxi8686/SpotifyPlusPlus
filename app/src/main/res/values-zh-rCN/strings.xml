@@ -705,6 +705,7 @@
     <string name="picker_row_clear_detail">已保存的候选与状态</string>
     <string name="picker_row_clear_size">设备上占用 %1$s</string>
     <string name="picker_hint_check">点击检查</string>
+    <string name="picker_hint_available">已找到 · 点击重试</string>
     <string name="picker_hint_not_found">未找到 · 点击重试</string>
     <string name="picker_hint_failed">失败 · 点击重试</string>
     <string name="picker_hint_needs_refresh">需要刷新 · 点击重试</string>

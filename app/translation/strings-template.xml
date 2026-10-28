@@ -767,6 +767,7 @@
     <string name="picker_row_clear_detail">stored candidates and states</string>
     <string name="picker_row_clear_size">%1$s stored on device</string>
     <string name="picker_hint_check">Tap to check</string>
+    <string name="picker_hint_available">Found · tap to retry</string>
     <string name="picker_hint_not_found">Not found · tap to retry</string>
     <string name="picker_hint_failed">Failed · tap to retry</string>
     <string name="picker_hint_needs_refresh">Needs refresh · tap to retry</string>

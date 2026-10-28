@@ -917,7 +917,7 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             // of only in a toast the owner may never see. A success that stores nothing is exactly
             // the case this has to make visible: the fetch worked and the row still has no data.
             XpLog.log(TAG + " picker row settled row=" + key + " ok=" + success
-                    + (success ? "" : " detail=" + (detail == null ? "" : detail)));
+                    + " detail=" + (detail == null ? "" : detail));
             // The detail is a provider failure, which is reported in English because the fetch
             // classifiers match on those phrases. It is translated here, on the way to the toast.
             String failure = detail == null || detail.isEmpty()
