@@ -1,12 +1,20 @@
 package com.spotifyplusplus.hooks;
 
+import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.settings.registry.ControlRegistry;
+import com.spotifyplusplus.settings.registry.ControlSpec;
+import com.spotifyplusplus.settings.registry.SettingsSnapshot;
+import com.spotifyplusplus.settings.registry.UiContext;
+
 import org.junit.Test;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collections;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 public class LayoutEditorGeometryContractTest {
@@ -126,37 +134,69 @@ public class LayoutEditorGeometryContractTest {
     @Test
     public void topReadoutReservesConfiguredControlEdge() throws Exception {
         String source = read("src/main/java/com/spotifyplusplus/hooks/TrackInfoReadoutController.java");
-        assertTrue(source.contains("Settings.CHROME_CLUSTER_POSITION"));
+        // The readout no longer reads the setting itself: the configured edge arrives through the
+        // chrome snapshot (the same owner the shell and the registry's TOP_BAR row read), and the
+        // reserved rail width arrives from the chrome controller.
+        assertTrue(source.contains("LyricsShellChromeConfig.read(config).chromeClusterPosition"));
+        assertTrue(source.contains("ChromeClusterPosition.LEFT"));
+        assertTrue(source.contains("int railClearance = chromeReserve != null"
+                + " ? chromeReserve.getAsInt() : dp(44 + 8);"));
         assertTrue(source.contains("sidePad + (controlsLeft ? railClearance : 0)"));
         assertTrue(source.contains("sidePad + (controlsLeft ? 0 : railClearance)"));
     }
 
     @Test
     public void twoColumnEditorKeepsPositionAsAnOnOffRow() throws Exception {
+        // The editor rewrite replaced the hand-written beginGroup(...) rows with the control
+        // registry, and the layout flags travel from the shell through the editor's Request fields
+        // into the UiContext that both the registry's visibility rules and the row renderers read.
         String editor = read("src/main/java/com/spotifyplusplus/hooks/LyricsLayoutEditController.java");
-        // Two-column's column is a readout placement, so the position control is no longer a
+        assertTrue(editor.contains("Request landscape(boolean value)"));
+        assertTrue(editor.contains("Request twoColumn(boolean value)"));
+        assertTrue(editor.contains("this.landscape = request.landscape;"));
+        assertTrue(editor.contains("this.twoColumn = request.twoColumn;"));
+        assertTrue(editor.contains("new UiContext(twoColumn, cardMode, landscape"));
+
+        // Two-column's left column is a readout placement, so the position control is no longer a
         // four-way chip row whose Top/Bottom/Header values have nothing to act on: it stays, as one
-        // On/Off row over the same setting, and Off is the only value that means anything there.
-        assertFalse(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_POSITION))"));
-        // The row is an On/Off toggle over TRACK_INFO_POSITION and Off is the only value that means
-        // anything there - that is the contract. Which string labels it is presentation, so the
-        // assertion accepts either: the setting's own name, or the dedicated "Show artwork & song
-        // info" that describes what the toggle does rather than the four-way position it replaces.
-        String flat = compact(editor);
-        assertTrue(flat.contains("toggleRow(strings.setting(Settings.TRACK_INFO_POSITION),")
-                || flat.contains("toggleRow(s(\"show_artwork_info\","));
-        assertTrue(flat.contains("on?\"Top\":\"Off\""));
-        // The other readout-only controls still stand down in two-column: text alignment (a
-        // readout row beside its art) and the background band (the column has no dock).
-        assertTrue(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_TEXT_ALIGN))"));
-        assertTrue(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_BACKGROUND))"));
-        // Everything that does act in two-column stays offered: corner radius, panel media
-        // controls, adaptive landscape layout, the field toggles, the text size, and overflow.
-        assertFalse(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_ART_RADIUS))"));
-        assertFalse(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.PANEL_MEDIA_CONTROLS))"));
-        assertFalse(gatedOnTwoColumn(editor, "beginGroup(s(\"fields\", \"Fields\"))"));
-        assertFalse(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_TEXT_SIZE))"));
-        assertFalse(gatedOnTwoColumn(editor, "beginGroup(strings.setting(Settings.TRACK_INFO_TEXT_OVERFLOW))"));
+        // On/Off row over the same setting, where On writes Top and Off clears the placement.
+        String composites = read("src/main/java/com/spotifyplusplus/settings/editor/EditorComposites.java");
+        assertTrue(composites.contains("if (context.twoColumn) {"));
+        assertTrue(composites.contains("rows.resource(\"settings_layout_editor_show_artwork_info\")"));
+        assertTrue(composites.contains("!\"Off\".equals(rows.safeGetString(Settings.TRACK_INFO_POSITION))"));
+        assertTrue(composites.contains("rows.apply(Settings.TRACK_INFO_POSITION, on ? \"Top\" : \"Off\""));
+        assertTrue(composites.contains("rows.chipRow(Settings.TRACK_INFO_POSITION,"));
+
+        UiContext twoColumn = uiContext(true);
+        UiContext singleColumn = uiContext(false);
+        ControlSpec position = editorSpec(Settings.TRACK_INFO_POSITION);
+        assertNotNull("the position row is in the registry", position);
+        assertTrue("the position row is offered in two-column", position.visibleWhen.test(twoColumn));
+        assertTrue("and in a single column", position.visibleWhen.test(singleColumn));
+
+        // The other readout-only controls still stand down in two-column: text alignment (a readout
+        // row beside its art) and the background band (the column has no dock).
+        assertFalse("text alignment stands down in two-column",
+                editorSpec(Settings.TRACK_INFO_TEXT_ALIGN).visibleWhen.test(twoColumn));
+        assertTrue(editorSpec(Settings.TRACK_INFO_TEXT_ALIGN).visibleWhen.test(singleColumn));
+        assertFalse("the background band stands down in two-column",
+                editorSpec(Settings.TRACK_INFO_BACKGROUND).visibleWhen.test(twoColumn));
+        assertTrue(editorSpec(Settings.TRACK_INFO_BACKGROUND).visibleWhen.test(singleColumn));
+
+        // Everything that does act in two-column stays offered: corner radius, panel media controls,
+        // the field toggles, the text size and overflow.
+        Settings.Setting<?>[] offeredInBoth = {
+                Settings.TRACK_INFO_ART_RADIUS, Settings.PANEL_MEDIA_CONTROLS,
+                Settings.TRACK_INFO_SHOW_TITLE, Settings.TRACK_INFO_SHOW_ALBUM,
+                Settings.TRACK_INFO_TEXT_SIZE, Settings.TRACK_INFO_TEXT_OVERFLOW,
+        };
+        for (Settings.Setting<?> setting : offeredInBoth) {
+            ControlSpec spec = editorSpec(setting);
+            assertNotNull("registry entry for " + setting.key, spec);
+            assertTrue("offered in two-column: " + setting.key, spec.visibleWhen.test(twoColumn));
+            assertTrue("offered in a single column: " + setting.key,
+                    spec.visibleWhen.test(singleColumn));
+        }
     }
 
     @Test
@@ -185,7 +225,10 @@ public class LayoutEditorGeometryContractTest {
         // an Android view graph, so there is no behaviour to drive from a JVM test here.
         String flatHeader = compact(editor);
         assertTrue(flatHeader.contains("Kind.CLOSE"));
-        assertTrue(flatHeader.contains("()->hidePanelSheet(true)"));
+        // The close button joins the header as this::hideOptions, and hideOptions is what hides the
+        // panel; the old lambda spelling was replaced by the named method during the rewrite.
+        assertTrue(flatHeader.contains("this::hideOptions"));
+        assertTrue(editor.contains("hidePanelSheet(true)"));
         assertTrue(flatHeader.contains("s(\"done\",\"Done\"),this::close"));
         // Fade and scale in and out; a window appears, it does not slide off an edge.
         assertTrue(editor.contains("private static final int PANEL_FADE_MS = 180;"));
@@ -203,9 +246,10 @@ public class LayoutEditorGeometryContractTest {
         assertFalse(editor.contains("onInterceptTouchEvent"));
         // The probe still reports the visible panel under the same key.
         assertTrue(editor.contains("report.rect(\"sheet\", screenRectOf(panelContainer))"));
-        // The list is capped in pixels, not by a share of whatever the parent hands it.
-        assertTrue(editor.contains("optionsScroll.maxHeightPx = Math.max(0,"
-                + " panelMaxHeightPx() - dp(PANEL_HEADER_DP));"));
+        // The list is capped in pixels: the height budget minus the header, and the budget is the
+        // overlay share capped away from the edited element.
+        assertTrue(editor.contains(
+                "optionsScroll.maxHeightPx = Math.max(0, capped - dp(PANEL_HEADER_DP));"));
         assertTrue(editor.contains("int maxHeightPx = 0;"));
     }
 
@@ -219,6 +263,20 @@ public class LayoutEditorGeometryContractTest {
     /** Source with every whitespace character removed, so an assertion survives reformatting. */
     private static String compact(String source) {
         return source.replaceAll("\\s+", "");
+    }
+
+    /** The registry entry that owns a setting, or null when the setting is not an editor control. */
+    private static ControlSpec editorSpec(Settings.Setting<?> setting) {
+        for (ControlSpec spec : ControlRegistry.editorControls()) {
+            if (spec.setting == setting) return spec;
+        }
+        return null;
+    }
+
+    /** One render snapshot: the layout flags are what the registry's visibility rules read here. */
+    private static UiContext uiContext(boolean twoColumn) {
+        return new UiContext(twoColumn, false, false,
+                new SettingsSnapshot(Collections.emptyMap()), true);
     }
 
     private static String read(String path) throws Exception {

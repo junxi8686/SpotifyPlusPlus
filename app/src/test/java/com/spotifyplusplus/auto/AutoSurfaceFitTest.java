@@ -155,6 +155,13 @@ public class AutoSurfaceFitTest {
             if (types[i] == boolean.class) values[i] = true;
             else if (types[i] == int.class) values[i] = 0;
             else if (types[i] == float.class) values[i] = 1f;
+            else if (types[i] == com.spotifyplusplus.lyrics.LyricsMotionConfig.class) {
+                values[i] = com.spotifyplusplus.lyrics.LyricsMotionConfig.read(null);
+            }
+            else if (types[i] == com.spotifyplusplus.lyrics.TranslationConfig.class) {
+                values[i] = com.spotifyplusplus.lyrics.TranslationConfig.read(null);
+            }
+            else if (types[i].isEnum()) values[i] = enumValue(types[i]);
             else values[i] = "Word lift";
         }
         com.spotifyplusplus.lyrics.LyricsRenderConfig original =
@@ -166,6 +173,25 @@ public class AutoSurfaceFitTest {
         assertTrue(auto.lineSyncFillSentence());
         assertTrue(original.wordBounceEnabled); assertTrue(original.forLiveCard().wordBounceEnabled);
     }
+    /** The value a stored-label enum reads as: the lift curve the fixture names, else its default. */
+    private static Object enumValue(Class<?> type) {
+        Object[] constants = type.getEnumConstants();
+        for (Object constant : constants) {
+            if (constant instanceof com.spotifyplusplus.settings.values.StoredValue
+                    && "Word lift".equals(((com.spotifyplusplus.settings.values.StoredValue) constant)
+                            .storedLabel())) {
+                return constant;
+            }
+        }
+        for (Object constant : constants) {
+            if (constant instanceof com.spotifyplusplus.settings.values.StoredValue
+                    && ((com.spotifyplusplus.settings.values.StoredValue) constant).isDefault()) {
+                return constant;
+            }
+        }
+        return constants[0];
+    }
+
     private static SyllableSegment word(int start, int end, long from, long to) {
         SyllableSegment word = new SyllableSegment(); word.canonicalStartCp = start; word.canonicalEndCp = end;
         word.startMs = from; word.endMs = to; return word;

@@ -190,7 +190,28 @@ final class LyricsSessionManager {
         // showed Spotify's own captured lyrics indefinitely. Polling is cheap: one reflective track
         // read per tick, and maybeFetch() returns immediately unless the planner has a source that
         // is actually due, which its retry horizons already pace.
-        handler.post(poll);
+        schedulePoll(0L);
+    }
+
+    /**
+     * Schedules the track poll on the main looper, or not at all when the session has no looper.
+     *
+     * <p>The dependency-injection constructor lets a caller supply its own threading seams, and a
+     * session driven directly by a caller does not need a scheduled poll: it is the poll that asks
+     * that caller's host for a track. Every scheduling site goes through here so the production path
+     * does not assume a handler exists - scattering null checks at the call sites would leave the
+     * next one forgetting it.
+     */
+    private void schedulePoll(long delayMs) {
+        Handler target = handler;
+        if (target == null) return;
+        if (delayMs <= 0L) target.post(poll); else target.postDelayed(poll, delayMs);
+    }
+
+    /** Withdraws a queued poll; a session without a looper never queued one. */
+    private void cancelScheduledPoll() {
+        Handler target = handler;
+        if (target != null) target.removeCallbacks(poll);
     }
 
     /** Injects runtime dependencies for JVM tests of session transitions and publication. */
@@ -256,7 +277,7 @@ final class LyricsSessionManager {
     }
 
     PollingDemandLease acquirePollingDemand() {
-        if (policy.acquirePollingDemand()) handler.post(poll);
+        if (policy.acquirePollingDemand()) schedulePoll(0L);
         return new DemandRecord();
     }
 
@@ -335,7 +356,7 @@ final class LyricsSessionManager {
             } catch (Throwable ignored) {
                 // Spotify player internals are version-fragile. Keep session polling alive.
             } finally {
-                handler.postDelayed(this, POLL_MS);
+                schedulePoll(POLL_MS);
             }
         }
     };
@@ -696,12 +717,12 @@ final class LyricsSessionManager {
                 incoming.digest);
         if (outcome == CanonicalBaseAdoption.Outcome.UNCHANGED && document != null) {
             // Another candidate with identical canonical content: publish its provider metadata
-            // but keep the source revision and every digest-bound derived artifact.
-            document = result;
-            canonicalSource = LyricsDocument.copyOf(result);
+            // but keep the source revision, the queued detection, the document object the active
+            // lanes and the pending detection callback own, and every digest-bound derived artifact.
+            refreshEqualSource(result);
             status = "ready";
             syncDocumentLayerFlags();
-            notifyDocument(snapshot(), result);
+            notifyDocument(snapshot(), document);
             return true;
         }
         // withReplacedBase increments the source revision and drops artifacts tied to the old
@@ -723,6 +744,71 @@ final class LyricsSessionManager {
         notifyDocument(snapshot, result);
         startDetection(requestedTrack, result, requestedGeneration);
         return true;
+    }
+
+    /**
+     * Refreshes the provider metadata of an equal-canonical delivery without retiring the detection
+     * or the derived lanes that already own this canonical input.
+     *
+     * <p>An equal digest means the same canonical publication, so nothing digest-bound is
+     * invalidated: the source revision, the queued detection, the lane completions and the
+     * artifacts all stand. What can change is what the provider said about it - origin, contributor
+     * credit, writers, the catalog candidate - and the lines' provider-supplied auxiliary text, so
+     * those are refreshed. They are refreshed <em>in place</em>: a detection run started before this
+     * delivery captured the document object as its input, and replacing the object would leave that
+     * callback applying its rows to a document nobody renders while the gate it holds stays shut.
+     */
+    private void refreshEqualSource(LyricsDocument result) {
+        canonicalSource = LyricsDocument.copyOf(result);
+        if (document == null) {
+            document = canonicalSource;
+            return;
+        }
+        document.trackId = canonicalSource.trackId;
+        document.provider = canonicalSource.provider;
+        document.songWriters = canonicalSource.songWriters;
+        document.type = canonicalSource.type;
+        document.language = canonicalSource.language;
+        document.fetchSource = canonicalSource.fetchSource;
+        document.spicyOrgSource = canonicalSource.spicyOrgSource;
+        document.spicyOrgUploader = canonicalSource.spicyOrgUploader;
+        document.spicyOrgUploaderUrl = canonicalSource.spicyOrgUploaderUrl;
+        document.spicyOrgMaker = canonicalSource.spicyOrgMaker;
+        document.spicyOrgMakerUrl = canonicalSource.spicyOrgMakerUrl;
+        document.spicyOrgRawPayload = canonicalSource.spicyOrgRawPayload;
+        document.spicyOrgFetchedAtMs = canonicalSource.spicyOrgFetchedAtMs;
+        document.selectedSource = canonicalSource.selectedSource;
+        document.selectionMode = canonicalSource.selectionMode;
+        document.selectionOverride = canonicalSource.selectionOverride;
+        document.catalogCandidateId = canonicalSource.catalogCandidateId;
+        document.catalogDelivery = canonicalSource.catalogDelivery;
+        document.spicyPackedPayload = canonicalSource.spicyPackedPayload;
+        document.spicyEnvelopeNoticePresent = canonicalSource.spicyEnvelopeNoticePresent;
+        document.spicyQueryStatus = canonicalSource.spicyQueryStatus;
+        document.spicyFormat = canonicalSource.spicyFormat;
+        document.spicyPoisoned = canonicalSource.spicyPoisoned;
+        document.spicyQualityReason = canonicalSource.spicyQualityReason;
+        document.durationMs = canonicalSource.durationMs;
+        document.startTimeMs = canonicalSource.startTimeMs;
+        document.generation = canonicalSource.generation;
+        document.processingVersion = canonicalSource.processingVersion;
+        document.detectedChinese = canonicalSource.detectedChinese;
+        document.detectedScripts.clear();
+        document.detectedScripts.addAll(canonicalSource.detectedScripts);
+        // Lanes already own worker copies of the old lines. Future refreshes read the new provider
+        // baseline, including a provider translation or reading that arrived with this response.
+        document.lines.clear();
+        for (com.spotifyplusplus.lyrics.LyricsLine line : canonicalSource.lines) {
+            document.lines.add(com.spotifyplusplus.lyrics.LyricsLine.copyOf(line));
+        }
+        document.appliedLines.clear();
+        // Display-only state (character form, AI provenance, pending flags) is deliberately not
+        // copied: it describes what is on screen rather than what the provider said.
+        if (detectionArtifact != null && session != null
+                && session.base.digest.equals(detectionArtifact.canonicalDigest)) {
+            applyDetection(session.base, detectionArtifact, document);
+            applyDetection(session.base, detectionArtifact, canonicalSource);
+        }
     }
 
     /**
@@ -1626,7 +1712,7 @@ final class LyricsSessionManager {
 
         @Override public void close() {
             if (!lifetime.close()) return;
-            if (policy.releasePollingDemand()) handler.removeCallbacks(poll);
+            if (policy.releasePollingDemand()) cancelScheduledPoll();
         }
     }
 

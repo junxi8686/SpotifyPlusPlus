@@ -1,5 +1,8 @@
 package com.spotifyplusplus.settings;
 
+import com.spotifyplusplus.settings.panel.PanelStyle;
+
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;

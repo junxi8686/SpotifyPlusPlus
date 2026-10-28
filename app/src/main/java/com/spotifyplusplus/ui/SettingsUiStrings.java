@@ -2,6 +2,8 @@ package com.spotifyplusplus.ui;
 
 import com.spotifyplusplus.References;
 import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.settings.values.BackgroundEffect;
+import com.spotifyplusplus.settings.values.StoredValues;
 
 import android.content.Context;
 import android.content.res.Configuration;
@@ -246,6 +248,9 @@ public final class SettingsUiStrings {
     }
 
     private static String fallbackOptionLabel(Settings.StringSetting setting, String value) {
+        if (setting == Settings.BACKGROUND_EFFECT) {
+            return StoredValues.fromStored(BackgroundEffect.class, value).displayLabel();
+        }
         if (setting == Settings.AI_TRANSLATION_MODE) {
             if ("On demand".equals(value)) return "Manual";
             if ("Always use AI".equals(value)) return "Automatic";

@@ -4,9 +4,9 @@ import com.spotifyplusplus.lyrics.language.SpicyJapaneseChineseProcessor;
 
 import android.view.ViewGroup;
 import com.spotifyplusplus.lyrics.AppliedLine;
+import com.spotifyplusplus.lyrics.LyricsDisplayMode;
 import com.spotifyplusplus.lyrics.LyricsDocument;
 import com.spotifyplusplus.lyrics.LyricsLineViewState;
-import com.spotifyplusplus.lyrics.LyricsShellSettings;
 
 /**
  * Applies line-level secondary romanization/translation results to already parsed rows.
@@ -110,7 +110,7 @@ public final class LyricsSecondaryRowUpdater {
                 && hasFurigana(row.sourceLine.japaneseReading);
         boolean remountForFurigana = furiganaAppeared
                 && showRomanization
-                && LyricsShellSettings.showJapaneseFurigana(japaneseReadingMode)
+                && LyricsDisplayMode.showJapaneseFurigana(japaneseReadingMode)
                 && isMounted;
         boolean remountForReadingPlan = readingPlanChanged && showRomanization && isMounted;
         return new RefreshDecision(romanChanged, translatedChanged, japaneseReadingChanged,

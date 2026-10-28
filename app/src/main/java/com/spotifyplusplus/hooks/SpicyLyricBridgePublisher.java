@@ -23,6 +23,15 @@ import java.io.IOException;
 
 final class SpicyLyricBridgePublisher {
     static final int PROTOCOL_VERSION = 1;
+    /**
+     * Rest between attempts against a bridge that keeps refusing: a bind that returns false or
+     * throws (the host cannot see the companion package) and a failed provider call both start
+     * this window. Every new publication demand after the window may attempt once more, whatever
+     * earlier attempts achieved: a provider success cannot strand the binder retry. Normal clear
+     * demands ride the same cadence, at most one per window; the disable clear ignores it.
+     */
+    private static final long RETRY_BACKOFF_MS = 30_000L;
+    /** The companion app whose presence the probe checks before any IPC. */
     private static final String CONSUMER_PACKAGE = "com.eza.hyperglow";
     private static final ComponentName BRIDGE_COMPONENT = new ComponentName(
             CONSUMER_PACKAGE,
@@ -36,8 +45,20 @@ final class SpicyLyricBridgePublisher {
     private final java.util.concurrent.ThreadPoolExecutor providerExecutor =
             new java.util.concurrent.ThreadPoolExecutor(1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
                     new java.util.concurrent.ArrayBlockingQueue<>(2));
-    private String latestProviderMethod;
-    private Bundle latestProviderPayload;
+    /** A staged provider payload stamped with the enable lifetime that queued it. */
+    private static final class ProviderEntry {
+        final String method;
+        final Bundle payload;
+        final int enableGeneration;
+
+        ProviderEntry(String method, Bundle payload, int enableGeneration) {
+            this.method = method;
+            this.payload = payload;
+            this.enableGeneration = enableGeneration;
+        }
+    }
+
+    private final java.util.ArrayList<ProviderEntry> pendingProvider = new java.util.ArrayList<>();
     private boolean providerDrainQueued;
     private ISpicyLyricBridge bridge;
     private Bundle retainedState;
@@ -51,13 +72,21 @@ final class SpicyLyricBridgePublisher {
     private boolean bound;
     private boolean providerFallback;
     private boolean enabled;
-    /** Consecutive failed attempts, and the time before which none may be made. */
+    /** Enable lifetime of queued work; a completion from an older one cannot steer a new one. */
+    private int enableGeneration;
+    /** Earliest time another attempt may run; open at zero. Set whenever an attempt fails. */
+    private long retryAfterMs;
+    /** Consecutive failed attempts; drives the growing retry window. */
     private int failureAttempts;
-    private long retryAtMs;
-    /** The consumer's package as last probed, and when. Zero means it has never been probed. */
+    /**
+     * Whether the companion app was last seen installed, and when that was checked. The probe is
+     * the fork's fix for a real bug: with no companion installed the old code retried forever,
+     * one bind/provider cycle per state change and per heartbeat.
+     */
     private boolean consumerPresent = true;
     private long presenceCheckedAtMs;
-
+    /** When a normal clear last went out over the provider; zero until the first one does. */
+    private long lastProviderClearSentMs;
     SpicyLyricBridgePublisher(Context context) {
         Context app = context.getApplicationContext();
         this.context = app != null ? app : context;
@@ -65,11 +94,15 @@ final class SpicyLyricBridgePublisher {
 
     synchronized void enable() {
         enabled = true;
-        // A fresh enable starts a fresh ladder and re-probes the consumer, so toggling the setting
-        // is never answered with a backoff earned before it.
+        enableGeneration++;
+        // A deliberate enable is its own epsilon: retry the bind immediately and leave any stale
+        // refusal behind — the new lifetime is not bound by an old one's window.
+        providerFallback = false;
+        retryAfterMs = 0L;
+        // A fresh enable is its own epsilon: forget the old ladder and re-probe the consumer, so
+        // toggling the setting is never answered with a backoff earned before it.
         failureAttempts = 0;
-        retryAtMs = 0;
-        presenceCheckedAtMs = 0;
+        presenceCheckedAtMs = 0L;
         Diagnostics.setHyperGlowBridgeStatus("connecting");
         Diagnostics.event("hyperglow_bridge", "connection_state",
                 Diagnostics.context("status", "connecting"));
@@ -80,38 +113,60 @@ final class SpicyLyricBridgePublisher {
         if (!enabled) return;
         if (bridge != null || binding || providerFallback) return;
         long now = SystemClock.elapsedRealtime();
-        if (!SpicyBridgeBackoff.attemptDue(now, retryAtMs)) return;
+        if (!SpicyBridgeBackoff.attemptDue(now, retryAfterMs)) return;
         if (!consumerReady(now)) return;
+        if (context.getApplicationContext() == null) {
+            // The hook starts inside Application.attach, before the framework installs the
+            // application context. LoadedApk keys a bound connection by the outer context it
+            // sees at bind time, so a bind issued here would be registered under the attaching
+            // context; the later unbind looks under the application, misses, and the connection
+            // leaks past toggle-off. The next publication demand after attach opens it instead.
+            return;
+        }
         binding = true;
         try {
             Intent intent = new Intent().setComponent(BRIDGE_COMPONENT);
-            if (!context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
-                binding = false;
-                providerFallback = true;
-                Diagnostics.setHyperGlowBridgeStatus("provider_fallback");
-                Diagnostics.event("hyperglow_bridge", "connection_state",
-                        Diagnostics.context("status", "provider_fallback"));
-                noteAttemptFailure(now, "bindService returned false",
-                        "component=" + BRIDGE_COMPONENT.flattenToShortString()
-                                + " hyperglow=" + (consumerPresent ? "present" : "absent"), null);
-                publishPendingLocked();
-            } else {
+            if (context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
                 bound = true;
+            } else {
+                bindAttemptFailed(null);
             }
         } catch (Throwable t) {
-            binding = false;
-            noteAttemptFailure(now, "bindService threw",
-                    "component=" + BRIDGE_COMPONENT.flattenToShortString(), t);
+            bindAttemptFailed(t);
         }
     }
 
     /**
-     * True when the consumer package may be attempted, false while it is known absent.
-     *
-     * <p>A refused bind and an unknown provider uri are the same fact - the companion app is not
-     * installed - so one probe of the package list answers both, instead of two failing IPC calls
-     * per publication. The negative answer is cached for a minute, which is also how quickly
-     * installing the companion later is noticed.
+     * One refused or throwing bind: report the provider fallback once, flush the retained
+     * payloads through it, then hold the next attempt until the backoff window expires.
+     */
+    private synchronized void bindAttemptFailed(Throwable cause) {
+        binding = false;
+        providerFallback = true;
+        if (cause == null) {
+            XpLog.log("[SpotifyPlusBridge] bindService returned false");
+        } else {
+            log("bind failed", cause);
+        }
+        Diagnostics.setHyperGlowBridgeStatus("provider_fallback");
+        Diagnostics.event("hyperglow_bridge", "connection_state",
+                Diagnostics.context("status", "provider_fallback"));
+        publishPendingLocked();
+        noteAttemptFailure();
+    }
+
+    /** Schedules the next attempt on the growing window; the probe covers the absent case. */
+    private void noteAttemptFailure() {
+        retryAfterMs = SystemClock.elapsedRealtime() + SpicyBridgeBackoff.delayMs(failureAttempts);
+        failureAttempts++;
+    }
+
+    /**
+     * True when the consumer package may be attempted. A refused bind and an unknown provider uri
+     * are the same fact - the companion app is not installed - so one probe of the package list
+     * answers both, instead of two failing IPC calls per publication. The negative answer is
+     * cached for {@link SpicyBridgeBackoff#PRESENCE_TTL_MS}, which is also how quickly installing
+     * the companion later is noticed.
      */
     private boolean consumerReady(long nowMs) {
         if (!SpicyBridgeBackoff.presenceCheckDue(nowMs, presenceCheckedAtMs)) return consumerPresent;
@@ -119,8 +174,7 @@ final class SpicyLyricBridgePublisher {
         boolean present = isConsumerInstalled();
         if (present != consumerPresent || !present) {
             XpLog.log("[SpotifyPlusBridge] consumer " + (present ? "present" : "absent")
-                    + " package=" + CONSUMER_PACKAGE
-                    + (present ? "" : " retryInMs=" + SpicyBridgeBackoff.PRESENCE_TTL_MS));
+                    + " retryInMs=" + SpicyBridgeBackoff.PRESENCE_TTL_MS);
         }
         consumerPresent = present;
         return present;
@@ -137,32 +191,15 @@ final class SpicyLyricBridgePublisher {
     }
 
     /**
-     * Records a failed attempt: it schedules the next one and emits one line that names the call
-     * site, the argument that was rejected and the exception's own message.
-     *
-     * <p>The message used to be discarded, which is why a run of identical lines said only that
-     * something was refused. {@code IllegalArgumentException} from a provider call is Android's
-     * "Unknown URI" - the authority has no registered provider - and that text is the diagnosis.
+     * After a refused cycle the bridge is not tapped again on its own; the next publication
+     * demand reopens the attempt when the window allows it. The window alone decides, so a
+     * provider success cannot strand the binder retry after an earlier refusal.
      */
-    private synchronized void noteAttemptFailure(long nowMs, String what, String detail, Throwable t) {
-        failureAttempts++;
-        long delay = SpicyBridgeBackoff.delayMs(failureAttempts - 1);
-        retryAtMs = nowMs + delay;
-        XpLog.log("[SpotifyPlusBridge] " + what + " " + detail
-                + " attempt=" + failureAttempts
-                + " retryInMs=" + delay
-                + " msg=" + describeMessage(t));
-        Diagnostics.event("hyperglow_bridge", "publication_result", t,
-                Diagnostics.context("result", "error", "status", "attempt_failed"));
-    }
-
-    /** A successful exchange clears the ladder and says so, once. */
-    private synchronized void noteAttemptSuccess(String what) {
-        if (failureAttempts > 0) {
-            XpLog.log("[SpotifyPlusBridge] " + what + " recovered afterAttempts=" + failureAttempts);
-        }
-        failureAttempts = 0;
-        retryAtMs = 0;
+    private synchronized void maybeRetryConnect() {
+        if (bridge != null || binding) return;
+        if (!SpicyBridgeBackoff.attemptDue(SystemClock.elapsedRealtime(), retryAfterMs)) return;
+        providerFallback = false;
+        connect();
     }
 
     synchronized void publish(Bundle state) {
@@ -171,7 +208,8 @@ final class SpicyLyricBridgePublisher {
         stateReplayState.retainPayload();
         pendingClearProducerId = null;
         if (bridge == null) {
-            if (providerFallback) publishPendingLocked(); else connect();
+            maybeRetryConnect();
+            publishPendingLocked();
             return;
         }
         publishPendingLocked();
@@ -183,7 +221,8 @@ final class SpicyLyricBridgePublisher {
         pendingClearGeneration = generation;
         clearRetainedDocumentLocked();
         if (bridge == null) {
-            if (providerFallback) publishPendingLocked(); else connect();
+            maybeRetryConnect();
+            publishPendingLocked();
             return;
         }
         publishPendingLocked();
@@ -205,7 +244,7 @@ final class SpicyLyricBridgePublisher {
         retainedDocument = compressedDocument.clone();
         documentReplayState.retainPayload();
         if (bridge == null) {
-            connect();
+            maybeRetryConnect();
             return;
         }
         publishPendingDocumentLocked();
@@ -225,12 +264,14 @@ final class SpicyLyricBridgePublisher {
         if (bridge != null) {
             publishPendingLocked();
         } else {
-            providerFallback = true;
-            publishPendingProviderLocked();
+            // The disable clear goes out over the provider immediately, past the one-clear-per-
+            // window cadence: a consumer's view of this producer ends when the setting does.
+            publishPendingProviderLocked(true);
         }
         bridge = null;
         binding = false;
         providerFallback = false;
+        retryAfterMs = 0L;
         Diagnostics.setHyperGlowBridgeStatus("disabled");
         Diagnostics.event("hyperglow_bridge", "connection_state",
                 Diagnostics.context("status", "disabled"));
@@ -273,11 +314,12 @@ final class SpicyLyricBridgePublisher {
     }
 
     private void publishPendingLocked() {
-        if (providerFallback) {
-            publishPendingProviderLocked();
+        // No binder means the provider path carries everything retained, window permitting or
+        // not: a provider success leaves no fallback flag, and state must not strand behind it.
+        if (bridge == null) {
+            publishPendingProviderLocked(false);
             return;
         }
-        if (bridge == null) return;
         try {
             long stateRevision = stateReplayState.pendingRevision();
             if (stateRevision != 0L && retainedState != null) {
@@ -293,14 +335,23 @@ final class SpicyLyricBridgePublisher {
         }
     }
 
-    private void publishPendingProviderLocked() {
+    private void publishPendingProviderLocked(boolean force) {
         long stateRevision = stateReplayState.pendingRevision();
         if (stateRevision != 0L && retainedState != null) {
+            // A recent refusal holds provider attempts off the heartbeat, but the newest state
+            // stays retained and rides the next publication demand after the window expires.
+            if (SystemClock.elapsedRealtime() < retryAfterMs) return;
             Bundle payload = new Bundle();
             payload.putBundle("state", new Bundle(retainedState));
             queueProvider("publish", payload);
             stateReplayState.markPublished(stateRevision);
         } else if (pendingClearProducerId != null) {
+            // The no-track sample cadence keeps demanding clears, so a normal clear goes out at
+            // most once per window; the forced disable clear ignores that cadence.
+            long sentAtMs = lastProviderClearSentMs;
+            long now = SystemClock.elapsedRealtime();
+            if (!force && sentAtMs != 0L && now - sentAtMs < RETRY_BACKOFF_MS) return;
+            lastProviderClearSentMs = now;
             Bundle payload = new Bundle();
             payload.putString("producerId", pendingClearProducerId);
             payload.putLong("generation", pendingClearGeneration);
@@ -309,78 +360,73 @@ final class SpicyLyricBridgePublisher {
         }
     }
 
-    /** Only the newest pending state survives a slow provider call. */
+    /**
+     * Stage one provider payload: a kind replaces its older pending entry in place, so at most
+     * one state and one clear wait, and a queued clear keeps its place ahead of a later state.
+     * Entries keep the enable lifetime that queued them; completions from a past lifetime
+     * cannot steer the current one.
+     */
     private synchronized void queueProvider(String method, Bundle payload) {
-        latestProviderMethod = method;
-        latestProviderPayload = payload;
+        ProviderEntry entry = new ProviderEntry(method, payload, enableGeneration);
+        boolean replaced = false;
+        for (int i = 0; i < pendingProvider.size(); i++) {
+            if (pendingProvider.get(i).method.equals(method)) {
+                pendingProvider.set(i, entry);
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) pendingProvider.add(entry);
         if (providerDrainQueued) return;
         providerDrainQueued = true;
         try {
             providerExecutor.execute(() -> {
                 while (true) {
-                    String nextMethod;
-                    Bundle nextPayload;
+                    ProviderEntry next;
                     synchronized (SpicyLyricBridgePublisher.this) {
-                        if (latestProviderPayload == null) {
+                        if (pendingProvider.isEmpty()) {
                             providerDrainQueued = false;
                             return;
                         }
-                        nextMethod = latestProviderMethod;
-                        nextPayload = latestProviderPayload;
-                        latestProviderPayload = null;
+                        next = pendingProvider.remove(0);
+                        // A state publication observed after disable is dropped: the disable
+                        // path queues its own clear, so the consumer never sees a late state.
+                        if (!enabled && "publish".equals(next.method)) continue;
                     }
-                    callProvider(nextMethod, nextPayload);
+                    callProvider(next.method, next.payload, next.enableGeneration);
                 }
             });
         } catch (java.util.concurrent.RejectedExecutionException busy) {
             providerDrainQueued = false;
-            // Preserve the latest state for the next publication; never queue an unbounded backlog.
+            // The staged entries survive; the next publication demand retries the send.
         }
     }
 
-    private void callProvider(String method, Bundle payload) {
-        long now = SystemClock.elapsedRealtime();
-        if (!SpicyBridgeBackoff.attemptDue(now, retryAtMs)) return;
-        // Known absent: no IPC is attempted at all, and the presence probe paces the retries, so a
-        // device without the companion app gets one line a minute instead of a failing call each.
-        if (!consumerReady(now)) return;
+    private void callProvider(String method, Bundle payload, int queuedGeneration) {
         try {
             context.getContentResolver().call(BRIDGE_URI, method, null, payload);
-            noteAttemptSuccess("provider call");
-            Diagnostics.setHyperGlowBridgeStatus("provider_connected");
-            Diagnostics.event("hyperglow_bridge", "publication_result",
-                    Diagnostics.context("result", "success", "status", "provider"));
             synchronized (this) {
-                if (enabled && providerFallback) {
+                if (!enabled || queuedGeneration != enableGeneration) return;
+                Diagnostics.setHyperGlowBridgeStatus("provider_connected");
+                Diagnostics.event("hyperglow_bridge", "publication_result",
+                        Diagnostics.context("result", "success", "status", "provider"));
+                if (providerFallback) {
                     providerFallback = false;
                     connect();
                 }
             }
         } catch (Throwable t) {
-            // Deliberately no rebind here. Reconnecting on the spot is what turned two failures
-            // into a cycle: the bind refused, the provider call failed, the bind was attempted
-            // again from inside the failure handler, and the pair repeated per publication.
-            noteAttemptFailure(now, "provider call failed",
-                    "site=callProvider method=" + method + " uri=" + BRIDGE_URI
-                            + " bytes=" + (payload == null ? 0 : payloadSize(payload)), t);
-            Diagnostics.setHyperGlowBridgeStatus("provider_failed");
-            Diagnostics.event("hyperglow_bridge", "publication_result", t,
-                    Diagnostics.context("result", "error", "status", "provider"));
-        }
-    }
-
-    /** Rough payload size for the failure line; the parcel is not rewritten to measure it. */
-    private static int payloadSize(Bundle payload) {
-        try {
-            android.os.Parcel parcel = android.os.Parcel.obtain();
-            try {
-                parcel.writeBundle(payload);
-                return parcel.dataSize();
-            } finally {
-                parcel.recycle();
+            synchronized (this) {
+                if (!enabled || queuedGeneration != enableGeneration) return;
+                log("provider call failed", t);
+                Diagnostics.setHyperGlowBridgeStatus("provider_failed");
+                Diagnostics.event("hyperglow_bridge", "publication_result", t,
+                        Diagnostics.context("result", "error", "status", "provider"));
+                // The answer to a failed provider call is a held attempt, not an immediate
+                // rebind: the old path re-armed the bind/provider cycle from every heartbeat.
+                providerFallback = true;
+                noteAttemptFailure();
             }
-        } catch (Throwable unmeasurable) {
-            return -1;
         }
     }
 
@@ -397,11 +443,13 @@ final class SpicyLyricBridgePublisher {
         bridge = null;
         binding = false;
         unbindLocked();
-        log("bridge disconnected", cause);
-        Diagnostics.setHyperGlowBridgeStatus("disconnected");
-        Diagnostics.event("hyperglow_bridge", "connection_state", cause,
-                Diagnostics.context("status", "disconnected"));
-        if (enabled) connect();
+        if (enabled) {
+            log("bridge disconnected", cause);
+            Diagnostics.setHyperGlowBridgeStatus("disconnected");
+            Diagnostics.event("hyperglow_bridge", "connection_state", cause,
+                    Diagnostics.context("status", "disconnected"));
+            connect();
+        }
     }
 
     private void unbindLocked() {
@@ -437,8 +485,10 @@ final class SpicyLyricBridgePublisher {
         public void onServiceDisconnected(ComponentName name) {
             synchronized (SpicyLyricBridgePublisher.this) {
                 bridge = null;
-                Diagnostics.setHyperGlowBridgeStatus("disconnected");
-                XpLog.log("[SpotifyPlusBridge] service disconnected, rebinding");
+                if (enabled) {
+                    Diagnostics.setHyperGlowBridgeStatus("disconnected");
+                    XpLog.log("[SpotifyPlusBridge] service disconnected, rebinding");
+                }
                 binding = false;
                 unbindLocked();
                 if (enabled) connect();
@@ -449,7 +499,9 @@ final class SpicyLyricBridgePublisher {
         public void onBindingDied(ComponentName name) {
             synchronized (SpicyLyricBridgePublisher.this) {
                 bridge = null;
-                XpLog.log("[SpotifyPlusBridge] binding died, rebinding");
+                if (enabled) {
+                    XpLog.log("[SpotifyPlusBridge] binding died, rebinding");
+                }
                 binding = false;
                 unbindLocked();
                 if (enabled) connect();
@@ -458,22 +510,6 @@ final class SpicyLyricBridgePublisher {
     };
 
     private static void log(String message, Throwable t) {
-        XpLog.log("[SpotifyPlusBridge] " + message + ": " + t.getClass().getSimpleName()
-                + " msg=" + describeMessage(t));
-    }
-
-    /**
-     * The exception's own message, flattened and bounded.
-     *
-     * <p>It is the half of a failure that names what was rejected - Android answers a provider call
-     * with no registered authority with {@code IllegalArgumentException: Unknown URI ...} - and it
-     * used to be dropped, leaving a run of identical lines that said only "IllegalArgumentException".
-     */
-    private static String describeMessage(Throwable t) {
-        if (t == null) return "";
-        String message = t.getMessage();
-        if (message == null) return "";
-        String flat = message.replace('\n', ' ').trim();
-        return flat.length() <= 160 ? flat : flat.substring(0, 160);
+        XpLog.log("[SpotifyPlusBridge] " + message + ": " + t.getClass().getSimpleName());
     }
 }

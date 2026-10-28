@@ -366,28 +366,30 @@ public final class LyricsShellSettings {
 
     /** "Spotlight" animation style = zoom + glow the active line/word, no gradient fill. */
     public boolean spotlightAnimation() {
-        String fallback = config == null ? "" : config.get(Settings.ANIMATION_STYLE);
-        try {
-            SharedPreferences prefs = prefs();
-            if (prefs != null && prefs.contains(Settings.ANIMATION_STYLE.key)) {
-                return "Spotlight".equals(prefs.getString(Settings.ANIMATION_STYLE.key, fallback));
-            }
-        } catch (Throwable ignored) {
-        }
-        return "Spotlight".equals(fallback);
+        return "Spotlight".equals(animationStyle());
     }
 
     /** "Apple Music" animation style = the Apple-owned motion/blur/fade stack (R3). */
     public boolean appleAnimation() {
-        String fallback = config == null ? "" : config.get(Settings.ANIMATION_STYLE);
+        return "Apple Music".equals(animationStyle());
+    }
+
+    /**
+     * The animation style this orientation is set to.
+     *
+     * <p>Read through the config rather than the raw preference key. The style is
+     * orientation-specific, so a landscape write lands under the {@code "_ls"} key; reading the
+     * plain key returns the portrait value and silently ignores the landscape choice. The raw key
+     * stays as the only source when a shell was built without a config.
+     */
+    private String animationStyle() {
+        if (config != null) return safe(config.get(Settings.ANIMATION_STYLE));
         try {
             SharedPreferences prefs = prefs();
-            if (prefs != null && prefs.contains(Settings.ANIMATION_STYLE.key)) {
-                return "Apple Music".equals(prefs.getString(Settings.ANIMATION_STYLE.key, fallback));
-            }
+            if (prefs != null) return safe(prefs.getString(Settings.ANIMATION_STYLE.key, ""));
         } catch (Throwable ignored) {
         }
-        return "Apple Music".equals(fallback);
+        return "";
     }
 
     public boolean lineSyncFillTopDown() {
@@ -402,16 +404,23 @@ public final class LyricsShellSettings {
         return "Left to right (sentence)".equals(lineSyncFillMode());
     }
 
+    /**
+     * The fill direction this orientation is set to.
+     *
+     * <p>Same rule as {@link #animationStyle()}: the fill direction is orientation-specific, so the
+     * value must come from the config, which knows about the landscape key; the raw preference key
+     * only stands in when no config was supplied.
+     */
     public String lineSyncFillMode() {
-        String fallback = normalizeLineSyncFillMode(config == null ? "" : config.get(Settings.LINE_SYNC_FILL));
+        if (config != null) return normalizeLineSyncFillMode(config.get(Settings.LINE_SYNC_FILL));
         try {
             SharedPreferences prefs = prefs();
-            if (prefs != null && prefs.contains(Settings.LINE_SYNC_FILL.key)) {
-                return normalizeLineSyncFillMode(prefs.getString(Settings.LINE_SYNC_FILL.key, fallback));
+            if (prefs != null) {
+                return normalizeLineSyncFillMode(prefs.getString(Settings.LINE_SYNC_FILL.key, ""));
             }
         } catch (Throwable ignored) {
         }
-        return fallback;
+        return normalizeLineSyncFillMode("");
     }
 
     public float lineBlurQualityMultiplier() {

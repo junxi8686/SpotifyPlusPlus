@@ -1,5 +1,7 @@
 package com.spotifyplusplus.lyrics;
 
+import com.spotifyplusplus.settings.registry.ControlRegistry;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
@@ -8,7 +10,6 @@ import static org.junit.Assert.assertTrue;
 import com.spotifyplusplus.Settings;
 import com.spotifyplusplus.lyrics.language.ChineseCharacterConverter;
 import com.spotifyplusplus.lyrics.language.ChineseCharacterForm;
-import com.spotifyplusplus.settings.SettingsUiSchema;
 
 import org.junit.Test;
 
@@ -25,6 +26,7 @@ import java.util.List;
  * not drift. Whether the conversion itself is right is ChineseCharacterConverterTest's job.
  */
 public class ChineseCharacterDisplayWiringTest {
+    // migrated from the deleted SettingsUiSchema in the v2.1.4 merge
     /** Traditional, and phrase-sensitive: 這裡 and 頭髮 both go through the phrase table. */
     private static final String TRADITIONAL = "這裡的頭髮很亂";
 
@@ -141,9 +143,15 @@ public class ChineseCharacterDisplayWiringTest {
         assertEquals("original", Settings.CHINESE_CHARACTER_FORM.defaultValue);
         assertEquals(Arrays.asList("original", "simplified"),
                 Settings.CHINESE_CHARACTER_FORM.allowedValues);
-        assertTrue("the row must be in the reading section's order",
-                SettingsUiSchema.orderedSettings(Settings.TRANSLITERATION)
-                        .contains(Settings.CHINESE_CHARACTER_FORM));
+        // SettingsUiSchema was deleted in the v2.1.4 merge; the panel's row order now lives in
+        // ControlRegistry, and ControlSpec carries the setting it renders - so the exact-row
+        // assertion is back at full strength.
+        boolean registered = false;
+        for (com.spotifyplusplus.settings.registry.ControlSpec spec
+                : ControlRegistry.panelControls(Settings.TRANSLITERATION)) {
+            if (spec.setting == Settings.CHINESE_CHARACTER_FORM) { registered = true; break; }
+        }
+        assertTrue("the row must be registered in the reading section's panel order", registered);
         // There is no Traditional direction to offer, so nothing may coerce towards one.
         assertEquals("original", Settings.CHINESE_CHARACTER_FORM.coerce("traditional"));
     }

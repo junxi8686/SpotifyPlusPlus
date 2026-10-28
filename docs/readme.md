@@ -12,7 +12,7 @@
 
 **简体中文** · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
 
-![版本 1.5](https://img.shields.io/badge/release-1.5-blue) ![许可 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![版本 1.6](https://img.shields.io/badge/release-1.6-blue) ![许可 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -21,7 +21,7 @@
 ## 目录
 
 - [这是什么](#这是什么)
-- [1.5 新增与修复](#15-新增与修复)
+- [1.6 新增与修复](#16-新增与修复)
 - [歌词是怎么选出来的](#歌词是怎么选出来的)
 - [分级比较与打分比较](#分级比较与打分比较)
 - [功能](#功能)
@@ -44,6 +44,27 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 Spicy EX�
 选哪一份歌词是这个模块的重点。Spotify 自带的歌词只有一份，中文常常是繁体、行级时间轴；同一首歌在别的来源上可能有简体、逐字、带翻译的版本。模块不预先规定哪个来源最好，而是把每个候选都量一遍，再比总分。
 
 **本仓库是修改版，不是原项目。** 上游版权归原作者所有，本仓库的修改部分同样以 **AGPL-3.0** 发布 —— 详见 [LICENSE](../LICENSE)、[NOTICE](../NOTICE) 与 [MODIFICATIONS.md](MODIFICATIONS.md)。
+
+---
+
+## 1.6 新增与修复
+
+### 新增功能
+
+- **纸艺着色器背景** —— 一组新的背景动效（纸粒、网格渐变、Kawarp、Voronoi、Perlin 噪声等），可单独调参，跟随封面取色
+- **逐字 / 逐词时间轴** —— 行内推进的更平滑字间填充与渐变
+- **语言偏好设置** —— 可指定优先原文还是优先中文翻译
+- **手动令牌歌词来源** —— 手填令牌即可使用的歌词来源
+- **Android Auto** —— 显示改进
+- **日语歌词注音** —— 新增 eza 式拼音 / 粤拼输出格式
+- 悬浮窗与沉浸式界面的若干显示细节修复
+
+### 修复的问题
+
+- 歌词在「相同来源」刷新时丢失检测结果与显示状态
+- 横屏下动效样式与行同步填充不生效
+- 韩语轮换模式的默认值不在允许值里
+- 词条聚合与字符形式投影在中文歌词上错位
 
 ---
 

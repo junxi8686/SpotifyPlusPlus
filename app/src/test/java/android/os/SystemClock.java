@@ -18,6 +18,7 @@ public final class SystemClock {
     }
 
     public static long elapsedRealtime() {
+        if (frozenElapsed != 0L) return frozenElapsed;
         return System.nanoTime() / 1_000_000L;
     }
 
@@ -28,4 +29,11 @@ public final class SystemClock {
     public static void sleep(long ms) throws InterruptedException {
         Thread.sleep(ms);
     }
+
+    /** Frozen elapsed-realtime for bridge tests; 0 means use the live clock. */
+    private static long frozenElapsed = 0L;
+
+    public static void setElapsedRealtimeForTest(long ms) { frozenElapsed = ms; }
+
+    public static void clearElapsedRealtimeForTest() { frozenElapsed = 0L; }
 }

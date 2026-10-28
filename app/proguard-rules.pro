@@ -1,3 +1,4 @@
+<<<<<<< C:\Users\junxi\Documents\deepseek-harness\default-workspace\_merge-spp\tmp\repair\o2
 # Add project specific ProGuard rules here.
 # You can control the set of applied configuration files using the
 # proguardFiles setting in build.gradle.
@@ -19,3 +20,16 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+=======
+-dontobfuscate
+
+-keep class com.spotifyplusplus.xposed.SpicyEXModule { *; }
+-keepclassmembers class com.spotifyplusplus.lyrics.reading.ReadingModels$* { <fields>; }
+-keep class com.eza.hyperglow.bridge.ISpicyLyricBridge { *; }
+-keep class com.eza.hyperglow.bridge.ISpicyLyricBridge$* { *; }
+-keep class com.spotifyplusplus.auto.IAutoPrototype { *; }
+-keep class com.spotifyplusplus.auto.IAutoPrototype$* { *; }
+
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
+>>>>>>> C:\Users\junxi\Documents\deepseek-harness\default-workspace\_merge-spp\tmp\repair\t2

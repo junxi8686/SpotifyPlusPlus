@@ -36,7 +36,7 @@ public class SettingsDefaultsTest {
                 Settings.AUTO_SKIP_INTRO_OUTRO.allowedValues);
         assertEquals("Auto", Settings.AUTO_SKIP_INTRO_OUTRO.coerce("Auto"));
         assertEquals("Off", Settings.AUTO_SKIP_INTRO_OUTRO.coerce("bogus"));
-        assertFalse(Settings.MINI_PLAYER_LYRICS_ICON.defaultValue);
+        assertTrue(Settings.MINI_PLAYER_LYRICS_ICON.defaultValue);
         assertFalse(Settings.KARAOKE_ORIGINAL_LYRICS.defaultValue);
         assertEquals("Single tap", Settings.PANEL_MEDIA_CONTROLS.defaultValue);
         assertEquals(java.util.Arrays.asList("Off", "Single tap", "Double tap"),
@@ -56,9 +56,11 @@ public class SettingsDefaultsTest {
         assertFalse(Settings.LINE_SLIDE_ANIMATION.defaultValue);
         assertTrue(Settings.APPLE_LIFT.defaultValue);
         assertEquals(Settings.INTERNAL, Settings.APPLE_LIFT.section); // edited in the layout editor
-        assertFalse(Settings.AUTO_RESUME_FOLLOW.defaultValue);
+        assertTrue(Settings.AUTO_RESUME_FOLLOW.defaultValue);
         assertEquals(3, (int) Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS.defaultValue);
         assertEquals(Settings.LYRICS, Settings.AUTO_RESUME_FOLLOW_DELAY_SECONDS.section);
+        assertEquals(Integer.valueOf(0), Settings.TRACK_INFO_ART_RADIUS.defaultValue);
+        assertEquals("Left to right (sentence)", Settings.LINE_SYNC_FILL.defaultValue);
         assertEquals("Auto", Settings.SKIP_CHIP_STYLE.defaultValue);
         assertEquals("Right", Settings.SKIP_CHIP_POSITION.defaultValue);
         assertEquals("Right", Settings.FOLLOW_CHIP_POSITION.defaultValue);
@@ -83,7 +85,9 @@ public class SettingsDefaultsTest {
         assertFalse(Settings.TRANSLITERATION_ENABLED.defaultValue);
         assertFalse(Settings.TRANSLATION_ENABLED.defaultValue);
         assertEquals("google_unofficial", Settings.TRANSLATION_BACKEND.defaultValue);
-        assertEquals(Settings.TRANSLATION, Settings.TRANSLATION_BACKEND.section);
+        // Upstream v2.1.4 keeps the translation backend internal: it is chosen on the translation
+        // page, not in a settings-panel section of its own.
+        assertEquals(Settings.INTERNAL, Settings.TRANSLATION_BACKEND.section);
         // The baidu_unofficial peer was added for mainland China, where the Google endpoint is
         // unreachable. Google stays the default and "provider" keeps meaning "no machine backend",
         // so an install that never opens the row behaves exactly as it did before the peer existed.
@@ -103,10 +107,10 @@ public class SettingsDefaultsTest {
         assertEquals("Off", Settings.KOREAN_ROMANIZATION.coerce("Off"));
         assertEquals("Off", Settings.KOREAN_ROMANIZATION.coerce("off"));
 
-        assertEquals(Integer.valueOf(100), Settings.LYRICS_BLUR_INTENSITY.defaultValue);
-        assertEquals(25, Settings.LYRICS_BLUR_INTENSITY.minValue);
-        assertEquals(250, Settings.LYRICS_BLUR_INTENSITY.maxValue);
-        assertEquals(5, Settings.LYRICS_BLUR_INTENSITY.stepValue);
+        assertEquals(Integer.valueOf(0), Settings.LYRICS_BLUR_STRENGTH.defaultValue);
+        assertEquals(0, Settings.LYRICS_BLUR_STRENGTH.minValue);
+        assertEquals(500, Settings.LYRICS_BLUR_STRENGTH.maxValue);
+        assertEquals(5, Settings.LYRICS_BLUR_STRENGTH.stepValue);
 
         assertEquals(Integer.valueOf(59), Settings.FURIGANA_BRIGHTNESS.defaultValue);
         assertEquals(20, Settings.FURIGANA_BRIGHTNESS.minValue);
@@ -120,19 +124,17 @@ public class SettingsDefaultsTest {
 
         // Text glow defaults ON since the B322+ desktop-parity rework made it subtle and cheap.
         assertEquals("Word/syllable synced only", Settings.WORD_BOUNCE.defaultValue);
-        assertEquals("Phrase zoom", Settings.WORD_BOUNCE_STYLE.defaultValue);
+        assertEquals("Word zoom", Settings.WORD_BOUNCE_STYLE.defaultValue);
         assertEquals(java.util.Arrays.asList("Phrase zoom", "Word zoom", "Phrase lift", "Word lift", "Apple lift"),
                 Settings.WORD_BOUNCE_STYLE.allowedValues);
         assertEquals("Apple lift", Settings.WORD_BOUNCE_STYLE.coerce("Apple lift"));
-        assertEquals("Phrase zoom", Settings.WORD_BOUNCE_STYLE.coerce("bogus"));
+        assertEquals("Word zoom", Settings.WORD_BOUNCE_STYLE.coerce("bogus"));
         assertFalse(Settings.ALIGNED_PER_WORD_ROMAJI.defaultValue);
         assertTrue(Settings.ENABLE_GLOW_BLUR.defaultValue);
-        assertEquals("Off", Settings.ENABLE_LINE_BLUR.defaultValue);
-        assertEquals(java.util.Arrays.asList("Off", "Slight", "Heavy"),
-                Settings.ENABLE_LINE_BLUR.allowedValues);
-        assertEquals("Heavy", Settings.ENABLE_LINE_BLUR.coerce("Heavy"));
-        assertEquals("Off", Settings.ENABLE_LINE_BLUR.coerce("bogus"));
-        assertTrue(Settings.FORCE_DARK_BACKGROUND.defaultValue);
-        assertEquals(Integer.valueOf(35), Settings.EXTRA_DARK_BACKGROUND.defaultValue);
+        assertEquals(Integer.valueOf(35), Settings.LYRICS_DARKENING.defaultValue);
+        assertEquals(0, Settings.LYRICS_DARKENING.minValue);
+        assertEquals(100, Settings.LYRICS_DARKENING.maxValue);
+        assertEquals(5, Settings.LYRICS_DARKENING.stepValue);
+        assertEquals(java.util.Arrays.asList("Off", "Word only"), Settings.LIVE_CARD_GLOW.allowedValues);
     }
 }

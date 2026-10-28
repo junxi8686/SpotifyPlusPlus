@@ -12,7 +12,7 @@ Unofficial project, not affiliated with Spotify or any lyrics provider.
 
 [简体中文](readme.md) · **English** · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
 
-![release 1.5](https://img.shields.io/badge/release-1.5-blue) ![licence AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![release 1.6](https://img.shields.io/badge/release-1.6-blue) ![licence AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -21,7 +21,7 @@ Unofficial project, not affiliated with Spotify or any lyrics provider.
 ## Contents
 
 - [What this is](#what-this-is)
-- [What is new in 1.5](#what-is-new-in-15)
+- [What is new in 1.6](#what-is-new-in-16)
 - [How the lyrics source is chosen](#how-the-lyrics-source-is-chosen)
 - [The tiered rule and the weighted score](#the-tiered-rule-and-the-weighted-score)
 - [Features](#features)
@@ -44,6 +44,27 @@ Spotify++ is a lyrics module that runs inside the Spotify process, **based on Sp
 Choosing which lyrics to show is the point of the module. Spotify offers one document, and for a Chinese song it is often Traditional and line-timed; the same song may exist elsewhere as a Simplified, word-timed, translated edition. The module does not decide in advance which source is best — it measures every candidate and compares the totals.
 
 **This repository is a modified fork, not the original project.** Upstream copyright belongs to its author; this fork's changes are released under the same **AGPL-3.0** — see [LICENSE](../LICENSE), [NOTICE](../NOTICE) and [MODIFICATIONS.md](MODIFICATIONS.md).
+
+---
+
+## What is new in 1.6
+
+### New features
+
+- **Paper-art shader backgrounds** — a set of new background effects (paper grain, mesh gradient, Kawarp, Voronoi, Perlin noise and others), each adjustable on its own and coloured from the cover art
+- **Word / syllable timing** — smoother per-character fill and gradients inside a line
+- **Language preference** — choose whether the original text or the Chinese translation is preferred
+- **Manual-token lyric source** — a lyric source you can use by entering a token yourself
+- **Android Auto** — display improvements
+- **Japanese lyric readings** — new eza-style pinyin / jyutping output formats
+- Several display-detail fixes for the floating window and immersive mode
+
+### Fixed problems
+
+- Lyrics lost their detection result and display state when refreshing from the same source
+- The animation style and line-synced fill did not take effect in landscape
+- The default value of the Korean cycle mode was not among the allowed values
+- Token aggregation and character-form projection were misaligned on Chinese lyrics
 
 ---
 

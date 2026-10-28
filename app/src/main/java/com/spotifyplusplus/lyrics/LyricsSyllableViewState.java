@@ -673,19 +673,28 @@ public final class LyricsSyllableViewState {
      */
     public static void applySentenceGradient(SyllableSegment segment, float gradient, float glow,
                                             float brightness) {
+        // Our original four-argument form always swept softly; keep that for existing callers.
+        applySentenceGradient(segment, gradient, glow, brightness, true);
+    }
+
+    public static void applySentenceGradient(SyllableSegment segment, float gradient, float glow,
+                                            float brightness, boolean softSweep) {
         if (segment == null) return;
-        applySentenceGradientView(state(segment).textView, gradient, glow, brightness);
-        applySentenceGradientView(state(segment).romanizedTextView, gradient, glow, brightness);
+        applySentenceGradientView(state(segment).textView, gradient, glow, brightness, softSweep);
+        applySentenceGradientView(state(segment).romanizedTextView, gradient, glow, brightness,
+                softSweep);
         for (AnimatedLetterState letter : state(segment).letters) {
-            if (letter != null) applySentenceGradientView(letter.view, gradient, glow, brightness);
+            if (letter != null) {
+                applySentenceGradientView(letter.view, gradient, glow, brightness, softSweep);
+            }
         }
     }
 
     private static void applySentenceGradientView(SpicyAnimatedTextView view, float gradient,
-                                                  float glow, float brightness) {
+                                                  float glow, float brightness, boolean softSweep) {
         if (view == null) return;
         view.setBrightnessMultiplier(brightness);
-        view.setSoftSweep(true);
+        view.setSoftSweep(softSweep);
         for (View parent = parentView(view); parent != null; parent = parentView(parent)) {
             if (parent instanceof GlowFlexbox) {
                 ((GlowFlexbox) parent).applySentenceGradient(view, gradient, glow);

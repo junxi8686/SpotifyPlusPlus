@@ -88,6 +88,11 @@ final class LayoutProbeReport {
         return fact(name, value == null ? "" : value);
     }
 
+    /** A list of names, reported as a JSON array. */
+    LayoutProbeReport list(String name, List<String> values) {
+        return fact(name, Collections.unmodifiableList(new ArrayList<>(values)));
+    }
+
     private LayoutProbeReport fact(String name, Object value) {
         if (name == null || name.isEmpty()) return this;
         facts.put(name, value);

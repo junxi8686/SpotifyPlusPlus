@@ -137,7 +137,6 @@ public class SpicyAnimatedTextView extends TextView {
      */
     public void setSentenceGradientPosition(float gradient, float glow, int width, float offset) {
         if (!sentenceGradientBase) {
-            setSoftSweep(true);
             setContainerGradientPosition(gradient, glow, width, offset);
             return;
         }

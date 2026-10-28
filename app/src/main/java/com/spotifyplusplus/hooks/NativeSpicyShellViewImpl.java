@@ -56,6 +56,8 @@ import com.spotifyplusplus.SettingsStore;
 import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.spotifyplusplus.SpotifyPlusConfig;
 import com.spotifyplusplus.SpotifyTrack;
+import com.spotifyplusplus.settings.values.ChipPosition;
+import com.spotifyplusplus.settings.values.LyricsFocusPosition;
 import com.spotifyplusplus.ui.VsyncFrameScheduler;
 import com.spotifyplusplus.lyrics.AppliedLine;
 import com.spotifyplusplus.lyrics.ai.AiSettings;
@@ -66,6 +68,7 @@ import com.spotifyplusplus.lyrics.LyricCascadeProfile;
 import com.spotifyplusplus.lyrics.LyricTimeline;
 import com.spotifyplusplus.lyrics.LyricsAmbientController;
 import com.spotifyplusplus.lyrics.LyricsDocument;
+import com.spotifyplusplus.lyrics.LyricsMotionConfig;
 import com.spotifyplusplus.lyrics.processing.LyricsDocumentProcessor;
 import com.spotifyplusplus.lyrics.LyricsFrameRenderer;
 import com.spotifyplusplus.lyrics.LyricsLineViewState;
@@ -518,8 +521,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         likedMode = config.get(Settings.LIKED_SONGS_BUTTON);
         refreshLikedButton(currentTrackThrottled());
         applyRenderConfigChanges("preference changed", false);
-        ambientController.applySettings(renderConfig.backgroundStyle, renderConfig.forceDarkBackground,
-                renderConfig.extraDarkBackground);
+        ambientController.applySettings(renderConfig.backgroundStyle, renderConfig.darkening);
         if (trackInfoController != null) trackInfoController.onPreferenceChanged();
         if (pipPresentation) fitPipArtColumn();
         if (jumpToCurrentController != null) jumpToCurrentController.onPreferenceChanged();
@@ -841,6 +843,19 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
 
     boolean agentEditorAction(String action, String argument) {
         return layoutEditorHandle != null && layoutEditorHandle.agentAction(action, argument);
+    }
+
+    /**
+     * Internal shader selection for the paired ambient experiment. Debug channel only; it changes
+     * no setting and reports the mounted layer's content-free state.
+     */
+    String agentAmbientEffect(String argument) {
+        if ("status".equals(argument)) return ambientController.effectStatus();
+        com.spotifyplusplus.ambient.AmbientShaderEffect effect =
+                com.spotifyplusplus.ambient.AmbientShaderEffect.fromArgument(argument);
+        if (effect == null) return "effect=invalid rejected=none";
+        ambientController.setEffect(effect);
+        return ambientController.effectStatus();
     }
 
     boolean agentSettings(String action) {
@@ -1639,7 +1654,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         if (pipLayout != PIP_LAYOUT_NONE) ambientController.setRenderScaleFactor(0.5f);
         this.settingsDialogController = new LyricsSettingsDialogController(
                 activity, frameScheduler, ambientController, host, this::onSettingsClosed,
-                mode -> enterLayoutEditMode(mode == com.spotifyplusplus.settings.SettingsPanel.EDITOR_CARD),
+                mode -> enterLayoutEditMode(mode == com.spotifyplusplus.settings.panel.SettingsPanel.EDITOR_CARD),
                 this::resyncLyricsTiming, TAG);
         this.emptyStateController = new LyricsShellEmptyStateController(activity, config, textFactory);
         this.shellLifecycle = new LyricsShellLifecycle(activity, () -> {
@@ -1676,8 +1691,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         setBackground(ambientController.pageBackground());
         setClickable(true);
         setFocusable(true);
-        ambientController.attachAnimatedLayer(this, renderConfig.backgroundStyle,
-                renderConfig.forceDarkBackground, renderConfig.extraDarkBackground);
+        ambientController.attachAnimatedLayer(this, renderConfig.backgroundStyle, renderConfig.darkening);
 
         contentColumn = new LinearLayout(activity);
         contentColumn.setOrientation(twoColumn ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
@@ -1892,8 +1906,8 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 activity,
                 floatingChipHost,
                 config,
-                () -> config == null ? Settings.FOLLOW_CHIP_POSITION.defaultValue
-                        : config.get(Settings.FOLLOW_CHIP_POSITION),
+                () -> config == null ? ChipPosition.DEFAULT
+                        : LyricsShellChromeConfig.read(config).followChipPosition,
                 this::skipCurrentGap);
         trackInfoController = TrackInfoReadoutController.attach(
                 activity,
@@ -2006,9 +2020,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         setKeepScreenOn(true);
         hasRenderedDocument = false;
         cancelSongChangeTransitions();
-        synchronized (TrackInfoReadoutController.ART_NETWORK_LISTENERS) {
-            TrackInfoReadoutController.ART_NETWORK_LISTENERS.add(artworkDownloadListener);
-        }
+        com.spotifyplusplus.lyrics.cache.ArtworkNetworkCache.addListener(artworkDownloadListener);
         applyStatusBarPreference();
         com.spotifyplusplus.lyrics.language.LanguageModelPack.setReadyListener(languageModelReadyListener);
         if (!pipPresentation) watchContentScreenTop(true);
@@ -2116,9 +2128,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         sessionSubscription = null;
         if (pollingLease != null) pollingLease.close();
         pollingLease = null;
-        synchronized (TrackInfoReadoutController.ART_NETWORK_LISTENERS) {
-            TrackInfoReadoutController.ART_NETWORK_LISTENERS.remove(artworkDownloadListener);
-        }
+        com.spotifyplusplus.lyrics.cache.ArtworkNetworkCache.removeListener(artworkDownloadListener);
         unregisterPreferenceListener();
         toggleSpinnerController.reset();
         shellLifecycle.stop();
@@ -2129,7 +2139,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
         returnToCurrentPending = false;
         clearScrollSubpixel();
         ambientController.stop();
-        TrackInfoReadoutController.trimMemory();
+        com.spotifyplusplus.lyrics.cache.ArtworkNetworkCache.trimMemory();
         handler.removeCallbacks(idleFrameProbe);
         visuallySettledFrames = 0;
         playbackClock.reset("");
@@ -2479,8 +2489,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             updateToggleVisuals();
         }
         if (diff.needsBackgroundToggle) {
-            ambientController.applySettings(next.backgroundStyle, next.forceDarkBackground,
-                    next.extraDarkBackground);
+            ambientController.applySettings(next.backgroundStyle, next.darkening);
             SpotifyTrack track = host.getCurrentTrackSafely();
             if (track != null) ambientController.updateForTrack(track, () -> running);
         }
@@ -4149,9 +4158,8 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
             shareCardController.setSheetListener(this::onShareSheet);
         }
         Bitmap art = SpotifyArtworkCache.snapshotLarge(track.imageId, track.uri, dp(420));
-        if (art == null && track.imageId != null && !track.imageId.isEmpty()) {
-            art = TrackInfoReadoutController.ART_NETWORK_CACHE.get(track.imageId);
-            if (art == null) TrackInfoReadoutController.fetchArtworkFromNetwork(track.imageId);
+        if (art == null) {
+            art = com.spotifyplusplus.lyrics.cache.ArtworkNetworkCache.copyOrFetch(track.imageId, HTTP);
         }
         shareCardController.showForLine(this, document, track, art, index,
                 rowMountController.attachedRowView(line));
@@ -4334,22 +4342,24 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     }
 
     private float baseFocusAnchorFraction() {
-        String pos = config == null ? "Auto" : config.get(Settings.LYRICS_FOCUS_POSITION);
-        int percent = config == null ? Settings.LYRICS_FOCUS_POSITION_CUSTOM_PERCENT.defaultValue
-                : config.get(Settings.LYRICS_FOCUS_POSITION_CUSTOM_PERCENT);
-        return focusAnchorFraction(pos, percent, isLandscape(), slideAnimationEnabled);
+        // Upstream caches this in a `motion` field; our shell has no such field and the previous
+        // implementation read the two settings on every call anyway, so take the same fresh
+        // snapshot from the config reader (LyricsMotionConfig.read(null) reads schema defaults).
+        LyricsMotionConfig current = LyricsMotionConfig.read(config);
+        return focusAnchorFraction(current.focusPosition, current.focusCustomPercent,
+                isLandscape(), slideAnimationEnabled);
     }
 
     /** "Auto" keeps the pre-existing behaviour: raised only while the Apple-style line-slide
      *  animation is on, and centred in landscape, where a raised anchor overlaps the chrome in the
      *  short height. Top/Center/Bottom/Custom are the user's own per-orientation choice and are
      *  honoured in every orientation; the layout editor draws its focus line from this. */
-    static float focusAnchorFraction(String pos, int customPercent, boolean landscape,
+    static float focusAnchorFraction(LyricsFocusPosition pos, int customPercent, boolean landscape,
                                      boolean slideAnimation) {
-        if ("Top".equals(pos)) return LyricsScrollController.RAISED_ANCHOR_FRACTION;
-        if ("Bottom".equals(pos)) return LyricsScrollController.LOWERED_ANCHOR_FRACTION;
-        if ("Center".equals(pos)) return LyricsScrollController.CENTER_ANCHOR_FRACTION;
-        if ("Custom".equals(pos)) return Math.max(0f, Math.min(1f, customPercent / 100f));
+        if (pos == LyricsFocusPosition.TOP) return LyricsScrollController.RAISED_ANCHOR_FRACTION;
+        if (pos == LyricsFocusPosition.BOTTOM) return LyricsScrollController.LOWERED_ANCHOR_FRACTION;
+        if (pos == LyricsFocusPosition.CENTER) return LyricsScrollController.CENTER_ANCHOR_FRACTION;
+        if (pos == LyricsFocusPosition.CUSTOM) return Math.max(0f, Math.min(1f, customPercent / 100f));
         if (landscape || !slideAnimation) return LyricsScrollController.CENTER_ANCHOR_FRACTION;
         return LyricsScrollController.RAISED_ANCHOR_FRACTION;
     }
@@ -4875,8 +4885,7 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     private void onSettingsClosed() {
         try {
             applyRenderConfigChanges("settings closed", true);
-            ambientController.applySettings(renderConfig.backgroundStyle, renderConfig.forceDarkBackground,
-                    renderConfig.extraDarkBackground);
+            ambientController.applySettings(renderConfig.backgroundStyle, renderConfig.darkening);
         } catch (Throwable t) {
             XpLog.log(TAG + " onSettingsClosed failed: " + t);
         }

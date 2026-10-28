@@ -67,4 +67,5 @@
     <string name="diagnostic_check_features">Module features</string>
     <string name="diagnostic_check_installation">Install: %1$s · Root not checked</string>
     <string name="diagnostic_check_hyperglow">HyperGlow bridge: %1$s</string>
+    <string name="diagnostic_follow_up_notice">This report system does not support replies from the developer or maintainer. For follow-up, contact them directly through GitHub or the Telegram group.</string>
 </resources>

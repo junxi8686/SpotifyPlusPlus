@@ -23,6 +23,9 @@ import com.spotifyplusplus.lyrics.cache.CacheClearKind;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.settings.SourcePreferencesAdapter;
 import com.spotifyplusplus.settings.SettingsWriter;
+import com.spotifyplusplus.settings.values.BackgroundEffect;
+import com.spotifyplusplus.settings.values.BackgroundEffectPool;
+import com.spotifyplusplus.settings.values.StoredValues;
 import com.spotifyplusplus.xposed.XpLog;
 
 import java.io.File;
@@ -347,6 +350,12 @@ final class AgentCommandChannel {
                     return;
                 case "layout":
                     layout(correlation);
+                    return;
+                case "ambient-effect":
+                    ambientEffect(argument, correlation);
+                    return;
+                case "background-effect":
+                    backgroundEffect(argument, correlation);
                     return;
                 case "setting":
                     writeSetting(argument, correlation);
@@ -761,6 +770,119 @@ final class AgentCommandChannel {
         });
     }
 
+    /**
+     * Debug-channel shader selection for the paired ambient experiment, matching upstream v2.1.4:
+     * {@code ambient-effect kawarp|mesh|status}. It changes no setting; the shell reports the mounted
+     * layer's content-free state.
+     */
+    private void ambientEffect(String argument, String correlation) {
+        String value = argument.trim().toLowerCase(Locale.ROOT);
+        if (!"status".equals(value)
+                && com.spotifyplusplus.ambient.AmbientShaderEffect.fromArgument(value) == null) {
+            reply("error", "ambient-effect", "expected kawarp, mesh, or status", correlation);
+            return;
+        }
+        onMain("ambient-effect", correlation, () -> {
+            NativeSpicyShellView shell = requireShell("ambient-effect", correlation);
+            if (shell == null) return;
+            String status = shell.agentAmbientEffect(value);
+            reply("ok", "ambient-effect", status, correlation);
+        });
+    }
+
+    /**
+     * Reads or writes the persisted background effect and the nonempty Random pool, with the
+     * content-free replies upstream v2.1.4 defines: {@code background-effect
+     * status|fixed ID|random|pool ID[,ID...]|pool-toggle ID}. The ambient system is upstream's now,
+     * so the channel speaks its vocabulary rather than a fork-specific one.
+     */
+    private void backgroundEffect(String argument, String correlation) {
+        String[] parts = argument.trim().split("\\s+", 2);
+        String action = parts.length == 0 ? "" : parts[0];
+        String value = parts.length > 1 ? parts[1].trim() : "";
+        if ("status".equals(action) && value.isEmpty()) {
+            onMain("background-effect", correlation, () -> {
+                Activity activity = References.currentActivity();
+                if (activity == null || activity.isDestroyed()) {
+                    reply("error", "background-effect", "no current activity", correlation);
+                    return;
+                }
+                SettingsStore store = new SettingsStore(activity);
+                BackgroundEffect effect = StoredValues.fromStored(BackgroundEffect.class,
+                        store.get(Settings.BACKGROUND_EFFECT));
+                BackgroundEffectPool pool = BackgroundEffectPool.parse(
+                        store.get(Settings.BACKGROUND_RANDOM_EFFECTS));
+                reply("ok", "background-effect", "effect=" + effect.stableId()
+                        + " random=" + pool.encode(), correlation);
+            });
+            return;
+        }
+        if ("random".equals(action) && value.isEmpty()) {
+            writeBackgroundEffect(action, null, null, correlation);
+            return;
+        }
+        if ("fixed".equals(action) || "pool-toggle".equals(action)) {
+            BackgroundEffect effect = BackgroundEffect.fixedFromText(value);
+            if (effect == null) {
+                reply("error", "background-effect", "unknown fixed effect '" + value + "'",
+                        correlation);
+                return;
+            }
+            writeBackgroundEffect(action, effect, null, correlation);
+            return;
+        }
+        if ("pool".equals(action)) {
+            BackgroundEffectPool pool = BackgroundEffectPool.parseExplicit(value);
+            if (pool == null) {
+                reply("error", "background-effect", "expected a nonempty list of fixed ids",
+                        correlation);
+                return;
+            }
+            writeBackgroundEffect(action, null, pool, correlation);
+            return;
+        }
+        reply("error", "background-effect",
+                "expected status, fixed ID, random, pool ID[,ID...], or pool-toggle ID", correlation);
+    }
+
+    private void writeBackgroundEffect(String action, BackgroundEffect effect,
+            BackgroundEffectPool pool, String correlation) {
+        onMain("background-effect", correlation, () -> {
+            try {
+                Activity activity = References.currentActivity();
+                if (activity == null || activity.isDestroyed()) {
+                    reply("error", "background-effect", "no current activity", correlation);
+                    return;
+                }
+                SettingsStore store = new SettingsStore(activity);
+                SettingsWriter writer = new SettingsWriter(store);
+                String oldEffect = store.get(Settings.BACKGROUND_EFFECT);
+                String oldPool = store.get(Settings.BACKGROUND_RANDOM_EFFECTS);
+                if ("random".equals(action)) {
+                    writer.put(Settings.BACKGROUND_EFFECT, BackgroundEffect.RANDOM.stableId());
+                    reply("ok", "background-effect", "old=" + oldEffect + " new=random",
+                            correlation);
+                } else if ("fixed".equals(action)) {
+                    writer.put(Settings.BACKGROUND_EFFECT, effect.stableId());
+                    reply("ok", "background-effect", "old=" + oldEffect + " new="
+                            + effect.stableId(), correlation);
+                } else if ("pool".equals(action)) {
+                    writer.put(Settings.BACKGROUND_RANDOM_EFFECTS, pool.encode());
+                    reply("ok", "background-effect", "old=" + oldPool + " new="
+                            + pool.encode(), correlation);
+                } else {
+                    BackgroundEffectPool current = BackgroundEffectPool.parse(oldPool);
+                    BackgroundEffectPool next = current.toggle(effect);
+                    writer.put(Settings.BACKGROUND_RANDOM_EFFECTS, next.encode());
+                    reply("ok", "background-effect", "old=" + current.encode() + " new="
+                            + next.encode(), correlation);
+                }
+            } catch (Throwable t) {
+                reply("error", "background-effect", "threw " + t, correlation);
+            }
+        });
+    }
+
     private void writeSetting(String argument, String correlation) {
         String[] args = argument.split("\\s+", 2);
         if (args.length < 2 || args[0].isEmpty() || args[1].trim().isEmpty()) {
@@ -1043,6 +1165,61 @@ final class AgentCommandChannel {
             return current.uri;
         } catch (Throwable t) {
             return "error";
+        }
+    }
+
+    /**
+     * The key and value of an {@code editor choose} request: the rest of the line is the value, so
+     * a multi-word label survives.
+     *
+     * @param args the words of the command, the verb first.
+     * @return the key and the value, or null when the request does not name both.
+     */
+    static String[] editorChooseRequest(String[] args) {
+        if (args == null || args.length < 3) return null;
+        String key = args[1];
+        if (key == null || key.isEmpty()) return null;
+        StringBuilder value = new StringBuilder();
+        for (int i = 2; i < args.length; i++) {
+            if (value.length() > 0) value.append(' ');
+            value.append(args[i]);
+        }
+        String text = value.toString();
+        if (text.isEmpty()) return null;
+        return new String[]{key, text};
+    }
+
+    /**
+     * The action and argument of an {@code editor random} request.
+     *
+     * <p>Search keeps the rest of the line as its text, so a multi-word query survives. The other
+     * actions take no argument, and a toggle names exactly one stable effect id.
+     *
+     * @param args the words of the command, the verb first.
+     * @return the action and its argument, or null when the request is malformed.
+     */
+    static String[] editorRandomRequest(String[] args) {
+        if (args == null || args.length < 2) return null;
+        String action = args[1] == null ? "" : args[1].toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "open":
+            case "status":
+            case "apply":
+            case "cancel":
+                return args.length == 2 ? new String[]{action, ""} : null;
+            case "toggle":
+                return args.length == 3 && args[2] != null && !args[2].isEmpty()
+                        ? new String[]{action, args[2]} : null;
+            case "search": {
+                StringBuilder text = new StringBuilder();
+                for (int i = 2; i < args.length; i++) {
+                    if (text.length() > 0) text.append(' ');
+                    text.append(args[i]);
+                }
+                return new String[]{action, text.toString()};
+            }
+            default:
+                return null;
         }
     }
 

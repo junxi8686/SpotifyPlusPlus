@@ -5,14 +5,15 @@ import com.spotifyplusplus.lyrics.language.RomanizationOptions;
 import android.content.Context;
 
 import com.spotifyplusplus.Diagnostics;
-import com.spotifyplusplus.Settings;
 import com.spotifyplusplus.SpotifyPlusConfig;
+import com.spotifyplusplus.lyrics.TranslationConfig;
 import com.spotifyplusplus.lyrics.session.CanonicalBase;
 import com.spotifyplusplus.lyrics.session.DerivedLayerArtifact;
 import com.spotifyplusplus.lyrics.session.MeaningArtifact;
 import com.spotifyplusplus.lyrics.session.SoundArtifact;
 import com.spotifyplusplus.lyrics.session.LayerKind;
 import com.spotifyplusplus.lyrics.session.LayerFailure;
+import com.spotifyplusplus.lyrics.session.LyricsSourcePolicy;
 import com.spotifyplusplus.lyrics.ai.AiSettings;
 
 import com.spotifyplusplus.xposed.XpLog;
@@ -100,14 +101,14 @@ public final class LyricsSecondaryProcessingSession {
         }
 
         if (callback != null) callback.status("Enhancing " + label(snapshot) + "…");
-        final String targetLang = config.get(Settings.TRANSLATION_TARGET);
-        final String backend = config.get(Settings.TRANSLATION_BACKEND);
-        final String sourceLanguage = "manual".equalsIgnoreCase(config.get(Settings.SOURCE_LANGUAGE_MODE))
-                ? config.get(Settings.SOURCE_LANGUAGE)
+        TranslationConfig translation = TranslationConfig.read(config);
+        final String targetLang = translation.target;
+        final String backend = translation.backend.storedLabel();
+        final String sourceLanguage = LyricsSourcePolicy.isStrictSourceLanguage(translation.sourceMode)
+                ? translation.sourceLanguage
                 : snapshot.language;
         final String effectiveSourceLang = effectiveGoogleSourceLanguage(
-                config.get(Settings.SOURCE_LANGUAGE_MODE),
-                config.get(Settings.SOURCE_LANGUAGE));
+                translation.sourceMode, translation.sourceLanguage);
         Diagnostics.event("secondary_processing", "branch_started",
                 Diagnostics.context(
                         "branch", label(snapshot),

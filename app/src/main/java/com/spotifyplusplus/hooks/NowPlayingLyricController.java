@@ -22,6 +22,7 @@ import com.spotifyplusplus.lyrics.LyricsLine;
 import com.spotifyplusplus.lyrics.language.LyricsLocalRomanizer;
 import com.spotifyplusplus.lyrics.LyricsRenderConfig;
 import com.spotifyplusplus.lyrics.LyricsRenderMode;
+import com.spotifyplusplus.lyrics.ResponseCreditOutro;
 import com.spotifyplusplus.lyrics.session.LyricPipelineMetrics;
 import com.spotifyplusplus.lyrics.LyricsShellLifecycle;
 import com.spotifyplusplus.lyrics.language.RomanizationOptions;
@@ -40,6 +41,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 final class NowPlayingLyricController {
     private static final long CANVAS_TRANSFER_SETTLE_MS = 400L;
+    /** Position rendered by the current frame pass, or {@link #NO_POSITION_MS} before it. */
+    static final long NO_POSITION_MS = Long.MIN_VALUE;
     interface ArtworkTargetHost {
         NowPlayingArtworkTargetResolver.Resolution resolve(boolean applyBounds);
         void invalidate();
@@ -794,6 +797,40 @@ final class NowPlayingLyricController {
         // while this exact display segment still needs the local per-segment fallback.
         return LyricsLocalRomanizer.romanizeDisplaySegment(
                 romanizationOptions(), cardDocument, line, segment, fullText);
+    }
+
+    /**
+     * The one rule for "the pass that just ran needs another frame". Callers only request a frame
+     * on a state change; this decides whether the loop stays open afterwards.
+     *
+     * <p>Playback has to be advancing first: when it is not, the hook stops extrapolating the
+     * position, so a repeated frame redraws the same pixels. The projection is unsettled while the
+     * playhead is still inside the document's sung span - the wash, the line sync fill and the
+     * overflow glide all read the position every frame there - and until the credit-outro hold
+     * window opens, because that is where the last row is cleared. Past it the card holds a settled
+     * frame: the outro itself is static text on a wall-clock window, so the idle probe presents and
+     * retires it.
+     *
+     * @param forcedWork a canvas handoff settling, or a bounded artwork target refresh burst
+     * @param playing    playback is advancing
+     * @param surfaceShown the card or the artwork overlay is attached and visible
+     * @param timedSurface that on-screen surface has a document whose rows carry timing
+     * @param positionMs the position the last pass rendered, or {@link #NO_POSITION_MS}
+     * @param sungEndMs  end of the last sung row of the mounted document
+     */
+    static boolean frameDemandOpen(
+            boolean forcedWork,
+            boolean playing,
+            boolean surfaceShown,
+            boolean timedSurface,
+            long positionMs,
+            long sungEndMs
+    ) {
+        if (forcedWork) return true;
+        if (!playing || !surfaceShown) return false;
+        if (!timedSurface) return false;
+        if (positionMs == NO_POSITION_MS || sungEndMs <= 0L) return false;
+        return positionMs < sungEndMs + ResponseCreditOutro.HOLD_MS;
     }
 
     private boolean isUnsyncedDocument(LyricsDocument doc) {

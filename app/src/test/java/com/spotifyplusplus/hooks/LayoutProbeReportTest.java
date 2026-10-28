@@ -228,6 +228,28 @@ public class LayoutProbeReportTest {
         assertViolations(report);
     }
 
+    // R14 sheet_over_chrome retired -----------------------------------------------------------
+    // The rule assumed a draggable options sheet that could be parked over the live top controls.
+    // The editor rewrite replaced that sheet with a floating panel whose placement rule
+    // (LyricsLayoutEditController.SheetPlacement) already avoids the edited element, so there is no
+    // sheet rect left for the probe to compare and no behaviour for the rule to guard.
+
+    @Test
+    public void aSheetThatOnlyClipsTheControlsStaysQuiet() {
+        LayoutProbeReport report = clean();
+        // Exactly half of the controls: "more than half" is not "half".
+        report.rect("sheet", 600, 100, 1100, 900);
+        assertViolations(report);
+    }
+
+    @Test
+    public void cardModeIgnoresTheSheetOverTheHiddenControls() {
+        LayoutProbeReport report = clean();
+        report.flag("card_mode", true);
+        report.rect("sheet", 600, 40, 1100, 900);
+        assertViolations(report);
+    }
+
     // R9 / R10 ---------------------------------------------------------------
 
     /** Fold, landscape two-column, B907: the rail sat 72dp in while Follow sat 16dp in. */

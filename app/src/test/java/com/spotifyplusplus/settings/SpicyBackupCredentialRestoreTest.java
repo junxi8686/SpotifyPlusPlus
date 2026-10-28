@@ -247,12 +247,16 @@ public class SpicyBackupCredentialRestoreTest {
 
     @Test
     public void everyOwnedCredentialScopeIsOneTheStoreRecognises() {
+        // The provider -> scope mapping itself is owned and covered by AiProviderCredentialScopeTest
+        // in the lyrics.ai package, where AiSettings' package-private credentialScopeFor lives. This
+        // test's job is the backup question: that every secret a restore may have to report is one
+        // the credential store recognises, and that no two of them collide.
         List<String> scopes = new ArrayList<>(Arrays.asList(
-                AiSettings.credentialScopeFor(AiSettings.PROVIDER_GEMINI),
-                AiSettings.credentialScopeFor(AiSettings.PROVIDER_OPENAI),
-                AiSettings.credentialScopeFor(AiSettings.PROVIDER_OPENROUTER),
-                AiSettings.credentialScopeFor(AiSettings.PROVIDER_DEEPSEEK),
-                AiSettings.credentialScopeFor(AiSettings.PROVIDER_CUSTOM),
+                "gemini",
+                "openai_official",
+                "openrouter",
+                "deepseek",
+                "custom",
                 BaiduTranslateCredentials.APP_ID_SCOPE,
                 BaiduTranslateCredentials.SECRET_SCOPE,
                 SpicyOrgKeyStore.SCOPE,

@@ -12,7 +12,7 @@ Spotify 標準の歌詞画面を、より使いやすいものに置き換えま
 
 [简体中文](readme.md) · [English](README.en.md) · **日本語** · [한국어](README.ko.md) · [Русский](README.ru.md)
 
-![リリース 1.5](https://img.shields.io/badge/release-1.5-blue) ![ライセンス AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![リリース 1.6](https://img.shields.io/badge/release-1.6-blue) ![ライセンス AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -21,7 +21,7 @@ Spotify 標準の歌詞画面を、より使いやすいものに置き換えま
 ## 目次
 
 - [これは何か](#これは何か)
-- [1.5 の新機能と修正](#15-の新機能と修正)
+- [1.6 の新機能と修正](#16-の新機能と修正)
 - [歌詞はどう選ばれるか](#歌詞はどう選ばれるか)
 - [段階比較と重み付きスコア](#段階比較と重み付きスコア)
 - [機能](#機能)
@@ -44,6 +44,27 @@ Spotify++ は Spotify のプロセス内で動作する歌詞モジュールで�
 どの歌詞を表示するかがこのモジュールの要点です。Spotify 標準の歌詞は一つだけで、中国語では繁体字・行単位の時間軸であることがよくあります。同じ曲でも別のソースには簡体字・逐字・翻訳付きの版が存在することがあります。モジュールはどのソースが最良かをあらかじめ決めず、各候補を一つずつ測ってから合計点を比べます。
 
 **このリポジトリは改変版であり、元のプロジェクトではありません。** 上流の著作権は原作者に帰属し、このリポジトリの変更部分も同じ **AGPL-3.0** で公開されています —— 詳しくは [LICENSE](../LICENSE)、[NOTICE](../NOTICE)、[MODIFICATIONS.md](MODIFICATIONS.md) を参照してください。
+
+---
+
+## 1.6 の新機能と修正
+
+### 新機能
+
+- **ペーパーアートシェーダーの背景** —— 新しい背景エフェクト群（紙の粒、メッシュグラデーション、Kawarp、Voronoi、Perlin ノイズなど）。個別に調整でき、カバーアートから色を取ります
+- **逐字 / 逐語の時間軸** —— 行内を進む、より滑らかな文字間の塗りとグラデーション
+- **言語の優先設定** —— 原文と中国語訳のどちらを優先するか指定できます
+- **手動トークンの歌詞ソース** —— トークンを手入力して使う歌詞ソース
+- **Android Auto** —— 表示を改善
+- **日本語歌詞の読み** —— eza 式の拼音 / 粤拼出力形式を追加
+- フローティングウィンドウと没入型画面の表示細部をいくつか修正
+
+### 修正した問題
+
+- 「同じソース」での再読み込み時に、検出結果と表示状態が失われていた
+- 横向き表示でアニメーションスタイルと行同期の塗りが反映されなかった
+- 韓国語の巡回モードの既定値が許可値に含まれていなかった
+- 語句の集約と文字形式の投影が中国語歌詞でずれていた
 
 ---
 

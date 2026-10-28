@@ -12,7 +12,7 @@ Spotify 기본 가사 화면을 더 쓸 만한 것으로 바꿉니다: 여러 �
 
 [简体中文](readme.md) · [English](README.en.md) · [日本語](README.ja.md) · **한국어** · [Русский](README.ru.md)
 
-![버전 1.5](https://img.shields.io/badge/release-1.5-blue) ![라이선스 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![버전 1.6](https://img.shields.io/badge/release-1.6-blue) ![라이선스 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -21,7 +21,7 @@ Spotify 기본 가사 화면을 더 쓸 만한 것으로 바꿉니다: 여러 �
 ## 목차
 
 - [무엇인가](#무엇인가)
-- [1.5 새로운 기능과 수정](#15-새로운-기능과-수정)
+- [1.6 새로운 기능과 수정](#16-새로운-기능과-수정)
 - [가사는 어떻게 선택되는가](#가사는-어떻게-선택되는가)
 - [단계별 비교와 가중 점수](#단계별-비교와-가중-점수)
 - [기능](#기능)
@@ -44,6 +44,27 @@ Spotify++는 Spotify 프로세스 안에서 동작하는 가사 모듈로, Spicy
 어떤 가사를 고르는지가 이 모듈의 핵심입니다. Spotify 자체 가사는 한 벌뿐이고, 중국어 곡에서는 번체에 줄 단위 시간축인 경우가 많습니다. 같은 곡이라도 다른 소스에는 간체에 글자 단위이고 번역이 붙은 버전이 있을 수 있습니다. 모듈은 어느 소스가 가장 좋은지 미리 정하지 않고, 모든 후보를 하나씩 재어 총점을 비교합니다.
 
 **이 저장소는 수정판이며 원래 프로젝트가 아닙니다.** 상류의 저작권은 원저작자에게 있고, 이 저장소의 수정 부분도 같은 **AGPL-3.0**으로 배포됩니다 — [LICENSE](../LICENSE), [NOTICE](../NOTICE), [MODIFICATIONS.md](MODIFICATIONS.md)를 참고하세요.
+
+---
+
+## 1.6 새로운 기능과 수정
+
+### 새로운 기능
+
+- **페이퍼 아트 셰이더 배경** — 새로운 배경 효과 모음(종이 입자, 메시 그라데이션, Kawarp, Voronoi, Perlin 노이즈 등)으로, 각각 따로 조정할 수 있고 커버 아트에서 색을 가져옵니다
+- **글자 / 단어 단위 시간축** — 줄 안에서 진행되는 더 매끄러운 글자 간 채움과 그라데이션
+- **언어 우선 설정** — 원문과 중국어 번역 중 무엇을 우선할지 지정할 수 있습니다
+- **수동 토큰 가사 소스** — 토큰을 직접 입력해 쓰는 가사 소스
+- **Android Auto** — 표시 개선
+- **일본어 가사 독음** — eza식 병음 / 광둥어 병음 출력 형식 추가
+- 떠 있는 창과 몰입형 화면의 표시 세부 사항 몇 가지 수정
+
+### 수정된 문제
+
+- 같은 소스에서 새로 고칠 때 감지 결과와 표시 상태가 사라지던 문제
+- 가로 모드에서 애니메이션 스타일과 줄 동기 채움이 적용되지 않던 문제
+- 한국어 순환 모드의 기본값이 허용 값에 없던 문제
+- 어구 집계와 문자 형태 투영이 중국어 가사에서 어긋나던 문제
 
 ---
 

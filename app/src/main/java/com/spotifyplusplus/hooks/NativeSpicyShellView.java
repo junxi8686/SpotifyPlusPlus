@@ -78,4 +78,9 @@ final class NativeSpicyShellView extends FrameLayout {
     String agentLayoutReport() {
         return delegate.agentLayoutReport();
     }
+
+    /** Debug-only shader selection for the paired ambient experiment; changes no setting. */
+    String agentAmbientEffect(String argument) {
+        return delegate.agentAmbientEffect(argument);
+    }
 }

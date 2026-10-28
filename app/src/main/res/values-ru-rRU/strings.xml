@@ -291,4 +291,41 @@
 
     <!-- Picture-in-picture -->
     <string name="settings_label_lyrics_pip_album_art">Показывать обложку</string>
+    <string name="settings_label_lyrics_blur_strength">Размытие дальних строк</string>
+    <string name="settings_label_lyrics_darkening">Затемнить фон</string>
+    <string name="settings_option_blur">Размытие</string>
+    <string name="settings_action_download_language_models">Скачать языковые модели</string>
+    <string name="lyrics_error_no_match_title">Для этого трека нет текста песни.</string>
+    <string name="lyrics_error_no_connection_title">Не удалось скачать текст песни.</string>
+    <string name="lyrics_error_no_connection_action">Повторите попытку, когда будете онлайн.</string>
+    <string name="lyrics_error_source_busy_title">Источник текстов занят.</string>
+    <string name="lyrics_error_source_busy_action">Повторите попытку через минуту.</string>
+    <string name="lyrics_error_no_source_title">Ни один источник текстов не включён.</string>
+    <string name="lyrics_error_no_source_action">Включите источник в настройках.</string>
+    <string name="lyrics_error_generic_title">Не удалось загрузить текст песни.</string>
+    <string name="lyrics_error_generic_action">Повторите попытку. Если ошибка повторяется, перезапустите Spotify.</string>
+    <string name="lyrics_error_unavailable">Текст песни недоступен.</string>
+    <string name="lyrics_error_empty_response">Пустой ответ с текстом песни.</string>
+    <string name="lyrics_error_empty_rows">Пустые строки применённого текста песни.</string>
+    <string name="settings_spicy_key_present">Ключ сохранён</string>
+    <string name="settings_spicy_key_catalog">Получить личный ключ</string>
+    <string name="settings_source_enabled_title">Включённые источники</string>
+    <string name="settings_label_lyric_background_effect">Эффект фона</string>
+    <string name="settings_label_lyric_background_random_effects">Эффекты для случайного выбора</string>
+    <string name="settings_option_random">Случайный</string>
+    <string name="settings_background_random_hint">Эффект выбирается для каждой песни. Оставьте хотя бы один эффект.</string>
+    <string name="settings_background_effect_hint">Ищите Kawarp и эффекты Paper. Случайный режим меняет выбранные эффекты для каждой песни.</string>
+    <string name="settings_layout_editor_background_effect_title">Эффект фона</string>
+    <string name="settings_layout_editor_background_effect_search">Поиск эффектов</string>
+    <string name="settings_layout_editor_background_effect_change">Изменить</string>
+    <string name="settings_layout_editor_background_effect_change_description">Выберите эффект фона</string>
+    <string name="settings_layout_editor_background_effect_current">Текущий эффект: %1$s</string>
+    <string name="settings_layout_editor_background_effect_requires_api">Требуется Android 13+</string>
+    <string name="settings_layout_editor_background_random_title">Эффекты для случайного выбора</string>
+    <string name="settings_layout_editor_background_random_search">Поиск эффектов</string>
+    <string name="settings_layout_editor_background_random_choose">Выбрать</string>
+    <string name="settings_layout_editor_background_random_choose_description">Выберите эффекты для случайного выбора</string>
+    <string name="settings_layout_editor_background_random_count">Выбрано: %1$d из %2$d</string>
+    <string name="settings_layout_editor_background_search_empty">Нет подходящих эффектов</string>
+    <string name="settings_layout_editor_cancel">Отмена</string>
 </resources>

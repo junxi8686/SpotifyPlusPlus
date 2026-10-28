@@ -19,5 +19,18 @@ public enum ChineseCharacterForm {
     /** Show the source text unchanged. The default; nothing is converted and nothing is loaded. */
     ORIGINAL,
     /** Display a Traditional or mixed document in Simplified Chinese. */
-    SIMPLIFIED
+    SIMPLIFIED;
+
+    /**
+     * Stored-label entry point, as upstream spells it.
+     *
+     * <p>Our build has no Traditional direction by design (see the type comment): its phrase table is
+     * not bundled, so converting towards Traditional would silently mangle words. A "traditional"
+     * label therefore resolves to {@link #ORIGINAL} - show the source unchanged - rather than
+     * pretending to convert. Unknown or absent labels are ORIGINAL, which matches upstream.
+     */
+    public static ChineseCharacterForm fromSetting(String value) {
+        if ("simplified".equalsIgnoreCase(value)) return SIMPLIFIED;
+        return ORIGINAL;
+    }
 }

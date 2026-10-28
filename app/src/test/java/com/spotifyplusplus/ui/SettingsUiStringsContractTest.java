@@ -2,7 +2,7 @@ package com.spotifyplusplus.ui;
 
 import com.spotifyplusplus.Settings;
 
-import com.spotifyplusplus.settings.SettingsPanel;
+import com.spotifyplusplus.settings.panel.SettingsPanel;
 
 import org.junit.Test;
 import org.w3c.dom.Element;
@@ -122,7 +122,7 @@ public class SettingsUiStringsContractTest {
 
     @Test
     public void layoutEditorActionsSurviveIncrementalSectionRebuilds() throws Exception {
-        File source = new File("src/main/java/com/spotifyplusplus/settings/SettingsPanel.java");
+        File source = new File("src/main/java/com/spotifyplusplus/settings/panel/SettingsPanel.java");
         if (!source.isFile()) source = new File("app/" + source.getPath());
         assertTrue(source.isFile());
         String java = new String(Files.readAllBytes(source.toPath()), StandardCharsets.UTF_8);
@@ -154,10 +154,38 @@ public class SettingsUiStringsContractTest {
 
         assertFalse(java.contains("presetSliderRow"));
         assertFalse(java.contains("snapBand"));
-        assertTrue(java.contains("private void buildChipOptions()"));
-        assertTrue(java.contains("Settings.SHOW_FULLSCREEN_BACK_BUTTON"));
-        assertTrue(java.contains("value == 0 ? \"Off\" : \"Heavy\""));
-        assertTrue(java.contains("values.length == 4"));
+        // The top bar and the chips render from the registry, so their hand builders are gone
+        // and the controller only maps its elements onto the registry ones.
+        assertFalse(java.contains("buildChipOptions()"));
+        assertFalse(java.contains("buildDockOptions()"));
+        assertTrue(java.contains("return ControlSpec.Element.TOP_BAR;"));
+        assertTrue(java.contains("return ControlSpec.Element.CHIPS;"));
+        // The chip row itself is shared with the registry renderer, so its line-breaking rule
+        // moved to settings/editor/EditorRows and the plan that carries it to
+        // settings/editor/ChipRowPlan.
+        File rows = new File("src/main/java/com/spotifyplusplus/settings/editor/EditorRows.java");
+        if (!rows.isFile()) rows = new File("app/" + rows.getPath());
+        assertTrue(rows.isFile());
+        String rowWidgets = new String(Files.readAllBytes(rows.toPath()), StandardCharsets.UTF_8);
+        assertTrue(rowWidgets.contains("ChipRowPlan.plan("));
+        File plan = new File("src/main/java/com/spotifyplusplus/settings/editor/ChipRowPlan.java");
+        if (!plan.isFile()) plan = new File("app/" + plan.getPath());
+        assertTrue(plan.isFile());
+        String planSource = new String(Files.readAllBytes(plan.toPath()), StandardCharsets.UTF_8);
+        assertTrue(planSource.contains("static List<List<Integer>> plan("));
+        // The top bar's own rows are registry entries now.
+        File registry = new File("src/main/java/com/spotifyplusplus/settings/registry/ControlRegistry.java");
+        if (!registry.isFile()) registry = new File("app/" + registry.getPath());
+        assertTrue(registry.isFile());
+        String registrySource = new String(Files.readAllBytes(registry.toPath()), StandardCharsets.UTF_8);
+        assertTrue(registrySource.contains("Settings.SHOW_FULLSCREEN_BACK_BUTTON"));
+        // The continuous blur control moved with the lyrics effects tab into the registry's
+        // composite renderer, which is where it writes the one blur strength now.
+        File composites = new File("src/main/java/com/spotifyplusplus/settings/editor/EditorComposites.java");
+        if (!composites.isFile()) composites = new File("app/" + composites.getPath());
+        assertTrue(composites.isFile());
+        String compositeWidgets = new String(Files.readAllBytes(composites.toPath()), StandardCharsets.UTF_8);
+        assertTrue(compositeWidgets.contains("rows.put(Settings.LYRICS_BLUR_STRENGTH, value)"));
     }
 
     @Test

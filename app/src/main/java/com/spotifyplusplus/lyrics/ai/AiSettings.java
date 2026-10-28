@@ -4,7 +4,15 @@ import android.content.Context;
 
 import com.spotifyplusplus.Settings;
 import com.spotifyplusplus.SettingsStore;
+import com.spotifyplusplus.lyrics.TranslationConfig;
 import com.spotifyplusplus.lyrics.session.LayerKind;
+import com.spotifyplusplus.settings.values.AiButtonBehavior;
+import com.spotifyplusplus.settings.values.AiDeepSeekReasoning;
+import com.spotifyplusplus.settings.values.AiPronunciationMode;
+import com.spotifyplusplus.settings.values.AiPronunciationSource;
+import com.spotifyplusplus.settings.values.AiProviderChoice;
+import com.spotifyplusplus.settings.values.AiTranslationMode;
+import com.spotifyplusplus.settings.values.StoredValues;
 
 /**
  * The AI family's configuration, read as one thing.
@@ -63,6 +71,13 @@ public final class AiSettings {
             // migrated by meaningFlow() before this sees them.
             return GOOGLE_DRAFT;
         }
+
+        /** The stored label that selects this flow, the inverse of {@link #ofStoredValue}. */
+        public String storedLabel() {
+            if (this == GOOGLE_PREVIEW) return TRANSLATION_PIPELINE_GOOGLE_PREVIEW;
+            if (this == AI_ONLY) return TRANSLATION_PIPELINE_AI_ONLY;
+            return TRANSLATION_PIPELINE_GOOGLE_DRAFT;
+        }
     }
     /** The one address that does not change, so nobody has to type it. */
     public static final String OPENAI_BASE_URL = "https://api.openai.com/v1";
@@ -118,7 +133,7 @@ public final class AiSettings {
         if (store == null) return "";
         String scoped = AiText.nz(store.get(modelSetting()));
         if (!scoped.isEmpty()) return scoped;
-        return PROVIDER_GEMINI.equals(providerChoice())
+        return providerChoiceValue() == AiProviderChoice.GEMINI
                 ? AiText.nz(store.get(Settings.AI_MODEL)) : "";
     }
 
@@ -129,8 +144,12 @@ public final class AiSettings {
 
     /** Persisted user-visible provider choice. */
     public String providerChoice() {
-        String value = store == null ? "" : AiText.nz(store.get(Settings.AI_PROVIDER));
-        return value.isEmpty() ? PROVIDER_GEMINI : value;
+        return providerChoiceValue().storedLabel();
+    }
+
+    private AiProviderChoice providerChoiceValue() {
+        return store == null ? AiProviderChoice.DEFAULT
+                : store.get(Settings.AI_PROVIDER, AiProviderChoice.class);
     }
 
     public String providerId() {
@@ -142,13 +161,7 @@ public final class AiSettings {
         return credentialScopeFor(providerChoice());
     }
 
-    /**
-     * The store scope one provider choice reads and writes.
-     *
-     * <p>Public because the backup names credential scopes the same way this function does: there
-     * is deliberately one definition of each scope string.
-     */
-    public static String credentialScopeFor(String providerChoice) {
+    static String credentialScopeFor(String providerChoice) {
         if (PROVIDER_OPENAI.equals(providerChoice)) return CREDENTIAL_SCOPE_OPENAI_OFFICIAL;
         if (PROVIDER_OPENROUTER.equals(providerChoice)) return PROVIDER_OPENROUTER;
         if (PROVIDER_DEEPSEEK.equals(providerChoice)) return PROVIDER_DEEPSEEK;
@@ -158,9 +171,9 @@ public final class AiSettings {
 
     /** True for both OpenAI itself and any compatible endpoint: same wire format, same adapter. */
     public boolean usesOpenAiWire() {
-        String choice = providerChoice();
-        return PROVIDER_OPENAI.equals(choice) || PROVIDER_OPENROUTER.equals(choice)
-                || PROVIDER_DEEPSEEK.equals(choice) || PROVIDER_CUSTOM.equals(choice);
+        AiProviderChoice choice = providerChoiceValue();
+        return choice == AiProviderChoice.OPENAI || choice == AiProviderChoice.OPENROUTER
+                || choice == AiProviderChoice.DEEPSEEK || choice == AiProviderChoice.CUSTOM;
     }
 
     /**
@@ -171,14 +184,15 @@ public final class AiSettings {
      * validate and explain — is worse than shipping the one address that never changes.
      */
     public boolean isCustomEndpoint() {
-        return PROVIDER_CUSTOM.equals(providerChoice());
+        return providerChoiceValue() == AiProviderChoice.CUSTOM;
     }
 
     /** Normalized base URL for whichever OpenAI-wire provider is selected, or empty. */
     public String endpoint() {
-        if (PROVIDER_OPENAI.equals(providerChoice())) return OPENAI_BASE_URL;
-        if (PROVIDER_OPENROUTER.equals(providerChoice())) return OPENROUTER_BASE_URL;
-        if (PROVIDER_DEEPSEEK.equals(providerChoice())) return DEEPSEEK_BASE_URL;
+        AiProviderChoice choice = providerChoiceValue();
+        if (choice == AiProviderChoice.OPENAI) return OPENAI_BASE_URL;
+        if (choice == AiProviderChoice.OPENROUTER) return OPENROUTER_BASE_URL;
+        if (choice == AiProviderChoice.DEEPSEEK) return DEEPSEEK_BASE_URL;
         return store == null ? "" : AiText.nz(store.get(Settings.AI_ENDPOINT));
     }
 
@@ -211,16 +225,40 @@ public final class AiSettings {
         return isEnabled() && !modelName().isEmpty();
     }
 
+    /** Publication fence only; it does not change historical paid identities. */
+    public String replayFingerprint() {
+        com.google.gson.JsonObject identity = new com.google.gson.JsonObject();
+        identity.addProperty("enabled", isEnabled());
+        identity.addProperty("provider", providerChoice());
+        identity.addProperty("endpoint", endpoint());
+        identity.addProperty("model", modelName());
+        identity.addProperty("meaningFlow", meaningFlow().name());
+        identity.addProperty("soundBaseline", soundUsesBaseline());
+        for (LayerKind layer : new LayerKind[]{LayerKind.MEANING, LayerKind.SOUND}) {
+            identity.addProperty(layer.name() + "Enabled", layer == LayerKind.MEANING
+                    ? meaningLayerEnabled() : soundLayerEnabled());
+            identity.addProperty(layer.name() + "Instructions", instructions(layer));
+            AiProviderConfig config = providerConfig(layer,
+                    layer == LayerKind.MEANING ? "en" : AiContract.ORTHOGRAPHY_LATIN,
+                    meaningFlow() == MeaningFlow.GOOGLE_DRAFT);
+            identity.addProperty(layer.name() + "Version", config == null ? "" : config.providerVersion);
+        }
+        return com.spotifyplusplus.lyrics.session.Digests.sha256(identity.toString());
+    }
+
     public boolean translationAutomatic() {
-        return "Always use AI".equals(store == null ? "" : store.get(Settings.AI_TRANSLATION_MODE));
+        return store != null && store.get(Settings.AI_TRANSLATION_MODE, AiTranslationMode.class)
+                == AiTranslationMode.ALWAYS_USE_AI;
     }
 
     public boolean pronunciationAutomatic() {
-        return "Always use AI".equals(store == null ? "" : store.get(Settings.AI_PRONUNCIATION_MODE));
+        return store != null && store.get(Settings.AI_PRONUNCIATION_MODE, AiPronunciationMode.class)
+                == AiPronunciationMode.ALWAYS_USE_AI;
     }
 
     public boolean soundUsesBaseline() {
-        return !"AI only".equals(store == null ? "" : store.get(Settings.AI_PRONUNCIATION_SOURCE));
+        return store == null || store.get(Settings.AI_PRONUNCIATION_SOURCE,
+                AiPronunciationSource.class) != AiPronunciationSource.AI_ONLY;
     }
 
     /**
@@ -231,15 +269,20 @@ public final class AiSettings {
      * unrecognized stored value reads as the shipped default rather than as a fourth behavior.
      */
     public MeaningFlow meaningFlow() {
-        if (store == null) return MeaningFlow.GOOGLE_DRAFT;
-        if (store.contains(Settings.AI_TRANSLATION_PIPELINE)) {
-            return MeaningFlow.ofStoredValue(store.get(Settings.AI_TRANSLATION_PIPELINE));
-        }
-        if (store.contains(Settings.AI_TRANSLATION_REFINE_GOOGLE)) {
+        if (store == null) return TranslationConfig.read(null).meaningFlow;
+        // Only a store can say whether the flow key was ever written. Without that probe an
+        // install that predates the key would read the default instead of its migrated choice.
+        if (!store.contains(Settings.AI_TRANSLATION_PIPELINE)
+                && store.contains(Settings.AI_TRANSLATION_REFINE_GOOGLE)) {
             return Boolean.TRUE.equals(store.get(Settings.AI_TRANSLATION_REFINE_GOOGLE))
                     ? MeaningFlow.GOOGLE_DRAFT : MeaningFlow.AI_ONLY;
         }
-        return MeaningFlow.GOOGLE_DRAFT;
+        return translation().meaningFlow;
+    }
+
+    /** The translation and Meaning settings this object composes, read as one holder. */
+    public TranslationConfig translation() {
+        return TranslationConfig.read(store);
     }
 
     /**
@@ -258,11 +301,12 @@ public final class AiSettings {
     }
 
     public boolean generateThenToggle() {
-        return !"Toggle display only".equals(store == null ? "" : store.get(Settings.AI_BUTTON_BEHAVIOR));
+        return store == null || store.get(Settings.AI_BUTTON_BEHAVIOR, AiButtonBehavior.class)
+                != AiButtonBehavior.TOGGLE_DISPLAY_ONLY;
     }
 
     public boolean meaningLayerEnabled() {
-        return store != null && Boolean.TRUE.equals(store.get(Settings.TRANSLATION_ENABLED));
+        return translation().enabled;
     }
 
     public boolean soundLayerEnabled() {
@@ -316,19 +360,57 @@ public final class AiSettings {
                 java.util.Collections.singletonList("generateContent"), allowance);
     }
 
-    /**
-     * Persists one probe outcome for the selected provider scope.
-     *
-     * <p>The record is keyed to the endpoint host and model it measured, so a later selection of a
-     * different model reads as unmeasured rather than inheriting another model's budget. Called by
-     * both probe paths: the explicit test and the one-time readiness check.
-     */
-    public void recordProbeOutcome(AiModelProbe.Result result) {
-        if (store == null || result == null) return;
+    /** One immutable settings probe, including the key selected before its worker starts. */
+    public static final class ProbeSnapshot {
+        public final AiProvider provider;
+        public final AiProviderConfig config;
+        final String identity;
+        final String endpoint;
+        final String model;
+        final Settings.Setting<String> probeSetting;
+
+        private ProbeSnapshot(AiProvider provider, AiProviderConfig config, String identity,
+                              String endpoint, Settings.Setting<String> probeSetting) {
+            this.provider = provider;
+            this.config = config;
+            this.identity = identity;
+            this.endpoint = endpoint;
+            this.model = config.model.name;
+            this.probeSetting = probeSetting;
+        }
+    }
+
+    /** Capture on the settings thread, before another edit can change the request identity. */
+    public ProbeSnapshot snapshotProbe() {
+        return snapshotProbe(AiTransports.live());
+    }
+
+    ProbeSnapshot snapshotProbe(AiGeminiProvider.Transport transport) {
+        if (!isEnabled()) return null;
+        String choice = providerChoice();
+        String endpoint = endpoint();
+        boolean openAiWire = usesOpenAiWire();
+        AiProviderConfig config = providerConfig(LayerKind.MEANING, "en");
+        if (config == null || (openAiWire && endpoint.isEmpty())) return null;
+        final String secret = credentials == null ? ""
+                : credentials.load(credentialScopeFor(choice));
+        if (secret.isEmpty()) return null;
+        AiGeminiProvider.CredentialSource source = () -> secret;
+        AiProvider provider = openAiWire
+                ? new AiOpenAiProvider(endpoint, source, transport)
+                : new AiGeminiProvider(source, transport);
+        return new ProbeSnapshot(provider, config,
+                choice + '\n' + endpoint + '\n' + config.model.name, endpoint, probeSetting());
+    }
+
+    /** Persist only the accepted attempt's endpoint, model, and provider scope. */
+    void recordProbeOutcome(ProbeSnapshot snapshot, AiModelProbe.Result result) {
+        if (store == null || snapshot == null || result == null) return;
         Integer tokens = result.trace == null || result.trace.usage.output == null
                 ? null : result.trace.usage.output;
-        store.put(probeSetting(), AiProbeMeasurement.encode(AiEndpoint.hostOf(endpoint()),
-                modelName(), tokens, result.ok ? "" : result.failure));
+        store.put(snapshot.probeSetting, AiProbeMeasurement.encode(
+                AiEndpoint.hostOf(snapshot.endpoint), snapshot.model, tokens,
+                result.ok ? "" : result.failure));
     }
 
     /** The stored probe record for the current identity, or null when none matches. */
@@ -345,11 +427,11 @@ public final class AiSettings {
     }
 
     private Settings.Setting<String> probeSetting() {
-        switch (providerChoice()) {
-            case PROVIDER_OPENAI: return Settings.AI_PROBE_OPENAI;
-            case PROVIDER_OPENROUTER: return Settings.AI_PROBE_OPENROUTER;
-            case PROVIDER_DEEPSEEK: return Settings.AI_PROBE_DEEPSEEK;
-            case PROVIDER_CUSTOM: return Settings.AI_PROBE_CUSTOM;
+        switch (providerChoiceValue()) {
+            case OPENAI: return Settings.AI_PROBE_OPENAI;
+            case OPENROUTER: return Settings.AI_PROBE_OPENROUTER;
+            case DEEPSEEK: return Settings.AI_PROBE_DEEPSEEK;
+            case CUSTOM: return Settings.AI_PROBE_CUSTOM;
             default: return Settings.AI_PROBE_GEMINI;
         }
     }
@@ -368,12 +450,50 @@ public final class AiSettings {
                 : new AiGeminiProvider(source);
     }
 
+    /** Model discovery needs a key and endpoint, but does not need a model selected yet. */
+    public static final class DiscoverySnapshot {
+        public final AiProvider provider;
+        public final String providerChoice;
+        private final String endpoint;
+        private final String credentialDigest;
+
+        private DiscoverySnapshot(AiProvider provider, String choice, String endpoint, String secret) {
+            this.provider = provider;
+            this.providerChoice = choice;
+            this.endpoint = endpoint;
+            this.credentialDigest = com.spotifyplusplus.lyrics.session.Digests.sha256(secret);
+        }
+
+        public boolean matches(AiSettings settings) {
+            return settings != null && providerChoice.equals(settings.providerChoice())
+                    && endpoint.equals(settings.endpoint()) && settings.credentials != null
+                    && credentialDigest.equals(com.spotifyplusplus.lyrics.session.Digests.sha256(
+                            settings.credentials.load(credentialScopeFor(providerChoice))));
+        }
+    }
+
+    public DiscoverySnapshot snapshotDiscovery() {
+        return snapshotDiscovery(AiTransports.live());
+    }
+
+    DiscoverySnapshot snapshotDiscovery(AiGeminiProvider.Transport transport) {
+        String choice = providerChoice();
+        String endpoint = endpoint();
+        boolean openAiWire = usesOpenAiWire();
+        String secret = credentials == null ? "" : credentials.load(credentialScopeFor(choice));
+        if (secret.isEmpty() || openAiWire && endpoint.isEmpty()) return null;
+        AiGeminiProvider.CredentialSource key = () -> secret;
+        AiProvider captured = openAiWire ? new AiOpenAiProvider(endpoint, key, transport)
+                : new AiGeminiProvider(key, transport);
+        return new DiscoverySnapshot(captured, choice, endpoint, secret);
+    }
+
     private Settings.Setting<String> modelSetting() {
-        switch (providerChoice()) {
-            case PROVIDER_OPENAI: return Settings.AI_MODEL_OPENAI;
-            case PROVIDER_OPENROUTER: return Settings.AI_MODEL_OPENROUTER;
-            case PROVIDER_DEEPSEEK: return Settings.AI_MODEL_DEEPSEEK;
-            case PROVIDER_CUSTOM: return Settings.AI_MODEL_CUSTOM;
+        switch (providerChoiceValue()) {
+            case OPENAI: return Settings.AI_MODEL_OPENAI;
+            case OPENROUTER: return Settings.AI_MODEL_OPENROUTER;
+            case DEEPSEEK: return Settings.AI_MODEL_DEEPSEEK;
+            case CUSTOM: return Settings.AI_MODEL_CUSTOM;
             default: return Settings.AI_MODEL_GEMINI;
         }
     }
@@ -386,18 +506,25 @@ public final class AiSettings {
      * result bought under those is not the same result.
      */
     String providerVersionToken() {
-        if (PROVIDER_OPENROUTER.equals(providerChoice())) return OPENROUTER_PROVIDER_VERSION;
-        if (PROVIDER_DEEPSEEK.equals(providerChoice())) {
-            String mode = store == null ? "Low" : store.get(Settings.AI_DEEPSEEK_REASONING);
+        AiProviderChoice choice = providerChoiceValue();
+        if (choice == AiProviderChoice.OPENROUTER) return OPENROUTER_PROVIDER_VERSION;
+        if (choice == AiProviderChoice.DEEPSEEK) {
+            AiDeepSeekReasoning mode = store == null ? AiDeepSeekReasoning.DEFAULT
+                    : store.get(Settings.AI_DEEPSEEK_REASONING, AiDeepSeekReasoning.class);
             return deepSeekProviderVersion(mode);
         }
         return usesOpenAiWire() ? "openai-v1" : "v1beta";
     }
 
-    static String deepSeekProviderVersion(String mode) {
-        if ("Off".equals(mode)) return DEEPSEEK_PROVIDER_VERSION_PREFIX + "disabled";
-        String effort = "Max".equals(mode) ? "max" : "High".equals(mode) ? "high" : "low";
+    static String deepSeekProviderVersion(AiDeepSeekReasoning mode) {
+        if (mode == AiDeepSeekReasoning.OFF) return DEEPSEEK_PROVIDER_VERSION_PREFIX + "disabled";
+        String effort = mode == AiDeepSeekReasoning.MAX ? "max"
+                : mode == AiDeepSeekReasoning.HIGH ? "high" : "low";
         return DEEPSEEK_PROVIDER_VERSION_PREFIX + "enabled+reasoning=" + effort;
+    }
+
+    static String deepSeekProviderVersion(String mode) {
+        return deepSeekProviderVersion(StoredValues.fromStored(AiDeepSeekReasoning.class, mode));
     }
 
     /** Per-call configuration for {@code layer}, or null when nothing could be requested. */

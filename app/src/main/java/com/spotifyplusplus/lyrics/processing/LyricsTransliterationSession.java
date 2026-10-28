@@ -4,8 +4,8 @@ import com.spotifyplusplus.lyrics.language.KoreanDisplayMode;
 import com.spotifyplusplus.lyrics.language.SpicyRomanizer;
 
 import com.spotifyplusplus.SpotifyPlusConfig;
+import com.spotifyplusplus.lyrics.LyricsDisplayMode;
 import com.spotifyplusplus.lyrics.LyricsRenderConfig;
-import com.spotifyplusplus.lyrics.LyricsShellSettings;
 
 /** Runtime transliteration toggle state, including per-document JP/CN cycle modes. */
 public final class LyricsTransliterationSession {
@@ -173,7 +173,7 @@ public final class LyricsTransliterationSession {
     private void cycleChinese() {
         if ("cycle".equals(chineseModeConfig)) {
             CycleStep step = advanceCycle(showRomanization,
-                    LyricsShellSettings.normalizeChineseMode(chineseMode), CHINESE_CYCLE);
+                    LyricsDisplayMode.normalizeChineseMode(chineseMode), CHINESE_CYCLE);
             showRomanization = step.visible;
             chineseMode = step.mode;
         } else {
