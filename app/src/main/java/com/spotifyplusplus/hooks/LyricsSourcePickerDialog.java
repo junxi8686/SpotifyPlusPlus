@@ -45,7 +45,9 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
     /** How long to wait for the store to commit before reading the rows again. */
     /** How long to wait for the opening load to name the track before starting the walk. */
     private static final long AUTO_CHECK_POLL_MS = 150L;
-    private static final int AUTO_CHECK_ATTEMPTS = 20;
+    // 15 s, not 3 s: the walk is the only tap-free check of every source, and the catalog
+    // state can arrive well after the dialog opens.
+    private static final int AUTO_CHECK_ATTEMPTS = 100;
 
     /** Row re-read interval while checks are landing, how long to keep it up, and its state. */
     private static final long ROW_TICK_MS = 500L;
@@ -327,7 +329,16 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
      * uri to arrive, re-reading the rows while waiting so the stored ones are on screen first.
      */
     private void autoCheckWhenReady(int attemptsLeft) {
-        if (closed || attemptsLeft <= 0) return;
+        if (closed) return;
+        if (attemptsLeft <= 0) {
+            // Never abandon the opening walk silently: it is the only thing that checks every
+            // source without a tap, so a tracker that ran out of attempts used to leave all six
+            // rows on "tap to check" with nothing in the log to tell that from never checking.
+            XpLog.log(TAG + " picker auto check abandoned uri=" + host.catalogTrackUri()
+                    + " stateUri=" + (state == null ? "" : state.trackUri)
+                    + " rows=" + (state == null || state.rows == null ? 0 : state.rows.size()));
+            return;
+        }
         try {
             String uri = host.catalogTrackUri();
             boolean known = uri != null && !uri.isEmpty() && uri.equals(state.trackUri);

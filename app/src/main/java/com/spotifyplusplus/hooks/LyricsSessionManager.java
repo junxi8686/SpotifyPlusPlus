@@ -1037,16 +1037,41 @@ final class LyricsSessionManager {
                               LyricsHost.CatalogActionCallback callback) {
         SpotifyTrack current = track;
         String uri = policy.trackUri();
-        int generation = policy.generation();
-        if (current == null || uri.isEmpty() || source == null) {
+        if ((current == null || uri.isEmpty()) && source != null) {
+            // The picker is opened from a surface that may still be rendering a document this
+            // session delivered earlier, while the session's adopted track is empty: playback
+            // metadata is briefly unavailable and the poll clears it (clearCurrent). The surface
+            // asks about what is playing now, so re-adopt the live track rather than refusing
+            // every source with "No current track or source" - which made every row revert to
+            // "tap to check" and left checked-and-failed indistinguishable from never checked.
+            SpotifyTrack live = null;
+            try {
+                live = hook.getCurrentTrackSafely();
+            } catch (Throwable ignored) {
+                // Spotify player internals are version-fragile; fall through to the refusal.
+            }
+            if (live != null && live.uri != null && !live.uri.isEmpty()) {
+                adoptTrack(live);
+                current = track;
+                uri = policy.trackUri();
+            }
+        }
+        // Read after re-adoption: a generation taken before it would make acceptProviderResult
+        // reject the result as stale and the check would silently do nothing. The final copies
+        // exist because the result callback is an inner class and the re-adoption above is
+        // conditional - the captured values must be the ones this call actually asked about.
+        final SpotifyTrack requestedTrack = current;
+        final String requestedUri = uri;
+        final int generation = policy.generation();
+        if (requestedTrack == null || requestedUri.isEmpty() || source == null) {
             completeCatalogAction(callback, false, "No current track or source");
             return;
         }
         try {
-            fetchCoordinator.fetchCatalogSource(context, current, generation, source,
+            fetchCoordinator.fetchCatalogSource(context, requestedTrack, generation, source,
                     new NativeSpicyLyricsHook.LyricsResultCallback() {
                         @Override public void onSuccess(LyricsDocument result) {
-                            acceptProviderResult(current, uri, generation, result, callback);
+                            acceptProviderResult(requestedTrack, requestedUri, generation, result, callback);
                         }
 
                         @Override public void onError(String error) {
