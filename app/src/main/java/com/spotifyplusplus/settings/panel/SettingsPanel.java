@@ -441,7 +441,10 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
                 rows.switchRow(content, (Settings.BooleanSetting) setting);
                 return;
             case STEPPER:
-                rows.stepperRow(content, (Settings.IntegerSetting) setting);
+                rows.stepperRow(content, entry);
+                return;
+            case SLIDER:
+                rows.sliderRow(content, entry);
                 return;
             case CHOICE:
                 renderChoice(content, (Settings.StringSetting) setting);
@@ -634,7 +637,10 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
             ControlSpec entry = byKey.get(key);
             if (entry == null) continue;
             View row = findRowIn(card, key);
-            if (row == null || entry.kind == ControlSpec.Kind.COMPOSITE) {
+            // Sliders carry their own thumb/track state; rebuilding one fresh keeps the drawn
+            // position and the stored value in step without a bespoke patch path.
+            if (row == null || entry.kind == ControlSpec.Kind.COMPOSITE
+                    || entry.kind == ControlSpec.Kind.SLIDER) {
                 if (row != null) card.removeView(row);
                 renderSetting(card, entry); // appends fresh; repositioned below
                 row = card.getChildAt(card.getChildCount() - 1);

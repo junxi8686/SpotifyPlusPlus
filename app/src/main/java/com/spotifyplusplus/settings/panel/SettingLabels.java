@@ -64,6 +64,16 @@ public final class SettingLabels {
         return formatOffset(value);
     }
 
+    /**
+     * A stepper/slider label with the unit its registry spec declares — the translation size's
+     * "62%" comes from here. An empty suffix keeps the setting's own historical formatting, so
+     * rows registered before the unit vocabulary are unchanged (the sync offset stays a duration).
+     */
+    public static String formatStepper(Settings.IntegerSetting setting, int value, String unitSuffix) {
+        if (unitSuffix != null && !unitSuffix.isEmpty()) return value + unitSuffix;
+        return formatStepper(setting, value);
+    }
+
     public static String formatOffset(int offsetMs) {
         if (offsetMs == 0) return "0.0s";
         return String.format(java.util.Locale.US, "%+.1fs", offsetMs / 1000f);

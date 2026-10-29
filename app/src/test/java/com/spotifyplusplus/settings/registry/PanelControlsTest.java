@@ -28,6 +28,9 @@ public class PanelControlsTest {
     public void kindsMatchRendererDispatch() {
         assertEquals(ControlSpec.Kind.TOGGLE, kindOf(Settings.TRANSLATION_ENABLED));
         assertEquals(ControlSpec.Kind.STEPPER, kindOf(Settings.SYNC_OFFSET_MS));
+        // The translation size is the panel's drag slider: stepping it made every 2-point move
+        // read the same on the old duration formatter.
+        assertEquals(ControlSpec.Kind.SLIDER, kindOf(Settings.TRANSLATION_TEXT_SIZE));
         assertEquals(ControlSpec.Kind.CHOICE, kindOf(Settings.TAP_SEEK_MODE));
         assertEquals(ControlSpec.Kind.CHOICE, kindOf(Settings.UI_LANGUAGE));
     }

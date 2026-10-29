@@ -162,6 +162,61 @@ public class LyricsFrameRendererRouteTest {
         assertFalse(LyricsFrameRenderer.isCulledOffscreen(9999, 4, 0, Integer.MAX_VALUE));
     }
 
+    /**
+     * A word-timed row under Apple style owns its motion per word, so the shared container must be
+     * kept at 1: scaling it by the line target is what made the whole row grow as one unit.
+     * Rows without real word timings keep today's container bounce - that is the regression guard.
+     */
+    @Test
+    public void appleWordTimedRowsKeepTheContainerUnscaled() {
+        AppliedLine realWords = new AppliedLine();
+        realWords.words.add(segment("a", 1000, 1500));
+        assertEquals(1f, LyricsFrameRenderer.wordBlockContainerScaleTarget(realWords, true, 1.03f),
+                0.0001f);
+
+        AppliedLine synthetic = new AppliedLine();
+        synthetic.syntheticWords = true;
+        synthetic.words.add(segment("a", 1000, 1500));
+        assertEquals(1.03f, LyricsFrameRenderer.wordBlockContainerScaleTarget(synthetic, true, 1.03f),
+                0.0001f);
+
+        AppliedLine lineOnly = new AppliedLine();
+        assertEquals(1.03f, LyricsFrameRenderer.wordBlockContainerScaleTarget(lineOnly, true, 1.03f),
+                0.0001f);
+
+        // Without a line bounce the container stays at 1 for every row.
+        assertEquals(1f, LyricsFrameRenderer.wordBlockContainerScaleTarget(realWords, false, 1.03f),
+                0.0001f);
+        assertEquals(1f, LyricsFrameRenderer.wordBlockContainerScaleTarget(lineOnly, false, 1.03f),
+                0.0001f);
+    }
+
+    /**
+     * The synthetic sentence sweep must not overwrite the per-word fill on a word-timed row; that
+     * is what made the white fill lag the sung word. Line documents and synthetic spans keep it.
+     */
+    @Test
+    public void sentenceFillDoesNotOverwriteWordTimedRows() {
+        AppliedLine realWords = new AppliedLine();
+        realWords.words.add(segment("a", 1000, 1500));
+        assertFalse(LyricsFrameRenderer.sentenceFillOwnsRow(realWords));
+
+        AppliedLine synthetic = new AppliedLine();
+        synthetic.syntheticWords = true;
+        synthetic.words.add(segment("a", 1000, 1500));
+        assertTrue(LyricsFrameRenderer.sentenceFillOwnsRow(synthetic));
+
+        // A projected Auto page row slices one sentence across pages: real word spans, but the
+        // projector's smooth sweep must keep owning the fill.
+        AppliedLine projectedPage = new AppliedLine();
+        projectedPage.words.add(segment("a", 1000, 1500));
+        projectedPage.smoothSentenceGradient = true;
+        assertTrue(LyricsFrameRenderer.sentenceFillOwnsRow(projectedPage));
+
+        assertTrue(LyricsFrameRenderer.sentenceFillOwnsRow(new AppliedLine()));
+        assertTrue(LyricsFrameRenderer.sentenceFillOwnsRow(null));
+    }
+
     private static SyllableSegment segment(String text, long startMs, long endMs) {
         SyllableSegment seg = new SyllableSegment();
         seg.text = text;

@@ -171,15 +171,6 @@ public final class LyricsFrameRenderer {
                     line, positionMs, config.spotlight, config.lineGradientEnabled,
                     config.appleDimPassed, config.appleStyle);
             int targetClass = lineState.active ? 1 : lineState.sung ? 2 : 0;
-            if (config.appleStyle) {
-                // Temporary diagnostic for the owner's device log: tag 'appleMotion'. If frames
-                // never appear here while rows animate, the frame loop is not being driven; if they
-                // appear with appleLift=false the gate/value is wrong. Silent unless dbg is enabled.
-                com.spotifyplusplus.hooks.NativeSpicyLyricsHook.dbg("appleMotion", "frame line=" + i
-                        + " active=" + lineState.active + " sung=" + lineState.sung
-                        + " appleLift=" + config.appleLift
-                        + " words=" + (line.words == null ? 0 : line.words.size()));
-            }
             // Refresh blur on hold transitions so rows go sharp while held and restore on
             // release; steady hold needs no refresh (values already settled). While held,
             // active-line advances must not restore blur either: resume happens only on
@@ -250,7 +241,13 @@ public final class LyricsFrameRenderer {
                 View wordContainer = LyricsSyllableViewState.parentView(line.words.get(0));
                 if (wordContainer != null) {
                     boolean bounce = !appleLineDocument && lineLevelBounceEnabled(config, line);
-                    float lineScaleTarget = bounce ? lineState.scaleTarget : 1f;
+                    // Real word timings keep the container at 1: the per-word animator and the
+                    // flex's held-word swell own the motion, so a line-level scale would make the
+                    // whole row grow as one block. Still stepped and applied (not skipped) so a
+                    // spring left grown by another style drains instead of staying stuck; once it
+                    // settles at 1 the batcher's change check turns the apply into a no-op.
+                    float lineScaleTarget = wordBlockContainerScaleTarget(
+                            line, bounce, lineState.scaleTarget);
                     GlowFlexbox flex = wordContainer instanceof GlowFlexbox ? (GlowFlexbox) wordContainer : null;
                     boolean perVisualLine = flex != null && flex.visualLineCount() > 1;
                     if (perVisualLine) {
@@ -394,7 +391,8 @@ public final class LyricsFrameRenderer {
                     }
                 }
             }
-            if (!line.dotLine && config.lineGradientEnabled && !config.spotlight
+            if (!line.dotLine && sentenceFillOwnsRow(line)
+                    && config.lineGradientEnabled && !config.spotlight
                     && LyricsLineViewState.continuousSentenceFill(line)) {
                 LyricsLineViewState.applySentenceGradient(line,
                         SentenceGradientPlanner.gradientPosition(line, positionMs), lineGlow,
@@ -413,8 +411,42 @@ public final class LyricsFrameRenderer {
                 && !(config.lineSyncFillSentence() && config.lineGradientEnabled && !config.spotlight);
     }
 
-    private boolean hasRealTimedWords(AppliedLine line) {
+    static boolean hasRealTimedWords(AppliedLine line) {
         return line != null && !line.syntheticWords && line.words != null && !line.words.isEmpty();
+    }
+
+    /**
+     * The line-scale target for a word-block row's container (pure, unit-tested).
+     *
+     * <p>A row with real word timings owns its motion per word: Apple lift and the held-word swell
+     * are stepped by the syllable animator and {@code GlowFlexbox#stepWordEmphasis}, so a line-level
+     * scale on the shared container on top of that grows the whole row as one unit instead of
+     * lifting the sung word (the owner saw 「整句一起变大」). Such rows keep the container at 1.
+     * Rows whose word spans are synthetic, and documents with no word views at all, have no
+     * per-word motion to rely on, so they keep the container scale exactly as before.
+     */
+    static float wordBlockContainerScaleTarget(AppliedLine line, boolean bounce,
+                                               float bounceScaleTarget) {
+        if (hasRealTimedWords(line) || !bounce) return 1f;
+        return bounceScaleTarget;
+    }
+
+    /**
+     * Whether the synthetic sentence fill owns this row's whole-row sweep (pure, unit-tested).
+     *
+     * <p>A row with real word timings is filled word by word by {@code animateSyllables}; the
+     * synthetic sentence sweep paints one gradient across every word and repeats at the sentence
+     * cursor, so applying it afterwards overwrote the word fill and made it lag the sung word (the
+     * owner saw 「字变白推进太慢」). Line documents and synthetic word spans have no per-word fill to
+     * protect, so they keep the sweep.
+     */
+    static boolean sentenceFillOwnsRow(AppliedLine line) {
+        // A row that opted into the smooth sentence wave keeps the sweep even when its words carry
+        // real timings: the Android Auto projector deliberately slices one sentence across pages
+        // and links every slice to the source gradient, so cutting the sweep there would freeze the
+        // projected page. Only the projector sets this flag.
+        if (line != null && line.smoothSentenceGradient) return true;
+        return !hasRealTimedWords(line);
     }
 
     private boolean wordBounceEnabled(LyricsRenderConfig config, AppliedLine line) {

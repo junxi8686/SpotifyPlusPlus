@@ -43,6 +43,19 @@ public class SettingLabelsTest {
     }
 
     @Test
+    public void stepperUnitsComeFromTheRegistrySpec() {
+        // The unit a registry spec declares is what the row shows: 62 percent, not a duration.
+        // Without it the translation size fell through to the offset formatter, where every
+        // 2-point step rounded to the same "+0.1s" and the row looked dead.
+        assertEquals("62%", SettingLabels.formatStepper(Settings.TRANSLATION_TEXT_SIZE, 62, "%"));
+        assertEquals("40%", SettingLabels.formatStepper(Settings.TRANSLATION_TEXT_SIZE, 40, "%"));
+        assertEquals("100%", SettingLabels.formatStepper(Settings.TRANSLATION_TEXT_SIZE, 100, "%"));
+        // No declared unit keeps the historical formatting: the sync offset is still a duration.
+        assertEquals("+1.5s", SettingLabels.formatStepper(Settings.SYNC_OFFSET_MS, 1500, ""));
+        assertEquals("-2.0s", SettingLabels.formatStepper(Settings.SYNC_OFFSET_MS, -2000, null));
+    }
+
+    @Test
     public void interludePreviewGlyphs() {
         assertEquals("• • •", SettingLabels.optionPreview("lyric_interlude_icon", "dots"));
         assertEquals("♪", SettingLabels.optionPreview("lyric_interlude_icon", "note"));

@@ -2,6 +2,7 @@ package com.spotifyplusplus.settings.panel;
 
 import android.view.View;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
@@ -10,6 +11,7 @@ import com.spotifyplusplus.Settings;
 import com.spotifyplusplus.SettingsStore;
 import com.spotifyplusplus.settings.SettingsWriter;
 import com.spotifyplusplus.settings.registry.ControlSpec;
+import com.spotifyplusplus.settings.registry.SliderSpec;
 import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.spotifyplusplus.ui.ActionIconDrawable;
 import com.spotifyplusplus.ui.ActionIconDrawable.Kind;
@@ -144,7 +146,9 @@ public final class SettingRowFactory {
         row.addView(shape, lp);
     }
 
-    public void stepperRow(LinearLayout content, final Settings.IntegerSetting setting) {
+    public void stepperRow(LinearLayout content, ControlSpec entry) {
+        final Settings.IntegerSetting setting = (Settings.IntegerSetting) entry.setting;
+        final String unit = unitSuffix(entry);
         PanelStyle style = host.style();
         LinearLayout row = style.newRow(content);
         row.setTag(PanelTags.row(setting));
@@ -156,7 +160,7 @@ public final class SettingRowFactory {
 
         View minus = stepButton(false, setting);
         TextView value = style.text(
-                SettingLabels.formatStepper(setting, host.store().get(setting)),
+                SettingLabels.formatStepper(setting, host.store().get(setting), unit),
                 15, PanelStyle.COL_ACCENT, true);
         value.setTag(PanelTags.ROW_VALUE);
         value.setGravity(android.view.Gravity.CENTER);
@@ -171,9 +175,200 @@ public final class SettingRowFactory {
         row.addView(controls);
 
         final int[] pending = new int[]{host.store().get(setting)};
-        final Runnable commit = () -> host.writer().put(setting, pending[0]);
-        attachStepperTouch(minus, setting, value, -setting.stepValue, pending, commit);
-        attachStepperTouch(plus, setting, value, setting.stepValue, pending, commit);
+        final Runnable commit = () -> {
+            host.writer().put(setting, pending[0]);
+            // Same notification the switch and selector rows send: the panel decides whether the
+            // change needs a rebuild, and the shell's preference listener sees one write shape.
+            host.onSettingChanged(setting);
+        };
+        attachStepperTouch(minus, setting, unit, value, -setting.stepValue, pending, commit);
+        attachStepperTouch(plus, setting, unit, value, setting.stepValue, pending, commit);
+    }
+
+    /**
+     * The panel's drag slider, drawn with the same track/thumb/tick vocabulary as the layout
+     * editor's sliders (the owner asked for the line-spacing control, not a stepper).
+     *
+     * <p>Each movement is a live write through the same {@link SettingsWriter} the other rows use,
+     * followed by {@code onSettingChanged} so the panel and the shell see it exactly as they see a
+     * toggle or a selector pick. The value label carries the row's registry unit ("62%"), so the
+     * percent setting never renders as a duration.
+     */
+    public void sliderRow(LinearLayout content, ControlSpec entry) {
+        final Settings.IntegerSetting setting = (Settings.IntegerSetting) entry.setting;
+        final SliderSpec slider = entry.slider != null
+                ? entry.slider : SliderSpec.from(setting, null);
+        final int min = slider.min;
+        final int max = slider.max;
+        final int step = Math.max(1, slider.step);
+        final String unit = unitSuffix(entry);
+        final Integer marker = slider.defaultMarker;
+        final boolean unavailable = host.unavailable(setting);
+        final int initial = snapToStep(host.store().get(setting), min, max, step);
+
+        PanelStyle style = host.style();
+        LinearLayout row = style.newRow(content);
+        row.setTag(PanelTags.row(setting));
+        row.setEnabled(!unavailable);
+        row.setAlpha(unavailable ? 0.48f : 1f);
+        style.titleColumn(row, host.strings().setting(setting), null);
+        style.applyRowLead(row, setting.key);
+
+        final TextView valueLabel = style.text(
+                SettingLabels.formatStepper(setting, initial, unit),
+                15, PanelStyle.COL_ACCENT, true);
+        valueLabel.setTag(PanelTags.ROW_VALUE);
+        valueLabel.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        row.addView(valueLabel, new LinearLayout.LayoutParams(style.dp(60),
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        final int thumbSize = style.dp(22);
+        FrameLayout track = new FrameLayout(style.context());
+        track.setFocusable(true);
+        track.setContentDescription(valueLabel.getText());
+        android.graphics.drawable.GradientDrawable trackBg =
+                new android.graphics.drawable.GradientDrawable();
+        trackBg.setColor(0x24FFFFFF);
+        trackBg.setCornerRadius(style.dp(3));
+        track.setBackground(trackBg);
+
+        View tick = null;
+        if (marker != null) {
+            tick = new View(style.context());
+            tick.setBackgroundColor(0x80FFFFFF);
+            tick.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            track.addView(tick, new FrameLayout.LayoutParams(style.dp(2), style.dp(10),
+                    android.view.Gravity.CENTER_VERTICAL));
+        }
+        final View tickView = tick;
+
+        final View thumb = new View(style.context());
+        thumb.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        android.graphics.drawable.GradientDrawable thumbBg =
+                new android.graphics.drawable.GradientDrawable();
+        thumbBg.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        thumbBg.setColor(PanelStyle.COL_ACCENT);
+        thumb.setBackground(thumbBg);
+        final FrameLayout.LayoutParams thumbLp = new FrameLayout.LayoutParams(
+                thumbSize, thumbSize,
+                android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.START);
+        track.addView(thumb, thumbLp);
+        LinearLayout.LayoutParams trackLp = new LinearLayout.LayoutParams(0, thumbSize, 1f);
+        trackLp.leftMargin = style.dp(10);
+        row.addView(track, trackLp);
+
+        final int[] value = {initial};
+        final Runnable[] paint = new Runnable[1];
+        paint[0] = () -> {
+            int trackW = track.getWidth() - thumbSize;
+            if (trackW <= 0) {
+                track.post(() -> paint[0].run());
+                return;
+            }
+            float fraction = (value[0] - min) / (float) Math.max(1, max - min);
+            thumbLp.leftMargin = Math.round(trackW * clamp01(fraction));
+            thumb.setLayoutParams(thumbLp);
+            if (tickView != null) {
+                float detent = (marker - min) / (float) Math.max(1, max - min);
+                FrameLayout.LayoutParams tickLp =
+                        (FrameLayout.LayoutParams) tickView.getLayoutParams();
+                tickLp.leftMargin = thumbSize / 2 - style.dp(1)
+                        + Math.round(trackW * clamp01(detent));
+                tickView.setLayoutParams(tickLp);
+            }
+        };
+        track.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> paint[0].run());
+        track.setOnTouchListener((v, event) -> {
+            int action = event.getActionMasked();
+            // The card scrolls: without this a slightly vertical drag hands the gesture to the
+            // scroll view instead of finishing the slide here (same rule as the editor).
+            if (action == android.view.MotionEvent.ACTION_DOWN) {
+                if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(true);
+            } else if (action == android.view.MotionEvent.ACTION_UP
+                    || action == android.view.MotionEvent.ACTION_CANCEL) {
+                if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(false);
+            }
+            if (action != android.view.MotionEvent.ACTION_DOWN
+                    && action != android.view.MotionEvent.ACTION_MOVE) return false;
+            if (unavailable) return false;
+            int trackW = track.getWidth() - thumbSize;
+            if (trackW <= 0) return false;
+            float fraction = clamp01((event.getX() - thumbSize / 2f) / trackW);
+            int next = snapToStep(Math.round(min + fraction * (max - min)), min, max, step);
+            if (next != value[0]) {
+                value[0] = next;
+                valueLabel.setText(SettingLabels.formatStepper(setting, next, unit));
+                track.setContentDescription(valueLabel.getText());
+                host.writer().put(setting, next);
+                host.onSettingChanged(setting);
+                paint[0].run();
+            }
+            return true;
+        });
+        // Reads as a slider to TalkBack, and the scroll actions step by one declared step.
+        track.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+            @Override public void onInitializeAccessibilityNodeInfo(View hostView,
+                    android.view.accessibility.AccessibilityNodeInfo info) {
+                super.onInitializeAccessibilityNodeInfo(hostView, info);
+                info.setClassName(android.widget.SeekBar.class.getName());
+                info.setRangeInfo(android.view.accessibility.AccessibilityNodeInfo.RangeInfo.obtain(
+                        android.view.accessibility.AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_INT,
+                        min, max, value[0]));
+                if (value[0] < max) info.addAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD);
+                if (value[0] > min) info.addAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD);
+            }
+
+            @Override public boolean performAccessibilityAction(View hostView, int action,
+                    android.os.Bundle args) {
+                int direction = action
+                        == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD ? 1
+                        : action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD ? -1 : 0;
+                if (direction == 0) return super.performAccessibilityAction(hostView, action, args);
+                int next = clamp(value[0] + direction * step, min, max);
+                if (next == value[0]) return true;
+                value[0] = next;
+                valueLabel.setText(SettingLabels.formatStepper(setting, next, unit));
+                track.setContentDescription(valueLabel.getText());
+                host.writer().put(setting, next);
+                host.onSettingChanged(setting);
+                paint[0].run();
+                hostView.sendAccessibilityEvent(
+                        android.view.accessibility.AccessibilityEvent.TYPE_VIEW_SELECTED);
+                return true;
+            }
+        });
+    }
+
+    /**
+     * The unit suffix a row's registry spec names. Empty when the row declares none, which keeps
+     * the settings that predate the unit vocabulary on their own historical formatting.
+     */
+    private String unitSuffix(ControlSpec entry) {
+        String unitKey = entry.slider == null ? null : entry.slider.unitKey;
+        if (unitKey == null || unitKey.isEmpty()) return "";
+        String resolved = host.strings().get(unitKey, "");
+        if (!resolved.isEmpty()) return resolved;
+        // Registry vocabulary fallbacks, same as EditorRows#unit uses for the editor sliders.
+        if ("settings_unit_percent".equals(unitKey)) return "%";
+        if ("settings_unit_dp".equals(unitKey)) return "dp";
+        return "";
+    }
+
+    private static int snapToStep(int raw, int min, int max, int step) {
+        int clamped = clamp(raw, min, max);
+        if (step <= 1) return clamped;
+        int snapped = min + Math.round((clamped - min) / (float) step) * step;
+        return clamp(snapped, min, max);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static float clamp01(float value) {
+        return Math.max(0f, Math.min(1f, value));
     }
 
     public void textFieldRow(LinearLayout content, final Settings.StringSetting setting) {
@@ -249,6 +444,9 @@ public final class SettingRowFactory {
 
     /** Patches a reused ordinary row: value, availability copy, and interactive state. */
     public void patchRow(View row, ControlSpec entry) {
+        // Sliders are re-rendered fresh by the keyed sync (they own their thumb/track state), so a
+        // patch would only fight the drawn position.
+        if (entry.kind == ControlSpec.Kind.SLIDER) return;
         Settings.Setting<?> setting = entry.setting;
         boolean unavailable = host.unavailable(setting);
         ControlSpec.Kind kind = entry.kind;
@@ -288,7 +486,8 @@ public final class SettingRowFactory {
             if (value instanceof TextView) {
                 value.setText(SettingLabels.formatStepper(
                         (Settings.IntegerSetting) setting,
-                        host.store().get((Settings.IntegerSetting) setting)));
+                        host.store().get((Settings.IntegerSetting) setting),
+                        unitSuffix(entry)));
             }
         }
     }
@@ -341,27 +540,27 @@ public final class SettingRowFactory {
      * Steppers track the pending value locally and only commit ~250ms after the last tick:
      * expensive consumers would otherwise lag the press-and-hold ramp.
      */
-    private void adjustStepper(Settings.IntegerSetting setting, TextView valueView, int delta,
-                               int[] pending, Runnable commit) {
+    private void adjustStepper(Settings.IntegerSetting setting, String unit, TextView valueView,
+                               int delta, int[] pending, Runnable commit) {
         int next = Math.max(setting.minValue, Math.min(setting.maxValue, pending[0] + delta));
         pending[0] = next;
-        valueView.setText(SettingLabels.formatStepper(setting, next));
+        valueView.setText(SettingLabels.formatStepper(setting, next, unit));
         valueView.removeCallbacks(commit);
         valueView.postDelayed(commit, 250L);
     }
 
     private void attachStepperTouch(View button, final Settings.IntegerSetting setting,
-                                    final TextView valueView, final int delta,
+                                    final String unit, final TextView valueView, final int delta,
                                     final int[] pending, final Runnable commit) {
         final int[] repeatCount = new int[]{0};
         final Runnable[] repeat = new Runnable[1];
         repeat[0] = () -> {
-            adjustStepper(setting, valueView, delta, pending, commit);
+            adjustStepper(setting, unit, valueView, delta, pending, commit);
             repeatCount[0]++;
             long delayMs = Math.max(45L, 130L - repeatCount[0] * 8L);
             button.postDelayed(repeat[0], delayMs);
         };
-        button.setOnClickListener(v -> adjustStepper(setting, valueView, delta, pending, commit));
+        button.setOnClickListener(v -> adjustStepper(setting, unit, valueView, delta, pending, commit));
         button.setOnTouchListener((v, event) -> {
             switch (event.getActionMasked()) {
                 case android.view.MotionEvent.ACTION_DOWN:
@@ -370,7 +569,7 @@ public final class SettingRowFactory {
                     // drift and cancels the hold, so press-and-hold repeat never ramps.
                     if (v.getParent() != null) v.getParent().requestDisallowInterceptTouchEvent(true);
                     repeatCount[0] = 0;
-                    adjustStepper(setting, valueView, delta, pending, commit);
+                    adjustStepper(setting, unit, valueView, delta, pending, commit);
                     v.removeCallbacks(repeat[0]);
                     v.postDelayed(repeat[0], 360L);
                     return true;

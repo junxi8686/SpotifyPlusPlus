@@ -414,8 +414,10 @@ public final class ControlRegistry {
                 "baidu_key", Visibility.ALWAYS);
         panelChoice(rows, Settings.TRANSLATION_TARGET, TRANSLATION_ON);
         panelChoice(rows, Settings.TRANSLATION_BRIGHTNESS, TRANSLATION_ON);
-        // Size sits with brightness: the two together are "how the translation reads".
-        panelStepper(rows, Settings.TRANSLATION_TEXT_SIZE, TRANSLATION_ON);
+        // Size sits with brightness: the two together are "how the translation reads". It is the
+        // panel's first drag slider - the percentage reads directly and drags like the editor's
+        // line-spacing control instead of stepping through invisible 2-point hops.
+        panelSlider(rows, Settings.TRANSLATION_TEXT_SIZE, "settings_unit_percent", TRANSLATION_ON);
         // AI
         panelToggle(rows, Settings.AI_ENABLED, Visibility.ALWAYS);
         panelChoice(rows, Settings.AI_PROVIDER, AI_ON);
@@ -457,7 +459,19 @@ public final class ControlRegistry {
     /** A panel stepper row; its range is the setting's own. */
     private static void panelStepper(List<ControlSpec> rows, Settings.IntegerSetting setting,
             Visibility visibility) {
-        rows.add(panelSpec(setting, ControlSpec.Kind.STEPPER, visibility, null));
+        panelStepper(rows, setting, null, visibility);
+    }
+
+    /** A panel stepper whose label carries the unit its registry spec names (e.g. a percent). */
+    private static void panelStepper(List<ControlSpec> rows, Settings.IntegerSetting setting,
+            String unitKey, Visibility visibility) {
+        rows.add(panelSpec(setting, ControlSpec.Kind.STEPPER, visibility, null, unitKey));
+    }
+
+    /** A panel drag slider; range, step and unit come from the setting and its spec. */
+    private static void panelSlider(List<ControlSpec> rows, Settings.IntegerSetting setting,
+            String unitKey, Visibility visibility) {
+        rows.add(panelSpec(setting, ControlSpec.Kind.SLIDER, visibility, null, unitKey));
     }
 
     /** A panel row that one hand-built control renders. */
@@ -487,8 +501,14 @@ public final class ControlRegistry {
 
     private static ControlSpec panelSpec(Settings.Setting<?> setting, ControlSpec.Kind kind,
             Visibility visibility, String compositeId) {
-        SliderSpec slider = kind == ControlSpec.Kind.STEPPER
-                ? SliderSpec.from((Settings.IntegerSetting) setting, null) : null;
+        return panelSpec(setting, kind, visibility, compositeId, null);
+    }
+
+    /** @param unitKey the label unit a numeric row shows, from the slider vocabulary */
+    private static ControlSpec panelSpec(Settings.Setting<?> setting, ControlSpec.Kind kind,
+            Visibility visibility, String compositeId, String unitKey) {
+        SliderSpec slider = kind == ControlSpec.Kind.STEPPER || kind == ControlSpec.Kind.SLIDER
+                ? SliderSpec.from((Settings.IntegerSetting) setting, unitKey) : null;
         return new ControlSpec(setting, ControlSpec.Surface.PANEL, null, null, kind,
                 Collections.emptyList(), null, visibility, ControlSpec.Effect.NONE,
                 compositeId, null, slider, null, null, null, null);

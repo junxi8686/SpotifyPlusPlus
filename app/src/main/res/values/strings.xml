@@ -297,6 +297,7 @@
     <string name="settings_panel_close">Close settings panel</string>
     <string name="settings_stepper_decrease">Decrease %1$s</string>
     <string name="settings_stepper_increase">Increase %1$s</string>
+    <string name="settings_unit_percent">%</string>
     <string name="settings_action_clear_translation_cache">Clear translation cache</string>
     <string name="settings_action_clear_reading_cache">Clear transliteration cache</string>
     <string name="settings_action_clear_lyrics_cache">Clear lyrics response cache</string>

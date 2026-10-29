@@ -54,6 +54,7 @@
 | B8 | 「忽略 Spotify 自带歌词」开关 | — | `LyricsSourcePreferences.ignoresSpotifyLyrics`（恒 false） | ❌ 已移除，仅剩孤儿字符串 |
 | B9 | **头部背景模糊 / 歌词不再清晰压住头部** | 设置 → 歌曲信息背景 = **模糊**，全屏歌词下滑一行到头部下方，应在模糊带里变虚 | `hooks/TrackInfoReadoutController.setBackdropTarget`、`lyrics/EdgeBlurRenderer` | ✅ 2026-10-29 修复：调用点漏了，已按上游补上（合并丢失类问题） |
 | B10 | **背景模糊强度可调**（相对上游新增） | 布局编辑器 → 背景分组 →「背景模糊」，50–200%；模糊带高度与模糊半径一起缩放，默认 100% 与上游带宽/半径逐字节一致（可调高） | `Settings.LYRICS_BACKDROP_BLUR`、`lyrics/ElasticScrollView.setBackdropBands(top,bottom,scale)`、`lyrics/EdgeBlurRenderer` | ✅ 新增；1.6.2 默认改回 100% |
+| B11 | **Apple Music 逐字文档：逐词上浮 + 逐词填充**（相对上游修正） | 动效风格 = Apple Music，找一首 Word 级时间轴歌曲：①整句不应整体放大，应逐词上浮/词强调；②白色填色应跟着当前唱词走，不能落后于唱词 | `lyrics/LyricsFrameRenderer.wordBlockContainerScaleTarget`、`lyrics/LyricsFrameRenderer.sentenceFillOwnsRow` | ✅ 2026-10-29 修复；测试钉住：`LyricsFrameRendererRouteTest.appleWordTimedRowsKeepTheContainerUnscaled`、`LyricsFrameRendererRouteTest.sentenceFillDoesNotOverwriteWordTimedRows`；Line 文档/合成词跨度行为不变；车机（Auto）投影页（`smoothSentenceGradient`）保留原有平滑整句扫描 |
 
 ### C. 中文与注音
 
@@ -73,7 +74,7 @@
 | D3 | 只显示来源自带翻译 | 设置 → 翻译后端选第三项 | `settings/values/TranslationBackend` | ✅ |
 | D4 | AI 翻译 + 候选裁决 | 设置 → AI 分组填入密钥后翻译一首冷门歌 | `lyrics/ai/AiLyricCandidateArbiter` 等 | ⚠️ 缺上游「付费结果回放/快照」，可能重复请求 |
 | D5 | 翻译失败提示 | 断网后触发翻译，应有失败提示而非一直"翻译中" | `lyrics/processing/TranslationFailureNotice`、`ui/LyricsErrorText` | ✅ |
-| D6 | **翻译行排版对齐 Apple**（相对上游修改） | 设置 → 翻译分组：译文正体、常规字重、默认主行 62%，「翻译字号」可 40–100% 调整；当前句译文与主行同步提亮 | `Settings.TRANSLATION_TEXT_SIZE`、`lyrics/LyricVisuals.translationTextSizeSp`、`lyrics/LyricsRowViewFactory`、`lyrics/LyricsLineViewState.applyLineLevelGradient` | ✅ 修改；1.6.2 补字号设置与强调 |
+| D6 | **翻译行排版对齐 Apple**（相对上游修改） | 设置 → 翻译分组：译文正体、常规字重、默认主行 62%，「翻译字号」为**拖拽滑块**可 40–100% 调整（百分比直接显示，交互同布局编辑器的「句子间距」）；当前句译文与主行同步提亮 | `Settings.TRANSLATION_TEXT_SIZE`、`lyrics/LyricVisuals.translationTextSizeSp`、`lyrics/LyricsRowViewFactory`、`lyrics/LyricsLineViewState.applyLineLevelGradient`、`settings/panel/SettingRowFactory.sliderRow` | ✅ 修改；1.6.2 补字号设置与强调 |
 
 ### E. 设置面板
 
@@ -155,6 +156,8 @@
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-10-29 | 1.6.3 | 修复 Apple Music 动效下 Word 级时间轴歌词的两处显示错误（用户报「整句一起变大」「字变白推进太慢」）：①逐字行（有真实逐词时间）不再对整行词容器做行级缩放，改为由逐词动画器与 flex 词强调负责逐词上浮；无真实逐词时间的行（Line 文档、合成词跨度）保持原有整行缩放（回归保护）；②整句扫描不再覆盖逐字行的逐词填充——有真实逐词时间的行由逐词填色决定白色推进，Line/合成行仍走整句扫描；③删除设备诊断临时埋点（`motionCfg`、每帧 `appleMotion` 字符串），帧路径恢复零额外分配。新增 B11 与 2 条测试 |
+| 2026-10-29 | 1.6.2 | 修正「翻译字号」控件（用户报：显示为 `+0.1s` 且点 −/+ 像没反应）：根因是面板步进器走了同步偏移的时长格式化器，每 2% 一步的数值四舍五入后都是同一个「+0.1s」，点击其实已写入但看不出变化。改为布局编辑器「句子间距」同款**拖拽滑块**（同一套轨道/圆点/默认刻度绘制，拖动实时写入并通知面板），值直接显示百分比（新增单位键 `settings_unit_percent`）；面板行类型 STEPPER→SLIDER，黄金快照、`PanelControlsTest`、`SettingLabelsTest` 同步钉住 |
 | 2026-10-29 | 1.6.2 | 视觉对比第三轮：①「背景模糊」默认改回 100%（=上游带宽/半径，控制保留）；②背景变暗恢复上游线性曲线（0→1.0、35→0.65、100→黑），撤销上一轮把浅端压暗的方向错误；③翻译默认字号 62% 并新增「翻译字号」（设置→翻译，紧挨翻译亮度）、正体常规字重、当前句译文随主行同步提亮；④确认仿 Apple Music 四项（上浮进场/滑行/Apple lift/已过行淡出 + 两个滑块）设置与渲染链与上游一致 |
 | 2026-10-29 | 1.6.1 | 视觉对比第二轮（用户对照 Apple Music 歌词页）：①布局编辑器 → 背景分组新增「背景模糊」强度（50–200%，默认 150%），模糊带高度与半径一起缩放；②「背景变暗」改曲线——默认更深、最高不再到纯黑；③翻译行改正体、字号 0.7×（上游为斜体 + 次要字号）。新增 B10、D6 两行登记 |
 | 2026-10-29 | 1.6.1 | 删除「Spicy 手动令牌」死开关（设置项、面板行、对话框、存储类、三份资源与备份范围一并移除）；导出/导入补图标（保存 / 还原）；新增「清除本模块的所有内容」 |

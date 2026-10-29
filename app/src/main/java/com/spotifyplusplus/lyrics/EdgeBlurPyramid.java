@@ -17,7 +17,7 @@ import android.graphics.Shader;
 final class EdgeBlurPyramid {
     private static final int LEVELS = 7;
     /** Full radius from the edge to this fraction of the band, then a smoothstep to sharp. */
-    static final float FULL_FRACTION = 0.58f;
+    static final float FULL_FRACTION = 0.42f;
 
     private static final String CODE =
         "uniform shader atlas; uniform float H; uniform float radius;\n"+

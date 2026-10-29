@@ -10,7 +10,7 @@ final class EdgeBlurRenderer {
     interface Content { void draw(Canvas canvas); }
 
     /** Readout text sits over this; the pyramid's coarsest level caps the radius at 48px. */
-    static final float MAX_RADIUS_DP = 14f;
+    static final float MAX_RADIUS_DP = 10f;
 
     private final int width, height;
     private final int[] lengths;
