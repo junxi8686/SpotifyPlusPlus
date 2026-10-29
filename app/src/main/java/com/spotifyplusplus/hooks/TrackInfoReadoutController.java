@@ -986,7 +986,19 @@ final class TrackInfoReadoutController {
         if (bottomGradientView != null) bottomGradientView.setVisibility(edgeScrim);
         if (sideGradientView != null) sideGradientView.setVisibility(scrim);
         if (backdropTarget != null) {
-            backdropTarget.setBackdropBands(blur ? topGradientView : null, blur ? bottomGradientView : null);
+            backdropTarget.setBackdropBands(blur ? topGradientView : null,
+                    blur ? bottomGradientView : null, blur ? backdropBlurScale() : 1f);
+        }
+    }
+
+    /** The Background blur row: the band's reach and the blur radius scale together. */
+    private float backdropBlurScale() {
+        try {
+            int percent = config == null ? Settings.LYRICS_BACKDROP_BLUR.defaultValue
+                    : config.get(Settings.LYRICS_BACKDROP_BLUR);
+            return Math.max(0.5f, Math.min(2f, percent / 100f));
+        } catch (Throwable ignored) {
+            return 1f;
         }
     }
 

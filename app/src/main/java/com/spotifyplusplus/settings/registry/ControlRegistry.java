@@ -277,7 +277,10 @@ public final class ControlRegistry {
                 "background_random_effects", context -> effectAvailable.test(context)
                         && context.settings.get(Settings.BACKGROUND_EFFECT, BackgroundEffect.class) == BackgroundEffect.RANDOM,
                 ControlSpec.Effect.BACKGROUND, "settings_background_random_hint");
-        // One darkening value: 0 is off, 1-100 darkens the background by that percent.
+        // Background blur strength, then how dark the same background reads: the pair is "how
+        // strong, how dark" and belongs together, directly under the style and effect rows.
+        slider(rows, Settings.LYRICS_BACKDROP_BLUR, BACKGROUND, null, "settings_unit_percent", NONE);
+        // One darkening value: 0 is off, 1-100 darkens the background.
         slider(rows, Settings.LYRICS_DARKENING, BACKGROUND, null, "settings_unit_percent", NONE);
 
         toggle(rows, Settings.SHOW_FULLSCREEN_BACK_BUTTON, TOP_BAR, null,

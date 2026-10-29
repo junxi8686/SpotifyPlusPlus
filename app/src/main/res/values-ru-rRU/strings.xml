@@ -293,6 +293,7 @@
     <!-- Picture-in-picture -->
     <string name="settings_label_lyrics_pip_album_art">Показывать обложку</string>
     <string name="settings_label_lyrics_blur_strength">Размытие дальних строк</string>
+    <string name="settings_label_lyrics_backdrop_blur">Размытие фона</string>
     <string name="settings_label_lyrics_darkening">Затемнить фон</string>
     <string name="settings_option_blur">Размытие</string>
     <string name="settings_action_download_language_models">Скачать языковые модели</string>

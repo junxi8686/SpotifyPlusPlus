@@ -37,7 +37,8 @@
 | A7 | SpicyLyrics.org 来源 + 客户端密钥 | 设置 →「SpicyLyrics.org 客户端密钥」填入；来源面板该行可用 | `LyricsFetchCoordinator`、`SpotifyTokenStore` | ⚠️ 少了「显示」按钮，见 E9 |
 | A8 | QQ 音乐按槽位节流 | 日志 `qq request id=` 之间有明显间隔，不并发刷 | `lyrics/providers/LyricsRepository` | ✅ |
 | A9 | 来源请求守卫 | 同一来源重复请求被合并 | `lyrics/providers/SourceRequestGuard` | ✅ |
-| A10 | Apple Music **不能**作为来源 | 来源面板与设置里都不应出现 Apple Music 选项 | — | ✅ 硬底线 |
+| A10 | Apple Music **不能**作为来源 | 来源面板与设置里都不应出现 Apple Music 选项 | — | ❌ 规则已于 2026-10-29 作废，见 A11 |
+| A11 | **Apple Music 歌词来源** | 来源面板出现 Apple Music 一行（第二位）；默认开启，参与自动竞选与手动检查；`sources enable apple true` 可用 | `lyrics/session/LyricsSourcePreferences`（DEFAULT_ORDER / RETIRED）、`lyrics/catalog/CatalogPickerModel.SOURCE_ORDER`、`lyrics/catalog/CatalogResolver.PROVIDER_PRIORITY` | ✅ 2026-10-29 恢复，代码与上游 v2.1.4 一致（7 项来源表）；测试钉住：`CatalogPolicySourceParityTest.appleMusicIsEnabledByDefaultAndRacesInTheFirstRound`、`CatalogPickerModelTest.appleMusicHasAPickerRow` |
 
 ### B. 歌词显示与动效（上游基线，防回退）
 
@@ -51,6 +52,8 @@
 | B6 | 布局编辑器（实时调整） | 歌词页 → 布局编辑入口 | `hooks/LyricsLayoutEditController` | ✅ |
 | B7 | 隐藏 Spotify 原生歌词卡 | — | `hooks/SpotifyLyricsCardHider` | ❌ 死代码，未启用、也无开关（原有实现会写坏 Spotify 歌词表，已停用） |
 | B8 | 「忽略 Spotify 自带歌词」开关 | — | `LyricsSourcePreferences.ignoresSpotifyLyrics`（恒 false） | ❌ 已移除，仅剩孤儿字符串 |
+| B9 | **头部背景模糊 / 歌词不再清晰压住头部** | 设置 → 歌曲信息背景 = **模糊**，全屏歌词下滑一行到头部下方，应在模糊带里变虚 | `hooks/TrackInfoReadoutController.setBackdropTarget`、`lyrics/EdgeBlurRenderer` | ✅ 2026-10-29 修复：调用点漏了，已按上游补上（合并丢失类问题） |
+| B10 | **背景模糊强度可调**（相对上游新增） | 布局编辑器 → 背景分组 →「背景模糊」，50–200%；模糊带高度与模糊半径一起缩放，默认 150% 比上游更接近 Apple 观感 | `Settings.LYRICS_BACKDROP_BLUR`、`lyrics/ElasticScrollView.setBackdropBands(top,bottom,scale)`、`lyrics/EdgeBlurRenderer` | ✅ 2026-10-29 新增 |
 
 ### C. 中文与注音
 
@@ -70,6 +73,7 @@
 | D3 | 只显示来源自带翻译 | 设置 → 翻译后端选第三项 | `settings/values/TranslationBackend` | ✅ |
 | D4 | AI 翻译 + 候选裁决 | 设置 → AI 分组填入密钥后翻译一首冷门歌 | `lyrics/ai/AiLyricCandidateArbiter` 等 | ⚠️ 缺上游「付费结果回放/快照」，可能重复请求 |
 | D5 | 翻译失败提示 | 断网后触发翻译，应有失败提示而非一直"翻译中" | `lyrics/processing/TranslationFailureNotice`、`ui/LyricsErrorText` | ✅ |
+| D6 | **翻译行排版对齐 Apple**（相对上游修改） | 全屏歌词打开翻译，译文应为正体（非斜体）、字号为主行 0.7×；上游是斜体 + 次要字号 | `lyrics/LyricVisuals.translationTextSizeSp`、`lyrics/LyricsRowViewFactory` | ✅ 2026-10-29 修改 |
 
 ### E. 设置面板
 
@@ -128,7 +132,7 @@
 
 | # | 底线 | 状态 |
 |---|---|---|
-| J1 | Apple Music 不得作为歌词来源（同名动效风格可保留） | ✅ |
+| J1 | Apple Music **是**正常的歌词来源，参与竞选；其动效风格一直保留（2026-10-29 用户撤销旧禁令） | ✅ 规则已变更，见 A11 |
 | J2 | `docs/` 与 `NOTICE` 不得出现上游仓库 URL | ✅ |
 | J3 | 测试不全绿不发布 | ✅ |
 | J4 | 不为变绿删除/跳过/@Ignore 测试 | ✅ |
@@ -151,5 +155,7 @@
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-10-29 | 1.6.1 | 视觉对比第二轮（用户对照 Apple Music 歌词页）：①布局编辑器 → 背景分组新增「背景模糊」强度（50–200%，默认 150%），模糊带高度与半径一起缩放；②「背景变暗」改曲线——默认更深、最高不再到纯黑；③翻译行改正体、字号 0.7×（上游为斜体 + 次要字号）。新增 B10、D6 两行登记 |
 | 2026-10-29 | 1.6.1 | 删除「Spicy 手动令牌」死开关（设置项、面板行、对话框、存储类、三份资源与备份范围一并移除）；导出/导入补图标（保存 / 还原）；新增「清除本模块的所有内容」 |
+| 2026-10-29 | 1.6.1 | **Apple Music 恢复为正常歌词来源**（用户撤销旧禁令）：解除 `LyricsSourcePreferences` 的退役标记、回到默认开启并排在 `DEFAULT_ORDER` 第二位；`CatalogPickerModel.SOURCE_ORDER` 与 `CatalogResolver.PROVIDER_PRIORITY` 恢复上游 v2.1.4 的七项表（Apple 第二），自动竞选第一轮即询问；`sources enable apple` 不再报 retired；`Spicy` 旧别名继续保持退役。新增 2 条测试钉住（默认开启/首轮参选、面板行） |
 | 2026-10-29 | 1.6.0 | 合并上游 v2.1.0 + v2.1.4（378 文件）；恢复三组被合并丢失的入口（导出/导入、字体路径编辑、客户端密钥显示，并补 3 条测试钉住这类丢失）；来源面板两处显示修复（探测不再依赖会话「当前曲目」、已找到不再显示成没查过）；本文件首次建立，登记 60 项功能与 5 条硬底线 |

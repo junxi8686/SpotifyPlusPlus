@@ -1235,11 +1235,11 @@ public class CatalogResolverTest {
         String body = CatalogResolver.traceBody(rows, priority);
 
         assertTrue("the trace names the source and its components: " + body,
-                body.startsWith("netease[STRONG_SEARCH order=5 timing=WORD(+4) script=+5"
+                body.startsWith("netease[STRONG_SEARCH order=6 timing=WORD(+4) script=+5"
                         + " trad=0.00% simp=100.00% lang=zh fam=fam:zh langsrc=tier1-absent+tier2 trackfam=fam:zh langmatch=+3 trans=+2.00 dur=+3 complete=+1 match=+0"
                         + " dt=-3 eliminated=0 score=18.00]"));
         assertTrue("the Simplified row six seconds short shows a lower duration rank: " + body,
-                body.contains("qq[STRONG_SEARCH order=4 timing=WORD(+4) script=+5"
+                body.contains("qq[STRONG_SEARCH order=5 timing=WORD(+4) script=+5"
                         + " trad=0.00% simp=100.00% lang=zh fam=fam:zh langsrc=tier1-absent+tier2 trackfam=fam:zh langmatch=+3 trans=+0.00 dur=+0 complete=+1 match=+0"
                         + " dt=-6438 eliminated=0 score=13.00]"));
         assertTrue("an exact match on a source that resolved the id is paid two: " + body,
@@ -1247,11 +1247,11 @@ public class CatalogResolverTest {
                         + " trad=25.00% simp=0.00% lang=zh fam=fam:zh langsrc=tier1-absent+tier2 trackfam=fam:zh langmatch=+3 trans=+0.00 dur=+1 complete=+1 match=+2"
                         + " dt=-5894 eliminated=0 score=9.00]"));
         assertTrue("while Spotify's own provider is paid nothing for the same method: " + body,
-                body.contains("spotify_native[EXACT_SPOTIFY_ID order=1 timing=LINE(+2) script=+0"
+                body.contains("spotify_native[EXACT_SPOTIFY_ID order=2 timing=LINE(+2) script=+0"
                         + " trad=25.00% simp=0.00% lang=zh fam=fam:zh langsrc=tier1-absent+tier2 trackfam=fam:zh langmatch=+3 trans=+0.00 dur=+2 complete=+1 match=+0"
                         + " dt=-3963 eliminated=0 score=8.00]"));
         assertTrue("and a document the gate refuses says which verdict it was: " + body,
-                body.contains("lrclib[STRONG_SEARCH order=3 timing=LINE(+2) script=+0"
+                body.contains("lrclib[STRONG_SEARCH order=4 timing=LINE(+2) script=+0"
                         + " trad=none simp=none lang=unknown(no-han) fam=fam:latin langsrc=tier1-absent+tier2 trackfam=fam:zh langmatch=+0 trans=+0.00 dur=+0 complete=+1"
                         + " match=+0 dt=-6713 eliminated=0 score=3.00]"));
         assertTrue("the field order is unchanged for readers that parse it: " + body,
@@ -1286,20 +1286,24 @@ public class CatalogResolverTest {
                         Arrays.asList(SourceId.NETEASE, SourceId.QQ)).winner.candidateId);
 
         assertEquals("a source the owner did not name falls behind every source they did",
-                Arrays.asList(SourceId.QQ, SourceId.SPICY_ORG, SourceId.SPOTIFY_NATIVE,
-                        SourceId.AMLL, SourceId.LRCLIB, SourceId.NETEASE),
+                Arrays.asList(SourceId.QQ, SourceId.SPICY_ORG, SourceId.APPLE,
+                        SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB, SourceId.NETEASE),
                 CatalogResolver.effectivePriority(Collections.singletonList(SourceId.QQ)));
-        assertEquals("and the fixed list is the order the retired rule used",
-                Arrays.asList(SourceId.SPICY_ORG, SourceId.SPOTIFY_NATIVE, SourceId.AMLL,
-                        SourceId.LRCLIB, SourceId.QQ, SourceId.NETEASE),
-                CatalogResolver.effectivePriority(null).subList(0, 6));
+        assertEquals("and the fixed list is upstream v2.1.4's seven-item table",
+                Arrays.asList(SourceId.SPICY_ORG, SourceId.APPLE, SourceId.SPOTIFY_NATIVE,
+                        SourceId.AMLL, SourceId.LRCLIB, SourceId.QQ, SourceId.NETEASE),
+                CatalogResolver.effectivePriority(null));
         assertTrue("QQ ahead of NetEase on the fixed list",
                 CatalogResolver.sourceRank(SourceId.QQ, CatalogResolver.effectivePriority(null))
                         < CatalogResolver.sourceRank(SourceId.NETEASE,
                         CatalogResolver.effectivePriority(null)));
-        assertTrue("and the retired Apple route is behind every listed source",
+        assertTrue("Apple Music ranks second, above Spotify native and every backup source",
                 CatalogResolver.sourceRank(SourceId.APPLE, CatalogResolver.effectivePriority(null))
-                        > CatalogResolver.sourceRank(SourceId.NETEASE,
+                        < CatalogResolver.sourceRank(SourceId.SPOTIFY_NATIVE,
+                        CatalogResolver.effectivePriority(null)));
+        assertTrue("and above every backup source too",
+                CatalogResolver.sourceRank(SourceId.APPLE, CatalogResolver.effectivePriority(null))
+                        < CatalogResolver.sourceRank(SourceId.NETEASE,
                         CatalogResolver.effectivePriority(null)));
     }
 

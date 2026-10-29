@@ -54,13 +54,14 @@ public final class LyricsSourcePreferences {
     private static final String OVERRIDE_ORDER = "override_order";
     private static final int MAX_OVERRIDES = 200;
     /**
-     * Fresh-install order. Retired sources are deliberately absent rather than filtered later, so
-     * the "no stored order yet" path cannot hand a withdrawn source to a caller that forgot to
-     * normalise.
+     * Fresh-install order, matching upstream v2.1.4 with the live SpicyLyrics.org source in the
+     * slot upstream gives its Spicy route: Apple Music second, then Spotify and the backups.
+     * Retired sources are deliberately absent rather than filtered later, so the "no stored order
+     * yet" path cannot hand a withdrawn source to a caller that forgot to normalise.
      */
     private static final List<Source> DEFAULT_ORDER = Collections.unmodifiableList(
-            java.util.Arrays.asList(Source.SPICY_ORG, Source.SPOTIFY, Source.AMLL,
-                    Source.LRCLIB, Source.QQ, Source.NETEASE));
+            java.util.Arrays.asList(Source.SPICY_ORG, Source.APPLE_MUSIC, Source.SPOTIFY,
+                    Source.AMLL, Source.LRCLIB, Source.QQ, Source.NETEASE));
 
     private LyricsSourcePreferences() {}
 
@@ -91,15 +92,16 @@ public final class LyricsSourcePreferences {
     /**
      * Sources that can never be turned on or offered.
      *
-     * <p>{@code SPICY} is the retired desktop-token remote. {@code APPLE_MUSIC} is retired here
-     * because its anonymous endpoint no longer returns usable lyrics: selecting it produced a
-     * source that could never deliver, so it is withdrawn from every picker, order list and
-     * diagnostics enumeration rather than left visible as a trap. The enum constants and the
-     * persisted ids stay in place so existing stored orders and recent-source history keep
-     * parsing; they are simply filtered out of everything the owner can see or toggle.
+     * <p>{@code SPICY} is the retired desktop-token remote.
+     *
+     * <p>Apple Music used to be listed here as well because its anonymous endpoint no longer
+     * returned usable lyrics. The owner reversed that on 2026-10-29: Apple Music is a normal lyric
+     * source again, restored to upstream v2.1.4's code and order, so it is enabled by default and
+     * races with the others. The enum constant and the persisted id were never removed, so stored
+     * orders and recent-source history keep parsing.
      */
     private static final List<Source> RETIRED =
-            Collections.unmodifiableList(java.util.Arrays.asList(Source.APPLE_MUSIC, Source.SPICY));
+            Collections.unmodifiableList(java.util.Arrays.asList(Source.SPICY));
 
     /**
      * Every source the owner may choose from, in declaration order. This is the single list all

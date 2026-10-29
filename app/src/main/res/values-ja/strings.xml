@@ -523,6 +523,7 @@
     <string name="settings_lyrics_font_file_missing">フォントファイルが見つかりません</string>
     <string name="settings_label_lyric_follow_chip_icon">追従チップのアイコン</string>
     <string name="settings_label_lyrics_blur_strength">遠い行をぼかす</string>
+    <string name="settings_label_lyrics_backdrop_blur">背景のぼかし</string>
     <string name="settings_label_lyrics_darkening">背景を暗くする</string>
     <string name="lyrics_source_ready">新しい歌詞ソースを取得しました。フォローを再開すると反映されます。</string>
     <string name="lyrics_refresh_failed">歌詞の更新に失敗しました。現在の歌詞はそのまま表示されます。</string>

@@ -854,6 +854,7 @@
     <string name="settings_spicy_key_rejected">Key not saved: expected a sl_pk_ value</string>
     <string name="settings_label_lyric_follow_chip_icon">Follow-lyrics chip icon</string>
     <string name="settings_label_lyrics_blur_strength">Blur distant lines</string>
+    <string name="settings_label_lyrics_backdrop_blur">Background blur</string>
     <string name="settings_label_lyrics_darkening">Darken background</string>
     <string name="settings_action_download_language_models">Download language models</string>
     <string name="settings_option_lyrics_chinese_character_form_traditional">Traditional (漢語)</string>

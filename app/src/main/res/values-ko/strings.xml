@@ -542,6 +542,7 @@
     <string name="settings_lyrics_font_file_missing">글꼴 파일을 찾을 수 없습니다</string>
     <string name="settings_label_lyric_follow_chip_icon">‘현재 가사로’ 버튼 아이콘</string>
     <string name="settings_label_lyrics_blur_strength">먼 줄 흐리게</string>
+    <string name="settings_label_lyrics_backdrop_blur">배경 흐림</string>
     <string name="settings_label_lyrics_darkening">배경 더 어둡게</string>
     <string name="lyrics_source_ready">새 가사 소스를 준비했습니다. 따라가기를 다시 시작하면 적용됩니다.</string>
     <string name="lyrics_refresh_failed">가사 업데이트에 실패했습니다. 현재 가사는 그대로 표시됩니다.</string>

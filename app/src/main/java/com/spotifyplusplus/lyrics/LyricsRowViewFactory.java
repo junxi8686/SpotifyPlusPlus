@@ -188,10 +188,12 @@ public final class LyricsRowViewFactory {
         }
 
         if (!line.bgLine && options.showTranslation && !isBlank(line.translatedText)) {
+            // Apple's screen draws the translation upright and larger than a reading line; upstream
+            // used an italic, secondary-sized line. Owner-directed difference: upright, 0.7x.
             Typeface translatedTypeface = LyricsTextFactory.shouldUseSystemFallbackForText(line.translatedText)
-                    ? Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
-                    : Typeface.create(textFactory.resolveTypeface(false), Typeface.ITALIC);
-            SpicyAnimatedTextView translated = textFactory.createSecondaryAnimatedText(activity, line.translatedText, Math.max(13, LyricVisuals.secondaryTextSizeSp(LyricsLineViewState.baseTextSp(line)) - 1), translatedTypeface);
+                    ? Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                    : Typeface.create(textFactory.resolveTypeface(false), Typeface.NORMAL);
+            SpicyAnimatedTextView translated = textFactory.createSecondaryAnimatedText(activity, line.translatedText, LyricVisuals.translationTextSizeSp(LyricsLineViewState.baseTextSp(line)), translatedTypeface);
             translated.setGravity(line.oppositeAligned ? Gravity.END : Gravity.START);
             translated.setMaxLines(wrapLongLines ? 3 : 1);
             applyAdaptiveWrapping(translated, wrapLongLines && options.adaptiveSectioningEnabled, false);

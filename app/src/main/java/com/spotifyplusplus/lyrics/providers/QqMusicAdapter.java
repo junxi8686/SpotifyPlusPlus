@@ -59,7 +59,7 @@ public final class QqMusicAdapter {
      * <p>A request that arrives inside the interval is <em>skipped</em>, not queued: that source is
      * failed for the round with {@code QQ Music paced; next slot in Nms} and the round carries on
      * without it. Skipping is the deliberate choice, not a gap to close. Waiting for the slot would
-     * hold up the whole round - the other five sources racing in it included - on one source's pacing,
+     * hold up the whole round - the other six sources racing in it included - on one source's pacing,
      * which is the opposite of what a race is for; the next round asks again once the slot has passed,
      * so the only cost is one round of latency on that one source.
      */
@@ -182,7 +182,7 @@ public final class QqMusicAdapter {
         String query = queries.get(index);
         // The rate limiter, across every path that asks this source. A request that arrives inside
         // the pacing window is not sent and not waited for: QQ is skipped for this round and counted
-        // as not answered, so the other five sources and the round's completion are not held up by
+        // as not answered, so the other six sources and the round's completion are not held up by
         // one source's pacing. The next round asks again once the slot has passed.
         long waitMs = waitForRequestSlot(System.currentTimeMillis());
         if (waitMs > 0L) {

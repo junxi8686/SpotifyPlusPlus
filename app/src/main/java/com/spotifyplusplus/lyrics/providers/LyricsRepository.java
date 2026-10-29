@@ -1674,8 +1674,8 @@ public final class LyricsRepository {
         if (source.contains("amll")) return "amll";
         if (source.contains("native")) return "native";
         // Live SpicyLyrics.org responses carry fetchSource "spicy_org", which also contains "spicy".
-        // Matching the retired apple-music alias first reported them as "apple_music" on the
-        // diagnostics card, so the owner read the withdrawn Apple Music route as the live one.
+        // Matching the apple-music branch first reported them as "apple_music" on the diagnostics
+        // card, so the owner read the retired Spicy alias as the live Apple Music source.
         if (source.contains("spicy_org")) return "spicy_org";
         if (source.contains("spicy")) return "apple_music";
         if (source.contains("apple_music")) return "apple_music";

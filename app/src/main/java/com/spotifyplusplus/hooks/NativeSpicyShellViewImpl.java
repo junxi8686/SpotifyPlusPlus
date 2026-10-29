@@ -1922,6 +1922,13 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
                 chrome.headerTitle);
         trackInfoController.setSkipGapController(skipGapController);
         trackInfoController.setChromeReserve(this::chromeReservePx);
+        // The readout's "Blur" background draws the lyrics behind its top/bottom bands blurred, so
+        // it needs the lyric scroll view. Without this call backdropTarget stays null, the bands are
+        // never armed, and a Blur-style dock leaves the lyrics drawn sharp over the header.
+        if (lyricsScroll instanceof com.spotifyplusplus.lyrics.ElasticScrollView) {
+            trackInfoController.setBackdropTarget(
+                    (com.spotifyplusplus.lyrics.ElasticScrollView) lyricsScroll);
+        }
         // Two-column: the readout's column placement (cover + song info, one component with the
         // other three) goes into the left column this shell owns, in place of the lyric stack it
         // used to draw itself. Hiding it (Track info position Off) collapses the left column and

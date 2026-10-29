@@ -57,7 +57,7 @@ public final class SpicyOrgAccessState {
      * termination was recorded for the current key, which only {@code fetchForAccessCheck} (an
      * explicit recovery, and nothing calls it) could clear - so one refusal silenced
      * SpicyLyrics.org for automatic acquisition and for every later picker check until the owner
-     * replaced the key. The other five sources are asked and the response decides; a revoked key
+     * replaced the key. The other six sources are asked and the response decides; a revoked key
      * answers with the same refusal, which re-records it, and the catalogue's own retry horizon
      * bounds how often that happens. What stays gated is display: {@code eligibleForDisplay()}
      * keeps this source's cached results hidden until a validated response confirms access again.

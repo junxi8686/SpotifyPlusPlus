@@ -99,7 +99,7 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
      * Track whose opening check already ran, shared across panel instances.
      *
      * <p>Static on purpose: the panel is built fresh on every open, so an instance field would
-     * forget and re-check all six providers each time.
+     * forget and re-check every provider each time.
      */
     private static volatile String checkedTrackUri = "";
     private String tickTrackUri = "";
@@ -332,7 +332,7 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
         if (closed) return;
         if (attemptsLeft <= 0) {
             // Never abandon the opening walk silently: it is the only thing that checks every
-            // source without a tap, so a tracker that ran out of attempts used to leave all six
+            // source without a tap, so a tracker that ran out of attempts used to leave every
             // rows on "tap to check" with nothing in the log to tell that from never checking.
             XpLog.log(TAG + " picker auto check abandoned uri=" + host.catalogTrackUri()
                     + " stateUri=" + (state == null ? "" : state.trackUri)
@@ -345,7 +345,7 @@ public final class LyricsSourcePickerDialog implements LyricsSessionManager.List
             if (known) {
                 // Each track is checked once. Opening the panel again for the same track shows the
                 // stored outcomes instead of re-asking every provider: the answers do not change
-                // within a track, and re-checking all six on every open burned the providers'
+                // within a track, and re-checking every one on every open burned the providers'
                 // rate limits for nothing. A different track re-checks, and the per-row taps
                 // still force a single source whenever the owner wants one.
                 if (uri.equals(checkedTrackUri)) {

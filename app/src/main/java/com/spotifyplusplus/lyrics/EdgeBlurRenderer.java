@@ -15,14 +15,16 @@ final class EdgeBlurRenderer {
     private final int width, height;
     private final int[] lengths;
     private final float radius;
+    private final float scale;
     private final RenderNode[] sources = new RenderNode[2];
     private final EdgeBlurPyramid[] pyramids = new EdgeBlurPyramid[2];
 
-    EdgeBlurRenderer(int w, int h, int top, int bottom, float density) {
+    EdgeBlurRenderer(int w, int h, int top, int bottom, float density, float scale) {
         width = w;
         height = h;
         lengths = new int[]{top, bottom};
-        radius = MAX_RADIUS_DP * density;
+        this.scale = scale;
+        radius = MAX_RADIUS_DP * density * scale;
         // Overfetch past the band so the blur near its inner boundary samples real content.
         int padding = (int) Math.ceil(radius * 3f) + 2;
         for (int edge = 0; edge < 2; edge++) {
@@ -34,8 +36,9 @@ final class EdgeBlurRenderer {
         }
     }
 
-    boolean fits(int w, int h, int top, int bottom) {
-        return w == width && h == height && top == lengths[0] && bottom == lengths[1];
+    boolean fits(int w, int h, int top, int bottom, float scale) {
+        return w == width && h == height && top == lengths[0] && bottom == lengths[1]
+                && scale == this.scale;
     }
 
     /** Draws each band over the visible area; scale fades the radius in or out with its dock. */

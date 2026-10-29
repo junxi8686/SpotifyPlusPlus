@@ -608,6 +608,7 @@ final class LyricsLayoutEditController {
                 Settings.BACKGROUND_STYLE,
                 Settings.BACKGROUND_EFFECT,
                 Settings.BACKGROUND_RANDOM_EFFECTS,
+                Settings.LYRICS_BACKDROP_BLUR,
                 Settings.LYRICS_DARKENING,
                 Settings.SKIP_CHIP_POSITION, Settings.SKIP_CHIP_STYLE,
                 Settings.FOLLOW_CHIP_POSITION, Settings.FOLLOW_CHIP_STYLE,

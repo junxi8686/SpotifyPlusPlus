@@ -300,7 +300,13 @@ public final class LyricsAmbientController {
     }
 
     static float backgroundBrightness(int darkening) {
-        return darkening > 0 ? Math.max(0f, Math.min(1f, 1f - darkening / 100f)) : 1f;
+        if (darkening <= 0) return 1f;
+        // Owner feedback on the old linear ramp: the default read too light, while the top of the
+        // range went all the way to black. This gentle quadratic reads deeper through the low half
+        // (~0.54 at the default 35 instead of 0.65) and stops near 0.22 at 100 instead of 0, so
+        // "maximum darkening" still leaves a usable background.
+        float t = Math.min(1f, darkening / 100f);
+        return Math.max(0f, Math.min(1f, 1f - 1.62f * t + 0.84f * t * t));
     }
 
     private void createAnimatedLayer(FrameLayout parent, boolean forceDark, boolean animated) {

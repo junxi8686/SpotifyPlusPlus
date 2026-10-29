@@ -213,25 +213,27 @@ public class CatalogPickerModelTest {
         List<Row> rows = CatalogPickerModel.build(Collections.<CatalogCandidate>emptyList(),
                 Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
 
-        // Six sources: SpicyLyrics.org, Spotify, AMLL, LRCLIB, QQ and NetEase, matching
-        // CatalogPolicy.automaticOrder() and the DEFAULT_ORDER in LyricsSourcePreferences.
-        // Apple Music is deliberately absent - it is retired, so it gets no row.
-        assertEquals(1 + 6 + 2, rows.size());
+        // Seven sources: SpicyLyrics.org, Apple Music, Spotify, AMLL, LRCLIB, QQ and NetEase,
+        // matching CatalogPolicy.automaticOrder() and the DEFAULT_ORDER in
+        // LyricsSourcePreferences. Apple Music is a selectable source again (owner decision,
+        // 2026-10-29), restored to upstream v2.1.4's table.
+        assertEquals(1 + 7 + 2, rows.size());
         assertEquals("Auto · nothing stored yet", rows.get(0).title);
         // The Auto row carries its state in the title and the selected-green colour only. No
         // subtitle in any state, so no state text can be parked in this menu again.
         assertEquals("", rows.get(0).subtitle);
         assertEquals(SourceId.SPICY_ORG, rows.get(1).sourceId);
+        assertEquals(SourceId.APPLE, rows.get(2).sourceId);
+        assertEquals("Apple Music", rows.get(2).title);
         // The "check all sources in order" row is gone. Its command walked every enabled source in
         // sequence, and one that never called back left the row on "checking" with nothing on
         // screen able to clear it. The per-source rows do the same job one at a time.
         // The escape hatch for a release catalogued under a name no respelling reaches.
-        // Indices follow the six source rows plus the Auto row; retiring Apple Music moved both
-        // actions up one slot.
-        assertEquals(RowKind.ACTION_MANUAL_SEARCH, rows.get(7).kind);
-        assertEquals("Search by name…", rows.get(7).title);
-        assertEquals(RowKind.ACTION_DELETE_TRACK, rows.get(8).kind);
-        assertEquals("Clear saved lyrics", rows.get(8).title);
+        // Indices follow the seven source rows plus the Auto row.
+        assertEquals(RowKind.ACTION_MANUAL_SEARCH, rows.get(8).kind);
+        assertEquals("Search by name…", rows.get(8).title);
+        assertEquals(RowKind.ACTION_DELETE_TRACK, rows.get(9).kind);
+        assertEquals("Clear saved lyrics", rows.get(9).title);
     }
 
     @Test
@@ -282,8 +284,8 @@ public class CatalogPickerModelTest {
 
     @Test
     public void brandsStayUntranslated() {
-        // Apple Music keeps its label even though the source is retired from every picker: a
-        // catalogue row stored before it was withdrawn still has to name itself.
+        // Provider brands stay as authored: a catalogue row has to name its source exactly, and
+        // the picker's own rows use the same labels.
         assertEquals("Apple Music", CatalogPickerModel.displaySource(SourceId.APPLE));
         assertEquals("SpicyLyrics.org", CatalogPickerModel.displaySource(SourceId.SPICY_ORG));
         assertEquals("Spotify", CatalogPickerModel.displaySource(SourceId.SPOTIFY_NATIVE));
@@ -292,12 +294,16 @@ public class CatalogPickerModelTest {
     }
 
     @Test
-    public void retiredAppleMusicHasNoPickerRow() {
-        // The retired source must not appear as a selectable row, but a candidate already stored
-        // for it stays visible so the owner can see and clear what is on screen.
+    public void appleMusicHasAPickerRow() {
+        // Apple Music is a normal selectable source again (owner decision, 2026-10-29), so it has
+        // its own row between the Spicy slot and Spotify, and the automatic check walk asks it.
         List<Row> rows = CatalogPickerModel.build(Collections.<CatalogCandidate>emptyList(),
                 Collections.<SourceId, ProviderStatus>emptyMap(), null, null);
-        assertTrue(sourceRow(rows, SourceId.APPLE) == null);
+        Row apple = sourceRow(rows, SourceId.APPLE);
+        assertTrue(apple != null);
+        assertEquals("Apple Music", apple.title);
+        assertTrue(apple.checkable);
+        assertEquals(2, rows.indexOf(apple));
         assertTrue(sourceRow(rows, SourceId.SPICY_ORG) != null);
     }
 

@@ -602,7 +602,7 @@ final class AgentCommandChannel {
                     && ("true".equals(args[2]) || "false".equals(args[2]))) {
                 Source source =
                         Source.parse(args[1]);
-                if (source == null || source == Source.SPICY)
+                if (source == null || LyricsSourcePreferences.isRetired(source))
                     throw new IllegalArgumentException("unknown or retired source");
                 enabled.put(source, Boolean.valueOf(args[2]));
             } else if (args.length == 2 && "order".equals(args[0])) {

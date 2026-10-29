@@ -799,6 +799,7 @@
     <string name="settings_spicy_key_delete">删除密钥</string>
     <string name="settings_spicy_key_rejected">密钥未保存：需要 sl_pk_ 开头的值</string>
     <string name="settings_label_lyrics_blur_strength">模糊远处歌词</string>
+    <string name="settings_label_lyrics_backdrop_blur">背景模糊</string>
     <string name="settings_label_lyrics_darkening">背景变暗</string>
     <string name="settings_option_blur">模糊</string>
     <string name="settings_action_download_language_models">下载语言模型</string>

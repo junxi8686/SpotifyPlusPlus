@@ -205,7 +205,7 @@ public final class CatalogPolicy {
                 // Must be the live SPICY_ORG preference, not the retired SPICY alias.
                 //
                 // The repository turns this mapping back into a request label, and "Spicy" is the
-                // retired Apple Music (Lenerd) route while "Spicy Lyrics" is the personal-key v1
+                // legacy Apple Music (Lenerd) route while "Spicy Lyrics" is the personal-key v1
                 // request. With the alias in place, every automatic round that reached the ordered
                 // fetch asked Apple Music for SpicyLyrics.org's slot and stored the answer under
                 // APPLE - the source was in the plan and its result was attributed elsewhere.

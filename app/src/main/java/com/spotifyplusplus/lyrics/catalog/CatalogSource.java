@@ -17,11 +17,10 @@ public final class CatalogSource {
     }
 
     /**
-     * Provider identity. Declaration order here is not the automatic tie-break: a tie falls to the
-     * owner's configured source order, and behind it to the fixed list in {@code CatalogResolver} -
-     * SpicyLyrics.org, Spotify native, AMLL, LRCLIB, QQ, NetEase - which is v1.1's order with the
-     * slot the retired Apple route held at the head taken by SpicyLyrics.org. {@code APPLE} stays a
-     * constant for stored routes, pins and orders, and is on neither list.
+     * Provider identity. Declaration order is the automatic tie-break order, as upstream v2.1.4
+     * states it: SpicyLyrics.org (the Spicy slot), Apple Music, Spotify native, AMLL, LRCLIB, QQ,
+     * NetEase. A tie falls to the owner's configured source order first and to that fixed list
+     * behind it; see {@code CatalogResolver.effectivePriority}.
      */
     public enum SourceId {
         SPICY_ORG("spicy_org"),

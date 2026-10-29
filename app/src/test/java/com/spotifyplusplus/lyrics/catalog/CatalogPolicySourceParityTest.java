@@ -77,6 +77,39 @@ public class CatalogPolicySourceParityTest {
         }
     }
 
+    /**
+     * Apple Music is race-eligible again: enabled by default, second in the default order, and in
+     * the first automatic round. The owner reversed the earlier withdrawal on 2026-10-29 and asked
+     * for upstream v2.1.4's seven-source table, so this pins the restore - a later edit that drops
+     * it from the enabled order, the primary stack or the planner's candidates fails here.
+     */
+    @Test public void appleMusicIsEnabledByDefaultAndRacesInTheFirstRound() {
+        assertFalse(LyricsSourcePreferences.isRetired(Source.APPLE_MUSIC));
+        assertTrue(LyricsSourcePreferences.enabledByDefault(Source.APPLE_MUSIC));
+        List<Source> defaults = LyricsSourcePreferences.defaultOrder();
+        assertEquals("upstream v2.1.4 puts Apple Music second, behind the Spicy slot",
+                Source.APPLE_MUSIC, defaults.get(1));
+
+        List<SourceId> enabled = new ArrayList<>();
+        for (Source source : defaults) {
+            if (!LyricsSourcePreferences.isRetired(source)) {
+                enabled.add(CatalogPolicy.sourceId(source));
+            }
+        }
+        CatalogPolicy policy = new CatalogPolicy(enabled, false);
+        assertTrue("Apple Music must be an enabled source", policy.enabled(SourceId.APPLE));
+        assertEquals("Apple Music stays in the primary stack, right after SpicyLyrics.org",
+                SourceId.APPLE, policy.automaticOrder().get(1));
+
+        Plan plan = AcquisitionPlanner.racePlan(emptyState(), policy, null,
+                System.currentTimeMillis(), true, Collections.<SourceId>emptySet());
+        assertTrue(plan.fetches());
+        assertTrue("Apple Music must be in the first racing round",
+                plan.scope.sources.contains(SourceId.APPLE));
+        assertEquals("Apple Music sits in the primary slot upstream gives it",
+                SourceId.APPLE, plan.scope.sources.get(1));
+    }
+
     @Test public void spicyOrgIsInTheAutomaticOrderAndEligibleForAuto() {
         CatalogPolicy policy = new CatalogPolicy(OWNER_ORDER, false);
 

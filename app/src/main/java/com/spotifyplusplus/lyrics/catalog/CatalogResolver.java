@@ -82,7 +82,7 @@ import java.util.Locale;
  * track up by it, so finding it by that id is the expected outcome rather than evidence of
  * anything.
  *
- * <p>Every component but one is read from the candidate alone, so all six sources compete on the
+ * <p>Every component but one is read from the candidate alone, so all seven sources compete on the
  * same terms. The duration component is graded across the round instead: it is a property of where a
  * row sits among the rows actually being scored, which is what lets it separate them on a track
  * where every source is tens of seconds out. A score is therefore a function of the candidate
@@ -97,9 +97,9 @@ import java.util.Locale;
  * song, which is what the owner wanted from the start.
  *
  * <p>Ties fall through to the owner's configured source order, and only then to the fixed list -
- * SpicyLyrics.org, Spotify native, AMLL, LRCLIB, QQ, NetEase, with the retired Apple route behind
- * all six - and last to the stable candidate id, which keeps the comparison a total order and the
- * outcome independent of callback order. Sources the owner did not list fall back to that same
+ * upstream v2.1.4's seven-item table: SpicyLyrics.org, Apple Music, Spotify native, AMLL, LRCLIB,
+ * QQ, NetEase - and last to the stable candidate id, which keeps the comparison a total order and
+ * the outcome independent of callback order. Sources the owner did not list fall back to that same
  * fixed list, so a null or empty order behaves as it did before.
  *
  * <p>What this rule does not read, because the table does not price it: match confidence, match
@@ -236,12 +236,13 @@ public final class CatalogResolver {
      * The automatic provider tie-break, in order, first preferred: the fallback behind the owner's
      * configured source order.
      *
-     * <p>Written out rather than read from {@link SourceId#ordinal()} because the enum still carries
-     * the retired {@code APPLE} constant for stored routes, pins and orders, and read from the enum
-     * Apple would rank second, above Spotify native and above every backup source.
+     * <p>Upstream v2.1.4's seven-item table, Apple Music included in the second slot. Written out
+     * rather than read from {@link SourceId#ordinal()} so the order is a stated policy and not an
+     * accident of enum declaration order.
      */
     private static final SourceId[] PROVIDER_PRIORITY = {
             SourceId.SPICY_ORG,
+            SourceId.APPLE,
             SourceId.SPOTIFY_NATIVE,
             SourceId.AMLL,
             SourceId.LRCLIB,
@@ -1249,8 +1250,8 @@ public final class CatalogResolver {
 
     /**
      * Position on the applied tie-break list; lower wins. A source on neither the owner's order nor
-     * the fixed list is the retired Apple route: it keeps its place behind every listed source,
-     * which also keeps the comparison a total order.
+     * the fixed list keeps its place behind every listed source (by enum ordinal), which also keeps
+     * the comparison a total order.
      */
     static int sourceRank(SourceId source, List<SourceId> priority) {
         if (source == null) return Integer.MAX_VALUE;

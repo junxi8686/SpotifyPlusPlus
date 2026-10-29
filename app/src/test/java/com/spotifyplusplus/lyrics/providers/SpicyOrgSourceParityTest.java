@@ -32,14 +32,16 @@ import java.util.List;
 public class SpicyOrgSourceParityTest {
 
     private static final List<LyricsSourcePreferences.Source> OWNER_ORDER = Arrays.asList(
-            LyricsSourcePreferences.Source.SPICY_ORG, LyricsSourcePreferences.Source.SPOTIFY,
+            LyricsSourcePreferences.Source.SPICY_ORG,
+            LyricsSourcePreferences.Source.APPLE_MUSIC,
+            LyricsSourcePreferences.Source.SPOTIFY,
             LyricsSourcePreferences.Source.AMLL, LyricsSourcePreferences.Source.LRCLIB,
             LyricsSourcePreferences.Source.QQ, LyricsSourcePreferences.Source.NETEASE);
 
     /** The catalogue order that stored preference list must produce, one for one. */
     private static final List<SourceId> MAPPED = Arrays.asList(SourceId.SPICY_ORG,
-            SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB, SourceId.QQ,
-            SourceId.NETEASE);
+            SourceId.APPLE, SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB,
+            SourceId.QQ, SourceId.NETEASE);
 
     private static FakeAndroidContext ownerPreferences() {
         FakeAndroidContext context = new FakeAndroidContext();
@@ -50,7 +52,7 @@ public class SpicyOrgSourceParityTest {
         return context;
     }
 
-    @Test public void theStoredOwnerOrderMapsToAllSixCatalogSourcesInThatOrder() {
+    @Test public void theStoredOwnerOrderMapsToAllSevenCatalogSourcesInThatOrder() {
         FakeAndroidContext context = ownerPreferences();
         assertEquals(OWNER_ORDER, LyricsSourcePreferences.sourceOrder(context));
 
@@ -78,7 +80,7 @@ public class SpicyOrgSourceParityTest {
         assertTrue(!LyricsSourcePreferences.enabledSourceOrder(context)
                 .contains(LyricsSourcePreferences.Source.SPICY_ORG));
 
-        // The other five are unaffected: the automatic list is the same order without it.
+        // The other six are unaffected: the automatic list is the same order without it.
         List<SourceId> mapped = new ArrayList<>();
         for (LyricsSourcePreferences.Source source
                 : LyricsSourcePreferences.enabledSourceOrder(context)) {

@@ -44,20 +44,24 @@ public class LyricsSourceRankingTest {
                 LyricsSourcePreferences.Source.QQ));
         assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.NETEASE));
-        // Apple Music and the retired desktop remote are withdrawn: neither may report itself
-        // enabled, and neither may appear in the selectable list, whatever a stored preference says.
-        assertFalse(LyricsSourcePreferences.enabledByDefault(
+        // Apple Music is a normal source again: the owner reversed the withdrawal on 2026-10-29
+        // and asked for upstream v2.1.4's code and seven-source table, so it reports itself
+        // enabled by default and sits second in the default order.
+        assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.APPLE_MUSIC));
-        assertTrue(LyricsSourcePreferences.isRetired(
+        assertFalse(LyricsSourcePreferences.isRetired(
                 LyricsSourcePreferences.Source.APPLE_MUSIC));
+        // The retired desktop remote stays withdrawn: it may not report itself enabled, and it may
+        // not appear in the selectable list, whatever a stored preference says.
         assertTrue(LyricsSourcePreferences.isRetired(
                 LyricsSourcePreferences.Source.SPICY));
-        assertFalse(LyricsSourcePreferences.selectableSources().contains(
+        assertTrue(LyricsSourcePreferences.selectableSources().contains(
                 LyricsSourcePreferences.Source.APPLE_MUSIC));
         assertFalse(LyricsSourcePreferences.selectableSources().contains(
                 LyricsSourcePreferences.Source.SPICY));
-        assertFalse(LyricsSourcePreferences.defaultOrder().contains(
-                LyricsSourcePreferences.Source.APPLE_MUSIC));
+        assertEquals("Apple Music sits in upstream's second slot, behind the Spicy one",
+                LyricsSourcePreferences.Source.APPLE_MUSIC,
+                LyricsSourcePreferences.defaultOrder().get(1));
         assertTrue(LyricsSourcePreferences.enabledByDefault(
                 LyricsSourcePreferences.Source.SPOTIFY));
         assertTrue(LyricsSourcePreferences.enabledByDefault(

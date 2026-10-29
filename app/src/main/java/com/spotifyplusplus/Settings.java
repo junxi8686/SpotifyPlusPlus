@@ -675,8 +675,15 @@ public final class Settings {
             "lyric_background_random_effects", INTERNAL, "Effects in Random",
             BackgroundEffectPool.DEFAULT.encode());
 
+    // How far the progressive backdrop blur behind the docks reaches, and how soft it is.
+    // 100 is the upstream band; the fork ships a taller, softer band by default because that is
+    // what the owner's Apple-music comparison shows. See EdgeBlurRenderer.MAX_RADIUS_DP.
+    public static final IntegerSetting LYRICS_BACKDROP_BLUR = intSetting(false,
+            "lyrics_backdrop_blur", INTERNAL, "Background blur", 150, 50, 200, 10
+    );
+
     // One darkening value replaces the retired force switch and its separate level: 0 is off,
-    // 1-100 darkens the background by that percent. See LyricsAmbientController#backgroundBrightness.
+    // 1-100 darkens the background. See LyricsAmbientController#backgroundBrightness.
     public static final IntegerSetting LYRICS_DARKENING = intSetting(false,
             "lyrics_darkening", INTERNAL, "Darken background", 35, 0, 100, 5
     );

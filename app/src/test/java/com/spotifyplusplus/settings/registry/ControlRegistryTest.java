@@ -28,7 +28,8 @@ public class ControlRegistryTest {
         while (names.find()) expected.add((Settings.Setting<?>) Settings.class.getField(names.group(1)).get(null));
         Matcher writes = Pattern.compile("(?:writer\\.put|\\bput)\\(Settings\\.([A-Z_]+)\\s*,").matcher(source);
         while (writes.find()) expected.add((Settings.Setting<?>) Settings.class.getField(writes.group(1)).get(null));
-        assertEquals("The editor owns its baseline settings and the two background effect controls", 63, expected.size());
+        assertEquals("The editor owns its baseline settings and the background effect and blur controls",
+                64, expected.size());
         Set<Settings.Setting<?>> actual = new HashSet<>();
         for (ControlSpec row : ControlRegistry.editorControls()) {
             assertEquals(ControlSpec.Surface.EDITOR, row.surface);
@@ -127,12 +128,13 @@ public class ControlRegistryTest {
         assertEquals(ControlSpec.Kind.COMPOSITE, effects.get(2).kind);
     }
 
-    /** The Background element keeps its order: the style chips and the one darkening slider. */
+    /** The Background element keeps its order: style chips, then the blur and one darkening slider. */
     @Test public void backgroundKeepsItsOrderAndItsDarkeningIsOneSlider() {
         UiContext gradient = new UiContext(false, false, false,
                 new SettingsSnapshot(Collections.emptyMap()), false);
         List<ControlSpec> rows = ControlRegistry.optionControls(ControlSpec.Element.BACKGROUND, gradient);
-        assertEquals(Arrays.asList(Settings.BACKGROUND_STYLE.key, Settings.LYRICS_DARKENING.key),
+        assertEquals(Arrays.asList(Settings.BACKGROUND_STYLE.key, Settings.LYRICS_BACKDROP_BLUR.key,
+                        Settings.LYRICS_DARKENING.key),
                 keys(rows));
 
         Map<String, Object> animated = new HashMap<>();
@@ -140,11 +142,12 @@ public class ControlRegistryTest {
         UiContext animatedContext = new UiContext(false, false, false, new SettingsSnapshot(animated), false);
         List<ControlSpec> animatedRows = ControlRegistry.optionControls(
                 ControlSpec.Element.BACKGROUND, animatedContext);
-        assertEquals(Arrays.asList(Settings.BACKGROUND_STYLE.key, Settings.BACKGROUND_EFFECT.key, Settings.LYRICS_DARKENING.key),
+        assertEquals(Arrays.asList(Settings.BACKGROUND_STYLE.key, Settings.BACKGROUND_EFFECT.key,
+                        Settings.LYRICS_BACKDROP_BLUR.key, Settings.LYRICS_DARKENING.key),
                 keys(animatedRows));
-        assertEquals(ControlSpec.Kind.SLIDER, animatedRows.get(2).kind);
+        assertEquals(ControlSpec.Kind.SLIDER, animatedRows.get(3).kind);
         assertEquals("One control writes one value: 0 is off",
-                null, animatedRows.get(2).customValue);
+                null, animatedRows.get(3).customValue);
     }
 
     @Test public void backgroundEffectIsOneCompactSearchablePicker() {
@@ -166,11 +169,13 @@ public class ControlRegistryTest {
         settings.put(Settings.BACKGROUND_STYLE.key, "Static texture");
         settings.put(Settings.BACKGROUND_EFFECT.key, "Random");
         assertEquals(Arrays.asList(Settings.BACKGROUND_STYLE.key, Settings.BACKGROUND_EFFECT.key,
-                Settings.BACKGROUND_RANDOM_EFFECTS.key, Settings.LYRICS_DARKENING.key),
+                Settings.BACKGROUND_RANDOM_EFFECTS.key, Settings.LYRICS_BACKDROP_BLUR.key,
+                Settings.LYRICS_DARKENING.key),
                 keys(ControlRegistry.optionControls(ControlSpec.Element.BACKGROUND,
                         new UiContext(false, false, false, new SettingsSnapshot(settings), false, true))));
         assertEquals(Arrays.asList(Settings.BACKGROUND_STYLE.key, Settings.BACKGROUND_EFFECT.key,
-                Settings.BACKGROUND_RANDOM_EFFECTS.key, Settings.LYRICS_DARKENING.key),
+                Settings.BACKGROUND_RANDOM_EFFECTS.key, Settings.LYRICS_BACKDROP_BLUR.key,
+                Settings.LYRICS_DARKENING.key),
                 keys(ControlRegistry.optionControls(ControlSpec.Element.BACKGROUND,
                         new UiContext(false, false, false, new SettingsSnapshot(settings), false, false))));
     }

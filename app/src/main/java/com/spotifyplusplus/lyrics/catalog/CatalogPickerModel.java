@@ -54,15 +54,14 @@ public final class CatalogPickerModel {
     }
 
     /**
-     * Source display order matches the automatic tie-break.
-     *
-     * <p>Apple Music is absent: its anonymous endpoint no longer returns usable lyrics, so it is
-     * retired from every surface. Leaving it here kept a row in the source picker for a provider
-     * that could only ever answer with an error.
+     * Source display order matches the automatic tie-break: upstream v2.1.4's seven-item table -
+     * SpicyLyrics.org, Apple Music, Spotify native, AMLL, LRCLIB, QQ, NetEase. Apple Music is a
+     * normal selectable source again (owner decision, 2026-10-29), so it has a row beside the rest
+     * and the automatic race asks it.
      */
     static final SourceId[] SOURCE_ORDER = {
-            SourceId.SPICY_ORG, SourceId.SPOTIFY_NATIVE, SourceId.AMLL, SourceId.LRCLIB,
-            SourceId.QQ, SourceId.NETEASE,
+            SourceId.SPICY_ORG, SourceId.APPLE, SourceId.SPOTIFY_NATIVE, SourceId.AMLL,
+            SourceId.LRCLIB, SourceId.QQ, SourceId.NETEASE,
     };
 
     public static final class Row {
