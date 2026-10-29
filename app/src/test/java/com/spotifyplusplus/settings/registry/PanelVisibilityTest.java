@@ -23,6 +23,11 @@ public class PanelVisibilityTest {
         UiContext on = context(true, Settings.TRANSLATION_ENABLED, true);
         assertTrue(visible(Settings.TRANSLATION_TARGET, on));
         assertTrue(visible(Settings.TRANSLATION_BRIGHTNESS, on));
+        // The service choice stays visible with the master switch off: it is the row that explains
+        // the always-visible Baidu credential rows, so hiding it behind the switch was the bug - it
+        // left the owner with credential rows and no discoverable way to choose Baidu.
+        assertTrue(visible(Settings.TRANSLATION_BACKEND, context(true)));
+        assertTrue(visible(Settings.TRANSLATION_BACKEND, on));
     }
 
     @Test

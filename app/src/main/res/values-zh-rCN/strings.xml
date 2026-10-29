@@ -66,7 +66,7 @@
     <string name="settings_label_lyrics_cyrillic_mode">西里尔文字读音</string>
     <string name="settings_label_lyrics_cyrillic_keep_signs">保留西里尔软硬音符号</string>
     <string name="settings_label_lyrics_translation_enabled">翻译歌词</string>
-    <string name="settings_label_lyrics_translation_backend">翻译引擎</string>
+    <string name="settings_label_lyrics_translation_backend">翻译服务</string>
     <string name="settings_option_lyrics_translation_backend_google_unofficial">Google 翻译</string>
     <string name="settings_option_lyrics_translation_backend_baidu_unofficial">百度翻译</string>
     <string name="settings_option_lyrics_translation_backend_provider">仅歌词来源</string>

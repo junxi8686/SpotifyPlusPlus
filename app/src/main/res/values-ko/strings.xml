@@ -509,7 +509,7 @@
     <!-- Picture-in-picture -->
     <string name="settings_label_lyrics_pip_album_art">앨범 아트 표시</string>
     <!-- Spotify++ 1.4: translation backends, language preference, backup and font additions -->
-    <string name="settings_label_lyrics_translation_backend">번역 엔진</string>
+    <string name="settings_label_lyrics_translation_backend">번역 서비스</string>
     <string name="settings_option_lyrics_translation_backend_google_unofficial">Google</string>
     <string name="settings_option_lyrics_translation_backend_baidu_unofficial">바이두</string>
     <string name="settings_option_lyrics_translation_backend_provider">가사 소스만</string>

@@ -408,6 +408,11 @@ public final class ControlRegistry {
         panelToggle(rows, Settings.CYRILLIC_KEEP_SIGNS, TRANSLITERATION_ON);
         // Translation
         panelToggle(rows, Settings.TRANSLATION_ENABLED, Visibility.ALWAYS);
+        // Fork-only: which service translates the lyrics. Always visible, next to the master switch
+        // and above the Baidu credentials, because it is the row that explains them: hiding it while
+        // translation is off (as the target/display rows are hidden) is exactly how the owner ended
+        // up with Baidu credential rows and no discoverable way to choose Baidu.
+        panelChoice(rows, Settings.TRANSLATION_BACKEND, Visibility.ALWAYS);
         // Fork-only: the Baidu backend is ours (upstream v2.1.4 has no Baidu settings). Its two
         // credentials are one card, under the translation rows that select the backend.
         panelComposite(rows, Settings.BAIDU_TRANSLATE_APPID, Settings.BAIDU_TRANSLATE_SECRET,

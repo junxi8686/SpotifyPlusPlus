@@ -168,7 +168,7 @@
     <string name="settings_label_lyrics_cyrillic_mode">Cyrillic reading</string>
     <string name="settings_label_lyrics_cyrillic_keep_signs">Keep Cyrillic soft/hard signs</string>
     <string name="settings_label_lyrics_translation_enabled">Translate lyrics</string>
-    <string name="settings_label_lyrics_translation_backend">Translation backend</string>
+    <string name="settings_label_lyrics_translation_backend">Translation service</string>
     <string name="settings_option_lyrics_translation_backend_google_unofficial">Google</string>
     <string name="settings_option_lyrics_translation_backend_baidu_unofficial">Baidu</string>
     <string name="settings_option_lyrics_translation_backend_provider">Lyrics provider only</string>

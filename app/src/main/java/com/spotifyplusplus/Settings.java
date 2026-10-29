@@ -762,8 +762,15 @@ public final class Settings {
             "lyrics_translation_enabled", TRANSLATION, "Translate lyrics", false
     );
 
-    public static final Setting<String> TRANSLATION_BACKEND = internalEnumSetting(false,
-            "lyrics_translation_backend", "Translation backend", TranslationBackend.class
+    // Fork-only service choice: Google's credential-free endpoint, the credentialled Baidu official
+    // API added for mainland China, or only the lyric source's own translation. It used to be
+    // internal ("chosen on the translation page"), which left the owner with Baidu credential rows
+    // and no way to switch the service; it is a normal Translation setting now and the panel renders
+    // it as 「翻译服务」. The stored labels (google_unofficial / baidu_unofficial / provider) are
+    // untouched, so a value written by an older build still reads back identically.
+    public static final Setting<String> TRANSLATION_BACKEND = enumSetting(false,
+            "lyrics_translation_backend", TRANSLATION, "Translation service",
+            TranslationBackend.class
     );
 
     public static final Setting<String> TRANSLATION_TARGET = enumSetting(false,

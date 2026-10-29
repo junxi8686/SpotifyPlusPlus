@@ -85,9 +85,11 @@ public class SettingsDefaultsTest {
         assertFalse(Settings.TRANSLITERATION_ENABLED.defaultValue);
         assertFalse(Settings.TRANSLATION_ENABLED.defaultValue);
         assertEquals("google_unofficial", Settings.TRANSLATION_BACKEND.defaultValue);
-        // Upstream v2.1.4 keeps the translation backend internal: it is chosen on the translation
-        // page, not in a settings-panel section of its own.
-        assertEquals(Settings.INTERNAL, Settings.TRANSLATION_BACKEND.section);
+        // The fork exposes the service choice in the settings panel; it used to be internal, which
+        // left the always-visible Baidu credential rows with no way to select their backend. It is
+        // an ordinary Translation setting now. The stored labels below are unchanged, so an install
+        // that never opens the row reads exactly the value it did before.
+        assertEquals(Settings.TRANSLATION, Settings.TRANSLATION_BACKEND.section);
         // The baidu_unofficial peer was added for mainland China, where the Google endpoint is
         // unreachable. Google stays the default and "provider" keeps meaning "no machine backend",
         // so an install that never opens the row behaves exactly as it did before the peer existed.

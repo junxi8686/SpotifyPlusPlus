@@ -109,6 +109,10 @@
     <string name="settings_label_lyrics_cyrillic_mode">Кириллическое написание</string>
     <string name="settings_label_lyrics_cyrillic_keep_signs">Оставить мягкие / твёрдые знаки</string>
     <string name="settings_label_lyrics_translation_enabled">Переводить текст</string>
+    <string name="settings_label_lyrics_translation_backend">Сервис перевода</string>
+    <string name="settings_option_lyrics_translation_backend_google_unofficial">Google</string>
+    <string name="settings_option_lyrics_translation_backend_baidu_unofficial">Baidu</string>
+    <string name="settings_option_lyrics_translation_backend_provider">Только перевод источника</string>
     <string name="settings_label_lyrics_translation_target">Язык</string>
     <string name="settings_label_lyrics_translation_text_size">Размер перевода</string>
     <string name="settings_label_lyrics_translation_brightness">Яркость перевода</string>

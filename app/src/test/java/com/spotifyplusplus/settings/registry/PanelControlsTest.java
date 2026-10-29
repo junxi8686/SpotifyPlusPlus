@@ -1,6 +1,8 @@
 package com.spotifyplusplus.settings.registry;
 
 import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.settings.values.StoredValues;
+import com.spotifyplusplus.settings.values.TranslationBackend;
 
 import org.junit.Test;
 
@@ -27,12 +29,44 @@ public class PanelControlsTest {
     @Test
     public void kindsMatchRendererDispatch() {
         assertEquals(ControlSpec.Kind.TOGGLE, kindOf(Settings.TRANSLATION_ENABLED));
+        // The service choice is a selector row: the stored labels are the three backends.
+        assertEquals(ControlSpec.Kind.CHOICE, kindOf(Settings.TRANSLATION_BACKEND));
         assertEquals(ControlSpec.Kind.STEPPER, kindOf(Settings.SYNC_OFFSET_MS));
         // The translation size is the panel's drag slider: stepping it made every 2-point move
         // read the same on the old duration formatter.
         assertEquals(ControlSpec.Kind.SLIDER, kindOf(Settings.TRANSLATION_TEXT_SIZE));
         assertEquals(ControlSpec.Kind.CHOICE, kindOf(Settings.TAP_SEEK_MODE));
         assertEquals(ControlSpec.Kind.CHOICE, kindOf(Settings.UI_LANGUAGE));
+    }
+
+    /**
+     * The service choice is the row that explains the Baidu credential rows: it follows the master
+     * switch and precedes the credentials. Every label it offers is a stored value the translation
+     * pipeline reads back, so picking a row cannot write a value the reader would reject (the same
+     * round-trip the panel spec promises for any {@code enumSetting}).
+     */
+    @Test
+    public void theTranslationServiceChoiceExplainsTheBaiduCredentialRows() {
+        List<Settings.Setting<?>> order = new ArrayList<>();
+        for (ControlSpec entry : ControlRegistry.panelControls(Settings.TRANSLATION)) {
+            if (entry.setting != null) order.add(entry.setting);
+        }
+        int toggle = order.indexOf(Settings.TRANSLATION_ENABLED);
+        int service = order.indexOf(Settings.TRANSLATION_BACKEND);
+        int credentials = order.indexOf(Settings.BAIDU_TRANSLATE_APPID);
+        assertTrue("the service row must follow the master switch",
+                toggle >= 0 && service == toggle + 1);
+        assertTrue("the credentials must follow the service row", credentials > service);
+
+        ControlSpec row = entry(Settings.TRANSLATION_BACKEND);
+        assertNotNull("the translation service must have a panel row", row);
+        assertEquals(Settings.TRANSLATION, row.section);
+        assertEquals(Settings.TRANSLATION_BACKEND.allowedValues, row.setting.allowedValues);
+        for (String label : Settings.TRANSLATION_BACKEND.allowedValues) {
+            assertEquals(label, Settings.TRANSLATION_BACKEND.coerce(label));
+            assertEquals(label,
+                    StoredValues.fromStored(TranslationBackend.class, label).storedLabel());
+        }
     }
 
     @Test

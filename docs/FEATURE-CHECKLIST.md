@@ -69,12 +69,13 @@
 
 | # | 功能 | 入口 / 怎么验 | 代码位置 | 状态 |
 |---|---|---|---|---|
-| D1 | 在线免账号翻译（默认） | 设置 → 翻译后端选默认 | `lyrics/processing/*` | ✅ |
-| D2 | 百度翻译后端（自备 AppID/密钥） | 设置 → 翻译后端选百度 → 填入 AppID 与密钥 | `lyrics/processing/BaiduTranslateBackend`、`BaiduTranslateCredentials` | ✅ |
-| D3 | 只显示来源自带翻译 | 设置 → 翻译后端选第三项 | `settings/values/TranslationBackend` | ✅ |
+| D1 | 在线免账号翻译（默认） | 设置 → 翻译 →「翻译服务」选默认（Google） | `lyrics/processing/*` | ✅ |
+| D2 | 百度翻译后端（自备 AppID/密钥） | 设置 → 翻译 →「翻译服务」选「百度翻译」→ 填入百度 APP ID 与密钥 | `lyrics/processing/BaiduTranslateBackend`、`BaiduTranslateCredentials` | ✅ |
+| D3 | 只显示来源自带翻译 | 设置 → 翻译 →「翻译服务」选「仅歌词来源」 | `settings/values/TranslationBackend` | ✅ |
 | D4 | AI 翻译 + 候选裁决 | 设置 → AI 分组填入密钥后翻译一首冷门歌 | `lyrics/ai/AiLyricCandidateArbiter` 等 | ⚠️ 缺上游「付费结果回放/快照」，可能重复请求 |
 | D5 | 翻译失败提示 | 断网后触发翻译，应有失败提示而非一直"翻译中" | `lyrics/processing/TranslationFailureNotice`、`ui/LyricsErrorText` | ✅ |
 | D6 | **翻译行排版对齐 Apple**（相对上游修改） | 设置 → 翻译分组：译文正体、常规字重、默认主行 62%，「翻译字号」为**拖拽滑块**可 40–100% 调整（百分比直接显示，交互同布局编辑器的「句子间距」）；当前句译文与主行同步提亮 | `Settings.TRANSLATION_TEXT_SIZE`、`lyrics/LyricVisuals.translationTextSizeSp`、`lyrics/LyricsRowViewFactory`、`lyrics/LyricsLineViewState.applyLineLevelGradient`、`settings/panel/SettingRowFactory.sliderRow` | ✅ 修改；1.6.2 补字号设置与强调 |
+| D7 | **翻译服务选择**（相对上游修改） | 设置 → 翻译 →「翻译服务」：可选 Google / 百度翻译 / 仅歌词来源；选择后按新后端重新翻译当前歌词（与切换目标语言同一路径：写入设置 → 渲染配置 diff 的 `needsTranslationReprocess` → `reprocessTranslationForConfig`）；百度 APP ID / 密钥行始终可见，紧跟在选择行下方 | `Settings.TRANSLATION_BACKEND`（原 internal，1.6.4 起为普通翻译设置）、`settings/registry/ControlRegistry`、`lyrics/LyricsRenderConfig.Diff.needsTranslationReprocess`、`lyrics/TranslationConfig`、`lyrics/processing/LyricsMeaningLane` | ✅ 修改；1.6.4 暴露旧 internal 设置 |
 
 ### E. 设置面板
 
@@ -156,6 +157,7 @@
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-10-29 | 1.6.4 | 「翻译服务」可选（用户报：百度 APP ID/密钥行就在设置里，却没法把翻译切到百度翻译）：`Settings.TRANSLATION_BACKEND` 原为 internal（无面板行），现改为普通翻译设置，并在「翻译歌词」正下方新增「翻译服务」选择行（Google / 百度翻译 / 仅歌词来源，始终可见，以免再次出现"有凭据行、没入口"）；选择写入同一把 key，`LyricsRenderConfig` 的 `needsTranslationReprocess` 以 backend 变化为条件触发重新翻译（与切换目标语言同一路径），`TranslationConfig`/`LyricsDocumentProcessor` 读取不变；存储值标签（google_unofficial/baidu_unofficial/provider）与旧备份兼容；补齐俄语 4 条文案，其余语种标签统一为「翻译服务」；黄金快照 17 个 context 各加一行，新增 D7 与 1 条测试 |
 | 2026-10-29 | 1.6.4 | 用户设备复测两处填充问题：①逐行（Line 文档）在 Apple Music 风格下被逐字扫光——改为整行点亮（`appleWholeLineLighting`；`LINE_FILL` 不再影响 Apple 风格 Line 文档，非 Apple 风格与 Word 文档不变）；②逐字（Word 文档）白色推进仍慢——逐词填色进度改为可验证地由词自身 span 决定（`activeWordIndex`/`activeWordFraction`），并新增 `fillOwner` 帧诊断（每 10 帧、仅 `DEBUG_LOGGING` 打开时输出行窗口/词窗口进度与所用时间；编译期关闭时零开销）。新增 3 条测试 |
 | 2026-10-29 | 1.6.3 | 修复 Apple Music 动效下 Word 级时间轴歌词的两处显示错误（用户报「整句一起变大」「字变白推进太慢」）：①逐字行（有真实逐词时间）不再对整行词容器做行级缩放，改为由逐词动画器与 flex 词强调负责逐词上浮；无真实逐词时间的行（Line 文档、合成词跨度）保持原有整行缩放（回归保护）；②整句扫描不再覆盖逐字行的逐词填充——有真实逐词时间的行由逐词填色决定白色推进，Line/合成行仍走整句扫描；③删除设备诊断临时埋点（`motionCfg`、每帧 `appleMotion` 字符串），帧路径恢复零额外分配。新增 B11 与 2 条测试 |
 | 2026-10-29 | 1.6.2 | 修正「翻译字号」控件（用户报：显示为 `+0.1s` 且点 −/+ 像没反应）：根因是面板步进器走了同步偏移的时长格式化器，每 2% 一步的数值四舍五入后都是同一个「+0.1s」，点击其实已写入但看不出变化。改为布局编辑器「句子间距」同款**拖拽滑块**（同一套轨道/圆点/默认刻度绘制，拖动实时写入并通知面板），值直接显示百分比（新增单位键 `settings_unit_percent`）；面板行类型 STEPPER→SLIDER，黄金快照、`PanelControlsTest`、`SettingLabelsTest` 同步钉住 |
