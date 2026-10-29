@@ -33,8 +33,10 @@ import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
 import com.spotifyplusplus.lyrics.providers.LyricsFetchDiagnosticsState;
 import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
+import com.spotifyplusplus.settings.BackupPicker;
 import com.spotifyplusplus.settings.RowSyncPlan;
 import com.spotifyplusplus.settings.SettingsWriter;
+import com.spotifyplusplus.settings.SpicyBackup;
 import com.spotifyplusplus.settings.registry.ControlRegistry;
 import com.spotifyplusplus.settings.registry.ControlSpec;
 import com.spotifyplusplus.settings.registry.SettingsSnapshot;
@@ -478,6 +480,10 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
             baiduKeyRow(content);
             return;
         }
+        if ("backup_row".equals(id)) {
+            backupRow(content);
+            return;
+        }
         if ("download_language_models".equals(id)) {
             downloadLanguageModelsRow(content);
             return;
@@ -795,6 +801,9 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
         actions.add(new AiSettingsRows.IconAction(Kind.EDIT,
                 uiStrings.get("settings_spicy_key_edit", "Add or change key"), v -> dialogs.promptSpicyKey()));
         if (configured) {
+            actions.add(new AiSettingsRows.IconAction(Kind.VISIBILITY,
+                    uiStrings.get("settings_spicy_key_reveal", "Reveal key"),
+                    v -> dialogs.revealSpicyKey()));
             actions.add(new AiSettingsRows.IconAction(Kind.DELETE,
                     uiStrings.get("settings_spicy_key_delete", "Remove key"), v -> {
                 SpicyOrgKeyStore.delete(context);
@@ -809,6 +818,90 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
         rows.actionRow(group, Kind.EXTERNAL_LINK,
                 uiStrings.get("settings_spicy_key_catalog", "Get your personal key"),
                 v -> openSpicyOrgCatalog(context));
+    }
+
+    // --- Backup row (composite) ---
+
+    /**
+     * Export and import, as one card of two actions.
+     *
+     * <p>Fork-only: upstream ships no backup surface, but this tree still has the whole
+     * snapshot/restore implementation ({@link SpicyBackup}) and the document-picker handoff
+     * ({@link BackupPicker}). The system pickers are used whenever an Activity can raise one; the
+     * fixed Downloads path is the fallback for the rare case where none is reachable, and it copies
+     * whole databases, so it runs off the UI thread - there is simply no dialog to host its
+     * progress there.
+     */
+    private void backupRow(LinearLayout content) {
+        LinearLayout group = new LinearLayout(context);
+        group.setOrientation(LinearLayout.VERTICAL);
+        // The row stores nothing, so its registry identity is the composite id itself.
+        group.setTag(PanelTags.row("backup_row"));
+        content.addView(group, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        rows.infoRow(group, uiStrings.get("settings_backup_title", "Export and import"), "");
+        rows.actionRow(group, null,
+                uiStrings.get("settings_backup_export", "Export settings and data"),
+                v -> {
+                    BackupPicker.ensureInstalled(context);
+                    if (BackupPicker.startExport(context)) return;
+                    exportToDownloadsOffThread();
+                });
+        rows.actionRow(group, null,
+                uiStrings.get("settings_backup_import", "Import settings and data"),
+                v -> {
+                    BackupPicker.ensureInstalled(context);
+                    if (BackupPicker.startImport(context)) return;
+                    if (BackupPicker.startDownloadsRestore(context)) return;
+                    restoreFromDownloadsOffThread();
+                });
+    }
+
+    /** The Downloads export, off the UI thread; the only surface left here is a toast. */
+    private void exportToDownloadsOffThread() {
+        final String failed = uiStrings.get("settings_backup_export_failed", "Could not export");
+        final String savedFormat = uiStrings.get("settings_backup_exported_to", "Saved to %1$s");
+        new Thread(() -> {
+            String message;
+            try {
+                String path = SpicyBackup.exportToDownloads(context);
+                message = path == null ? failed : String.format(savedFormat, path);
+            } catch (Throwable failure) {
+                message = failed;
+            }
+            final String text = message;
+            uiHandler.post(() -> toast(text));
+        }, "spicy-backup-export").start();
+    }
+
+    /**
+     * The Downloads restore, off the UI thread, for the case where no Activity is reachable and
+     * therefore no progress dialog or restart prompt can be shown. The result - including any
+     * credential the owner has to enter again - is reported through the panel's toast.
+     */
+    private void restoreFromDownloadsOffThread() {
+        final String unreadable = uiStrings.get("settings_backup_unreadable",
+                "That file is not a Spicy EX backup");
+        new Thread(() -> {
+            SpicyBackup.RestoreOutcome outcome = null;
+            try {
+                outcome = SpicyBackup.restoreDownloads(context, null);
+            } catch (Throwable failure) {
+                // Reported as an unusable file below; the panel must not die with the worker.
+            }
+            final SpicyBackup.RestoreOutcome result = outcome;
+            // Message built on the UI thread, where the panel's string table is safe to read.
+            uiHandler.post(() -> toast(result == null
+                    ? unreadable : SpicyBackup.restoreMessage(context, result)));
+        }, "spicy-backup-import").start();
+    }
+
+    /** A message that is not worth failing the action over. */
+    private void toast(String message) {
+        try {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show();
+        } catch (Throwable ignored) {
+        }
     }
 
     /**

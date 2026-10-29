@@ -10,7 +10,8 @@
     "translation",
     "ai",
     "android_auto",
-    "pip"
+    "pip",
+    "backup"
   ],
   "snapshots": [
     {
@@ -25,7 +26,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -53,7 +55,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -70,7 +73,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -98,7 +102,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -115,7 +120,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -149,7 +155,8 @@
         "ai/ai_pronunciation_source|CHOICE|Layered;AI only",
         "ai/ai_button_behavior|CHOICE|Generate AI output, then toggle;Toggle display only",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -167,7 +174,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -202,7 +210,8 @@
         "ai/ai_pronunciation_source|CHOICE|Layered;AI only",
         "ai/ai_button_behavior|CHOICE|Generate AI output, then toggle;Toggle display only",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -220,7 +229,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -249,7 +259,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -268,7 +279,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -296,7 +308,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -313,7 +326,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -343,7 +357,8 @@
         "translation/lyrics_translation_brightness|CHOICE|Dimmed;Bright",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -360,7 +375,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -395,7 +411,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -413,7 +430,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -448,7 +466,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -465,7 +484,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -493,7 +513,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -510,7 +531,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -543,7 +565,8 @@
         "pip/lyrics_pip_controls|TOGGLE|",
         "pip/lyrics_pip_focus|CHOICE|Same as lyrics screen;Center",
         "pip/lyrics_pip_leave_spotify|TOGGLE|",
-        "pip/lyrics_pip_album_art|TOGGLE|"
+        "pip/lyrics_pip_album_art|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -560,7 +583,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -589,7 +613,8 @@
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
         "android_auto/auto_secondary_text|CHOICE|Main only;Transliteration;Translation;Both",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -615,7 +640,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -666,7 +692,8 @@
         "pip/lyrics_pip_controls|TOGGLE|",
         "pip/lyrics_pip_focus|CHOICE|Same as lyrics screen;Center",
         "pip/lyrics_pip_leave_spotify|TOGGLE|",
-        "pip/lyrics_pip_album_art|TOGGLE|"
+        "pip/lyrics_pip_album_art|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -681,7 +708,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -710,7 +738,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -727,7 +756,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -762,7 +792,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -780,7 +811,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -815,7 +847,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     },
     {
@@ -833,7 +866,8 @@
         "translation",
         "ai",
         "android_auto",
-        "pip"
+        "pip",
+        "backup"
       ],
       "rows": [
         "lyrics/settings_ui_language|CHOICE|@dynamic",
@@ -861,7 +895,8 @@
         "translation/lyrics_baidu_translate_appid|COMPOSITE|baidu_key",
         "ai/ai_enabled|TOGGLE|",
         "android_auto/auto_enabled|TOGGLE|",
-        "pip/lyrics_pip_enabled|TOGGLE|"
+        "pip/lyrics_pip_enabled|TOGGLE|",
+        "backup/backup_row|COMPOSITE|backup_row"
       ]
     }
   ]

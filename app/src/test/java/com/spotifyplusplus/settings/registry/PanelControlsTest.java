@@ -11,6 +11,7 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /** The panel's section order, row kinds and hand-built rows, stated as registry data. */
 public class PanelControlsTest {
@@ -20,7 +21,7 @@ public class PanelControlsTest {
         for (Settings.Section section : ControlRegistry.panelSections()) ids.add(section.id);
         assertEquals(Arrays.asList(
                 "lyrics", "lyrics_sources", "lyrics_screen", "apple_music",
-                "transliteration", "translation", "ai", "android_auto", "pip"), ids);
+                "transliteration", "translation", "ai", "android_auto", "pip", "backup"), ids);
     }
 
     @Test
@@ -70,6 +71,46 @@ public class PanelControlsTest {
         assertNotNull("the language pack download must have a panel entry", download);
         assertNull("the download action stores nothing", download.setting);
         assertEquals(Settings.TRANSLITERATION, download.section);
+    }
+
+    /** The export/import card is an action row too: it stores nothing and owns its own section. */
+    @Test
+    public void theBackupCardIsAnActionRowWithoutAStoredKey() {
+        ControlSpec backup = null;
+        for (ControlSpec entry : ControlRegistry.panelControls()) {
+            if ("backup_row".equals(entry.compositeId)) backup = entry;
+        }
+        assertNotNull("the backup card must have a panel entry", backup);
+        assertNull("the backup card stores nothing", backup.setting);
+        assertEquals(Settings.BACKUP, backup.section);
+        assertEquals(Visibility.ALWAYS, backup.visibleWhen);
+    }
+
+    /**
+     * A panel composite the registry names but the panel cannot render throws
+     * {@code IllegalStateException("No panel renderer for composite …")} while the section is being
+     * built - that is a crash, not a missing row. A JVM test cannot build the Android views, so the
+     * agreement between the two surfaces is pinned at the source level instead: every composite id
+     * in the panel inventory must have a dispatch branch in the panel's renderer.
+     */
+    @Test
+    public void everyRegisteredPanelCompositeHasARenderer() throws Exception {
+        java.io.File source = new java.io.File(
+                "src/main/java/com/spotifyplusplus/settings/panel/SettingsPanel.java");
+        if (!source.isFile()) source = new java.io.File("app/" + source.getPath());
+        assertTrue("SettingsPanel source not found from "
+                        + new java.io.File(".").getAbsolutePath(),
+                source.isFile());
+        String sourceText = new String(java.nio.file.Files.readAllBytes(source.toPath()),
+                java.nio.charset.StandardCharsets.UTF_8);
+        int composites = 0;
+        for (ControlSpec entry : ControlRegistry.panelControls()) {
+            if (entry.kind != ControlSpec.Kind.COMPOSITE) continue;
+            composites++;
+            assertTrue("no panel renderer branch for composite " + entry.compositeId,
+                    sourceText.contains("\"" + entry.compositeId + "\".equals(id)"));
+        }
+        assertTrue("the panel inventory must contain composites", composites > 0);
     }
 
     private static ControlSpec entry(Settings.Setting<?> setting) {

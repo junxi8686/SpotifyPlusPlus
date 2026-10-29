@@ -186,6 +186,19 @@ public final class PanelDialogs {
         dialog.show();
     }
 
+    /** The key itself, in a secure dialog: the panel row only ever shows the masked form. */
+    public void revealSpicyKey() {
+        PanelStyle style = host.style();
+        String key = SpicyOrgKeyStore.load(style.context());
+        if (key.isEmpty()) return;
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.setting(Settings.SPICY_ORG_CLIENT_KEY))
+                .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
+        dialog.secretValue(key);
+        dialog.show();
+    }
+
     /**
      * The desktop-captured Spotify token the retired Spicy source used.
      *

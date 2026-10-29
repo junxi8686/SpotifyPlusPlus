@@ -33,6 +33,23 @@ public class EditorCompositesSourceTest {
         assertTrue(chooser, chooser.contains("rows.addOption(button, rows.matchWrap("));
     }
 
+    /**
+     * The manual path entry is fork-only and a merge silently dropped it once already. Pin that it
+     * stays reachable beside the picker, that an empty value says it is unset, and that a value
+     * naming a file which is not there is reported as missing instead of measured as the fallback
+     * face ({@code Typeface.create} never fails for an unknown path). The chooser cannot be
+     * rendered on the JVM, so this is a source-level contract like the row pins above.
+     */
+    @Test public void customFontChooserKeepsTheManualPathEntryAndReportsAMissingFile() throws Exception {
+        String source = composites();
+        assertTrue(source, source.contains("addManualFontPathRow("));
+        assertTrue(source, source.contains("promptCustomFontPath("));
+        assertTrue(source, source.contains("settings_lyrics_font_path_edit"));
+        assertTrue(source, source.contains("settings_lyrics_font_path_absent"));
+        assertTrue(source, source.contains("FontPathState.isMissingFile("));
+        assertTrue(source, source.contains("settings_lyrics_font_file_missing"));
+    }
+
     /** The blur control is one composite row: its hint and its slider both reach the card, and
      *  the slider writes the one blur strength, whose percent it shows. */
     @Test public void distantLineBlurKeepsItsHintItsSliderAndItsContinuousWrite() throws Exception {

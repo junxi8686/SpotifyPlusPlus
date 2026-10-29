@@ -6,10 +6,12 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.spotifyplusplus.Settings;
+import com.spotifyplusplus.settings.FontPathState;
 import com.spotifyplusplus.settings.values.BackgroundEffect;
 import com.spotifyplusplus.settings.values.BackgroundEffectPool;
 import com.spotifyplusplus.settings.values.StoredValues;
@@ -376,10 +378,63 @@ final class EditorComposites {
         button.setOnClickListener(v -> host.chooseFont(button));
         rows.addOption(button, rows.matchWrap(HINT_GAP_DP));
 
+        addManualFontPathRow(spec, rows, host, path);
+
         String summary = fontCoverageSummary(rows, path);
         if (!summary.isEmpty()) {
             rows.addOption(rows.text(summary, HINT_TEXT_SP, HINT_COLOR, false), rows.matchWrap(0));
         }
+    }
+
+    /**
+     * The manual path entry: a file path or an installed font family name typed by hand.
+     *
+     * <p>Fork-only and deliberately beside the picker: the picker copies a file into private
+     * storage, but a path the owner already has (a moved font file, a system family such as
+     * {@code serif}) is just as valid a value and there has to be a way to type it. The stored
+     * value is shown as it is, and an empty value says so, so the row never reads as a font that
+     * was chosen.
+     */
+    private static void addManualFontPathRow(ControlSpec spec, EditorRows rows,
+            EditorControlRenderer.Host host, String path) {
+        LinearLayout row = rows.horizontalRow();
+        row.setTag("setting." + Settings.LYRICS_FONT_CUSTOM_PATH.key);
+        String current = path == null ? "" : path.trim();
+        TextView value = rows.text(current.isEmpty()
+                        ? rows.s("settings_lyrics_font_path_absent", "Not set") : current,
+                14, HINT_COLOR, false);
+        value.setSingleLine(true);
+        value.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        row.addView(value, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView edit = rows.chip(rows.s("settings_lyrics_font_path_edit", "Edit font path"));
+        edit.setContentDescription(rows.s("settings_lyrics_font_path_edit", "Edit font path"));
+        edit.setOnClickListener(v -> promptCustomFontPath(rows, host));
+        LinearLayout.LayoutParams editLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        editLp.leftMargin = rows.dp(8);
+        row.addView(edit, editLp);
+        rows.addOption(row, rows.matchWrap(HINT_GAP_DP));
+    }
+
+    /**
+     * The path dialog: one free-text field, prefilled with the stored value.
+     *
+     * <p>Nothing is validated on the way in: a path that is not there, or a name no font family
+     * answers to, is a legitimate intermediate state the owner can fix, and the coverage line below
+     * the picker reports what the value currently resolves to instead of refusing the write.
+     */
+    private static void promptCustomFontPath(EditorRows rows, EditorControlRenderer.Host host) {
+        PanelDialog dialog = new PanelDialog(rows.activity(),
+                rows.settingLabel(Settings.LYRICS_FONT_CUSTOM_PATH));
+        EditText field = dialog.field(false, rows.safeGetString(Settings.LYRICS_FONT_CUSTOM_PATH));
+        dialog.primary(rows.s("settings_ai_save", "Save"), () -> {
+            String path = field.getText().toString().trim();
+            rows.apply(Settings.LYRICS_FONT_CUSTOM_PATH, path,
+                    () -> host.select(ControlSpec.Element.LYRICS));
+        });
+        dialog.secondary(rows.s("settings_ai_cancel", "Cancel"), null);
+        dialog.show();
     }
 
     /** System family name, the filename portion of a file path, or the empty-selection label. */
@@ -399,9 +454,16 @@ final class EditorComposites {
     /**
      * Mirrors PanelDialogs#reportFontCoverage's resolution order (a real file on disk, else an
      * installed/system font family name) so the same value gets the same verdict in either surface.
+     * A path that names a file which is not there is reported as such: {@code Typeface.create}
+     * never fails for an unknown path, so measuring the fallback would call a missing font
+     * "covered".
      */
     private static String fontCoverageSummary(EditorRows rows, String path) {
         if (path == null || path.isEmpty()) return "";
+        if (FontPathState.isMissingFile(path)) {
+            String missing = rows.resource("settings_lyrics_font_file_missing");
+            return missing.isEmpty() ? "Font file not found" : missing;
+        }
         Typeface typeface = null;
         File file = new File(path);
         if (file.isFile()) {

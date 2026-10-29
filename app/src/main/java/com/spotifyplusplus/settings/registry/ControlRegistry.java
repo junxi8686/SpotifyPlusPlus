@@ -433,6 +433,10 @@ public final class ControlRegistry {
         panelChoice(rows, Settings.PIP_FOCUS, PIP_ON);
         panelToggle(rows, Settings.PIP_LEAVE_SPOTIFY, PIP_ON);
         panelToggle(rows, Settings.PIP_ALBUM_ART, PIP_ON);
+        // Export and import. Fork-only: upstream ships no backup surface, this tree still has the
+        // whole snapshot/restore implementation, so the panel keeps the two actions the owner uses.
+        // It stores nothing: a hand-built composite draws the card from the registry row.
+        panelAction(rows, Settings.BACKUP, "backup_row", Visibility.ALWAYS);
         return Collections.unmodifiableList(rows);
     }
 
