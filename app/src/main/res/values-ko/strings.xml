@@ -150,6 +150,7 @@
     <string name="settings_label_lyrics_cyrillic_keep_signs">연음·경음 부호 유지</string>
     <string name="settings_label_lyrics_translation_enabled">가사 번역</string>
     <string name="settings_label_lyrics_translation_target">번역할 언어</string>
+    <string name="settings_label_lyrics_translation_text_size">번역 글자 크기</string>
     <string name="settings_label_lyrics_translation_brightness">번역 밝기</string>
 
     <!-- Selector values -->

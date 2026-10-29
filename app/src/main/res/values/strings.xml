@@ -175,6 +175,7 @@
     <string name="settings_baidu_secret_delete">Delete secret</string>
     <string name="settings_baidu_secret_rejected">Secret not saved: expected the key Baidu issued</string>
     <string name="settings_label_lyrics_translation_target">Target language</string>
+    <string name="settings_label_lyrics_translation_text_size">Translation size</string>
     <string name="settings_label_lyrics_translation_brightness">Translation brightness</string>
 
     <!-- Selector values. Stored values remain locale-independent. -->

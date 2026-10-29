@@ -188,12 +188,21 @@ public final class LyricsRowViewFactory {
         }
 
         if (!line.bgLine && options.showTranslation && !isBlank(line.translatedText)) {
-            // Apple's screen draws the translation upright and larger than a reading line; upstream
-            // used an italic, secondary-sized line. Owner-directed difference: upright, 0.7x.
-            Typeface translatedTypeface = LyricsTextFactory.shouldUseSystemFallbackForText(line.translatedText)
-                    ? Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                    : Typeface.create(textFactory.resolveTypeface(false), Typeface.NORMAL);
-            SpicyAnimatedTextView translated = textFactory.createSecondaryAnimatedText(activity, line.translatedText, LyricVisuals.translationTextSizeSp(LyricsLineViewState.baseTextSp(line)), translatedTypeface);
+            // The translation shares the main lyric line's typeface resolver and weight: whatever
+            // family/weight the lyric settings produce (Regular / Medium / Bold) applies to it too.
+            // It is not a separate fixed choice of its own (owner: 翻译字体要和歌词联动).
+            int translationSizePercent = 62;
+            try {
+                translationSizePercent = com.spotifyplusplus.SpotifyPlusConfig.from(activity)
+                        .get(com.spotifyplusplus.Settings.TRANSLATION_TEXT_SIZE);
+            } catch (Throwable ignored) {
+                // A missing config reads the default, like the rest of the row factory.
+            }
+            SpicyAnimatedTextView translated = textFactory.createSecondaryAnimatedText(activity, line.translatedText,
+                    LyricVisuals.translationTextSizeSp(LyricsLineViewState.baseTextSp(line), translationSizePercent),
+                    textFactory.resolveLyricTypeface(options.lyricWeight, options.lyricsFont, line.translatedText));
+            // Exactly the call the main lyric text goes through, so weight/bold tracks it.
+            textFactory.applyLyricTypeface(translated, line.translatedText, options.lyricWeight, options.lyricsFont);
             translated.setGravity(line.oppositeAligned ? Gravity.END : Gravity.START);
             translated.setMaxLines(wrapLongLines ? 3 : 1);
             applyAdaptiveWrapping(translated, wrapLongLines && options.adaptiveSectioningEnabled, false);

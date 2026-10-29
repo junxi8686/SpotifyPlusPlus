@@ -2725,6 +2725,9 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     }
 
     private void startSongChangeEnterAnimation() {
+        // A row animation can begin without a scroll event (a lift at a standstill), so
+        // the frame loop must be kicked here or the first frames never arrive.
+        frameScheduler.requestFrame();
         if (lyricsScroll == null) return;
         lyricsScroll.animate().cancel();
         lyricsScroll.setAlpha(0f);
@@ -2897,6 +2900,9 @@ final class NativeSpicyShellViewImpl extends FrameLayout {
     private Runnable pendingEntranceStart;
 
     private void queueLoadEntrance(boolean nextFrame) {
+        // A row animation can begin without a scroll event (a lift at a standstill), so
+        // the frame loop must be kicked here or the first frames never arrive.
+        frameScheduler.requestFrame();
         if (pendingEntranceStart != null) lyricsFrame.removeCallbacks(pendingEntranceStart);
         LyricsDocument expected = document;
         pendingEntranceStart = () -> {

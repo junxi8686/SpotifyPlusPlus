@@ -219,7 +219,11 @@ public final class LyricsAmbientController {
         resolveEffect(currentTrackUri);
         boolean enabled = style.usesTexture();
         boolean animated = style.isAnimated();
-        boolean forceDark = darkening > 0;
+        // Fork deviation from upstream (owner compares against Apple Music, whose lightest end is
+        // much lighter): the shader's fixed dim grade must not switch on at the smallest non-zero
+        // value. It starts at 15% darkening; below that the layer is lit by backgroundBrightness
+        // alone, so 0..10 stay genuinely light.
+        boolean forceDark = darkening >= 15;
         textureEnabled = enabled;
         // The page gradient is a real background too. Darkening used to be gated by texture mode,
         // so the editor control visibly did nothing in the default Gradient mode.
@@ -300,13 +304,10 @@ public final class LyricsAmbientController {
     }
 
     static float backgroundBrightness(int darkening) {
-        if (darkening <= 0) return 1f;
-        // Owner feedback on the old linear ramp: the default read too light, while the top of the
-        // range went all the way to black. This gentle quadratic reads deeper through the low half
-        // (~0.54 at the default 35 instead of 0.65) and stops near 0.22 at 100 instead of 0, so
-        // "maximum darkening" still leaves a usable background.
-        float t = Math.min(1f, darkening / 100f);
-        return Math.max(0f, Math.min(1f, 1f - 1.62f * t + 0.84f * t * t));
+        // Upstream parity (owner: the lightest end must be genuinely light). The old linear map was
+        // right; revert to it so 0 = 1.0, the default 35 = 0.65 and 100 = black, byte-for-byte the
+        // upstream curve. The earlier quadratic made the default darker, which was the wrong way.
+        return darkening > 0 ? Math.max(0f, Math.min(1f, 1f - darkening / 100f)) : 1f;
     }
 
     private void createAnimatedLayer(FrameLayout parent, boolean forceDark, boolean animated) {
@@ -361,7 +362,11 @@ public final class LyricsAmbientController {
         int seed = LyricVisuals.parseSpotifyExtractedColor(track == null ? "" : track.color);
         int darkening = config == null ? Settings.LYRICS_DARKENING.defaultValue
                 : config.get(Settings.LYRICS_DARKENING);
-        boolean forceDark = darkening > 0;
+        // Fork deviation from upstream (owner compares against Apple Music, whose lightest end is
+        // much lighter): the shader's fixed dim grade must not switch on at the smallest non-zero
+        // value. It starts at 15% darkening; below that the layer is lit by backgroundBrightness
+        // alone, so 0..10 stay genuinely light.
+        boolean forceDark = darkening >= 15;
         // A style or same-song settings refresh re-enters here; keep accepted artwork colours
         // instead of briefly regressing to the seed colour before the palette is requested again.
         boolean paletteKnown = effect.usesArtworkPalette(textureEnabled)

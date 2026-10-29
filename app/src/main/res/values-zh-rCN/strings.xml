@@ -83,6 +83,7 @@
     <string name="settings_baidu_secret_delete">删除密钥</string>
     <string name="settings_baidu_secret_rejected">未保存：请填写百度提供的密钥</string>
     <string name="settings_label_lyrics_translation_target">目标语言</string>
+    <string name="settings_label_lyrics_translation_text_size">翻译字号</string>
     <string name="settings_label_lyrics_translation_brightness">翻译亮度</string>
 
     <string name="settings_option_off">关闭</string>

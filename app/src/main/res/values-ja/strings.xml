@@ -150,6 +150,7 @@
     <string name="settings_label_lyrics_cyrillic_keep_signs">キリル文字記号を保持</string>
     <string name="settings_label_lyrics_translation_enabled">リリックスを翻訳</string>
     <string name="settings_label_lyrics_translation_target">対象言語</string>
+    <string name="settings_label_lyrics_translation_text_size">翻訳の文字サイズ</string>
     <string name="settings_label_lyrics_translation_brightness">翻訳明度</string>
 
     <!-- Selector values -->

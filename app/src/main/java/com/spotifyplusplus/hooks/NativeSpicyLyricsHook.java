@@ -53,7 +53,7 @@ public class NativeSpicyLyricsHook extends SpotifyHook implements LyricsHost {
         lyricsSessionManager = new LyricsSessionManager(this, lyricsFetchCoordinator, applicationContext);
     }
 
-    static void dbg(String function, String message) {
+    public static void dbg(String function, String message) {
         if (!DEBUG_LOGGING) return;
         XpLog.log(TAG + " [" + BUILD_CLUE + "] " + function + "() " + safe(message));
     }

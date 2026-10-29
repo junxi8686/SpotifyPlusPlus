@@ -171,6 +171,15 @@ public final class LyricsFrameRenderer {
                     line, positionMs, config.spotlight, config.lineGradientEnabled,
                     config.appleDimPassed, config.appleStyle);
             int targetClass = lineState.active ? 1 : lineState.sung ? 2 : 0;
+            if (config.appleStyle) {
+                // Temporary diagnostic for the owner's device log: tag 'appleMotion'. If frames
+                // never appear here while rows animate, the frame loop is not being driven; if they
+                // appear with appleLift=false the gate/value is wrong. Silent unless dbg is enabled.
+                com.spotifyplusplus.hooks.NativeSpicyLyricsHook.dbg("appleMotion", "frame line=" + i
+                        + " active=" + lineState.active + " sung=" + lineState.sung
+                        + " appleLift=" + config.appleLift
+                        + " words=" + (line.words == null ? 0 : line.words.size()));
+            }
             // Refresh blur on hold transitions so rows go sharp while held and restore on
             // release; steady hold needs no refresh (values already settled). While held,
             // active-line advances must not restore blur either: resume happens only on

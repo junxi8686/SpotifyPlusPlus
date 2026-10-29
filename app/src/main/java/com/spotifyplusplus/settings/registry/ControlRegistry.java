@@ -414,6 +414,8 @@ public final class ControlRegistry {
                 "baidu_key", Visibility.ALWAYS);
         panelChoice(rows, Settings.TRANSLATION_TARGET, TRANSLATION_ON);
         panelChoice(rows, Settings.TRANSLATION_BRIGHTNESS, TRANSLATION_ON);
+        // Size sits with brightness: the two together are "how the translation reads".
+        panelStepper(rows, Settings.TRANSLATION_TEXT_SIZE, TRANSLATION_ON);
         // AI
         panelToggle(rows, Settings.AI_ENABLED, Visibility.ALWAYS);
         panelChoice(rows, Settings.AI_PROVIDER, AI_ON);

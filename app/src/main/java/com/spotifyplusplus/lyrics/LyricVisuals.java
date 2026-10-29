@@ -72,11 +72,13 @@ public final class LyricVisuals {
     }
 
     /**
-     * The translation printed under a lyric. Apple's own screen sets it upright and clearly larger
-     * than a romanization line, so the translation gets its own ratio instead of the secondary one.
+     * The translation printed under a lyric: upright, larger than a romanization line but still
+     * smaller than the main line. The ratio is user-tunable as a percent of the main line
+     * (Settings.TRANSLATION_TEXT_SIZE, default 62%).
      */
-    public static int translationTextSizeSp(int baseTextSp) {
-        return Math.max(15, Math.round(baseTextSp * 0.7f));
+    public static int translationTextSizeSp(int baseTextSp, int percent) {
+        int value = percent <= 0 ? 62 : percent;
+        return Math.max(13, Math.round(baseTextSp * value / 100f));
     }
 
     public static boolean shouldUseLetterAnimator(SyllableSegment seg) {

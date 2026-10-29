@@ -676,10 +676,9 @@ public final class Settings {
             BackgroundEffectPool.DEFAULT.encode());
 
     // How far the progressive backdrop blur behind the docks reaches, and how soft it is.
-    // 100 is the upstream band; the fork ships a taller, softer band by default because that is
-    // what the owner's Apple-music comparison shows. See EdgeBlurRenderer.MAX_RADIUS_DP.
+    // 100 is upstream's band and radius exactly; the control exists for the owner to tune it.
     public static final IntegerSetting LYRICS_BACKDROP_BLUR = intSetting(false,
-            "lyrics_backdrop_blur", INTERNAL, "Background blur", 150, 50, 200, 10
+            "lyrics_backdrop_blur", INTERNAL, "Background blur", 100, 50, 200, 10
     );
 
     // One darkening value replaces the retired force switch and its separate level: 0 is off,
@@ -779,6 +778,12 @@ public final class Settings {
     public static final Setting<String> TRANSLATION_BRIGHTNESS = enumSetting(false,
             "lyrics_translation_brightness", TRANSLATION, "Translation brightness",
             TranslationBrightness.class
+    );
+
+    // Translation line size as a percent of the main lyric line. 62 matches Apple's own screen
+    // (upstream drew the translation at a fixed secondary size, which read too small next to it).
+    public static final IntegerSetting TRANSLATION_TEXT_SIZE = intSetting(false,
+            "lyrics_translation_text_size", TRANSLATION, "Translation size", 62, 40, 100, 2
     );
 
     // --- AI ---

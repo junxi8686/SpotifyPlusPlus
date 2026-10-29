@@ -110,6 +110,7 @@
     <string name="settings_label_lyrics_cyrillic_keep_signs">Оставить мягкие / твёрдые знаки</string>
     <string name="settings_label_lyrics_translation_enabled">Переводить текст</string>
     <string name="settings_label_lyrics_translation_target">Язык</string>
+    <string name="settings_label_lyrics_translation_text_size">Размер перевода</string>
     <string name="settings_label_lyrics_translation_brightness">Яркость перевода</string>
     <!-- Selector values. Stored values remain locale-independent. -->
     <string name="settings_option_off">Выключено</string>

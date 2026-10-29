@@ -360,6 +360,8 @@ public final class LyricsLineViewState {
             applyLineGradientView(state(line).romanView, row, blockGradient, gradient, glow);
         }
         if (state(line).translationView != null) {
+            // The translation deliberately stays grey while the main line is lit: Apple Music keeps
+            // its secondary translation at the neutral colour even on the active line (owner, round 3).
             if (blockGradient) {
                 applyLineGradientView(state(line).translationView, row, true, gradient, glow);
             } else {
