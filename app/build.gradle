@@ -94,8 +94,8 @@ android {
         applicationId "com.spotifyplusplus"
         minSdk 27
         targetSdk 35
-        versionCode 11
-        versionName "1.6.2"
+        versionCode 12
+        versionName "1.6.0"
         def diagnosticIntakeUrl = providers.gradleProperty("DIAGNOSTIC_INTAKE_URL")
                 .orElse("")
                 .get()
