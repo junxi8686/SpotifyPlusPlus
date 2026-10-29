@@ -11,7 +11,6 @@ import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
 import com.spotifyplusplus.lyrics.providers.LyricsResponseCache;
 import com.spotifyplusplus.lyrics.cache.CacheStoragePolicy;
-import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.lyrics.session.AIPaidArtifactCache;
 import com.spotifyplusplus.lyrics.session.CanonicalSourceCache;
@@ -25,7 +24,8 @@ import java.util.List;
  * Every dialog the settings panel opens, in one place.
  *
  * <p>Owns the option list (labels, availability reasons, previews, icons), the confirming
- * selector, the cache breakdown, and the Spicy manual-token flow. Writing is delegated: the
+ * selector, the cache breakdown, and the credential prompts for the SpicyLyrics.org key and the
+ * Baidu pair. Writing is delegated: the
  * host performs the store write and decides what to rebuild, so no dialog invents its own
  * persistence path and no write ever happens from a dismiss callback.
  */
@@ -58,9 +58,6 @@ public final class PanelDialogs {
 
         /** The Spicy Lyrics client key changed; refresh the owning section. */
         void onSpicyKeyChanged();
-
-        /** The Spicy manual token changed; refresh the owning section. */
-        void onSpicyTokenChanged();
 
         /** A Baidu Translate credential changed; refresh the Translation section. */
         void onBaiduCredentialsChanged();
@@ -200,42 +197,6 @@ public final class PanelDialogs {
     }
 
     /**
-     * The desktop-captured Spotify token the retired Spicy source used.
-     *
-     * <p>Fork-only: upstream retired this row, this tree still stores and backs the value up, so
-     * there has to be a way to enter it. Entered masked and stored encrypted like every other
-     * credential; the plaintext only ever appears in the secure reveal dialog.
-     */
-    public void promptSpicyToken() {
-        PanelStyle style = host.style();
-        SettingsUiStrings strings = host.strings();
-        PanelDialog dialog = new PanelDialog(style.context(),
-                strings.setting(Settings.SPICY_MANUAL_TOKEN)).secure();
-        EditText field = dialog.field(true, "");
-        dialog.primary(strings.get("settings_ai_save", "Save"), () -> {
-            if (SpicyManualTokenStore.save(style.context(), field.getText().toString().trim())) {
-                host.onSpicyTokenChanged();
-            } else {
-                toast(style, strings.get("settings_spicy_token_rejected", "Token not saved"));
-            }
-        });
-        dialog.secondary(strings.get("settings_ai_cancel", "Cancel"), null);
-        dialog.show();
-    }
-
-    public void revealSpicyToken() {
-        PanelStyle style = host.style();
-        String token = SpicyManualTokenStore.load(style.context());
-        if (token.isEmpty()) return;
-        SettingsUiStrings strings = host.strings();
-        PanelDialog dialog = new PanelDialog(style.context(),
-                strings.setting(Settings.SPICY_MANUAL_TOKEN))
-                .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
-        dialog.secretValue(token);
-        dialog.show();
-    }
-
-    /**
      * Baidu Translate app id. Baidu's official API needs both halves of a credential pair that only
      * the owner's own account has, so the dialog says where they come from instead of only
      * rejecting a value: a secret pasted from anywhere else cannot work.
@@ -303,6 +264,41 @@ public final class PanelDialogs {
         PanelDialog dialog = new PanelDialog(style.context(), strings.setting(setting))
                 .secure().closeIcon(strings.get("lyrics_ai_close", "Close"));
         dialog.secretValue(value);
+        dialog.show();
+    }
+
+    /**
+     * Confirmation for the one destructive action in the panel: deleting everything the module
+     * stores.
+     *
+     * <p>Says what disappears before it happens, including that saved settings and keys go too -
+     * the owner asked for a full reset, so the dialog must not read like one of the per-cache
+     * clears above it. The primary button is the destructive commit; cancel is the secondary.
+     */
+    public void confirmClearModuleData(Runnable onConfirm) {
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.get("settings_clear_module_data_title", "Delete all Spicy EX data?"));
+        dialog.paragraph(strings.get("settings_clear_module_data_message",
+                "Deletes the lyric catalogue, caches, diagnostics, settings and saved keys —"
+                        + " everything Spicy EX keeps inside Spotify. Spotify's own data is not"
+                        + " touched, and backups you exported to Downloads are kept. This cannot"
+                        + " be undone."));
+        dialog.primary(strings.get("settings_clear_module_data_confirm", "Delete everything"),
+                onConfirm);
+        dialog.secondary(strings.get("settings_ai_cancel", "Cancel"), null);
+        dialog.show();
+    }
+
+    /** The completion report for the whole-module wipe, including the restart requirement. */
+    public void showClearModuleDataResult(String message) {
+        PanelStyle style = host.style();
+        SettingsUiStrings strings = host.strings();
+        PanelDialog dialog = new PanelDialog(style.context(),
+                strings.get("settings_clear_module_data_done_title", "Spicy EX data deleted"));
+        dialog.paragraph(message);
+        dialog.secondary(strings.get("settings_cache_details_close", "Close"), null);
         dialog.show();
     }
 

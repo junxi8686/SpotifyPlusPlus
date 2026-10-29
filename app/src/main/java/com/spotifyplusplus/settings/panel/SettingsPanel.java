@@ -31,9 +31,9 @@ import com.spotifyplusplus.lyrics.cache.CacheStoragePolicy;
 import com.spotifyplusplus.lyrics.language.LanguageModelPack;
 import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
 import com.spotifyplusplus.lyrics.providers.LyricsFetchDiagnosticsState;
-import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.settings.BackupPicker;
+import com.spotifyplusplus.settings.ModuleDataWipe;
 import com.spotifyplusplus.settings.RowSyncPlan;
 import com.spotifyplusplus.settings.SettingsWriter;
 import com.spotifyplusplus.settings.SpicyBackup;
@@ -122,6 +122,8 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     /** One queued download-status tick at a time, so attach/detach cannot stack polling loops. */
     private boolean languageModelPollQueued;
+    /** One whole-module wipe at a time: a second tap while the first runs must be a no-op. */
+    private volatile boolean moduleDataClearing;
 
     /** Locale lookup for the pure policy layer; reads the current uiStrings on every call. */
     private final PanelStrings panelStrings = new PanelStrings() {
@@ -470,10 +472,6 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
         }
         if ("spicy_key".equals(id)) {
             spicyKeyRow(content);
-            return;
-        }
-        if ("spicy_manual_token".equals(id)) {
-            spicyManualTokenRow(content);
             return;
         }
         if ("baidu_key".equals(id)) {
@@ -840,14 +838,18 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
         content.addView(group, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         rows.infoRow(group, uiStrings.get("settings_backup_title", "Export and import"), "");
-        rows.actionRow(group, null,
+        // Leading icons come from the panel's ordinary action-row mechanism (the same Kind views
+        // every other icon-bearing row uses). No export/import glyph ships in the embedded icon
+        // set, so the pair reads by metaphor: a save/disk for writing a backup, a restore/reload
+        // arrow for reading one back.
+        rows.actionRow(group, Kind.SAVE,
                 uiStrings.get("settings_backup_export", "Export settings and data"),
                 v -> {
                     BackupPicker.ensureInstalled(context);
                     if (BackupPicker.startExport(context)) return;
                     exportToDownloadsOffThread();
                 });
-        rows.actionRow(group, null,
+        rows.actionRow(group, Kind.REFRESH,
                 uiStrings.get("settings_backup_import", "Import settings and data"),
                 v -> {
                     BackupPicker.ensureInstalled(context);
@@ -902,41 +904,6 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
             android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show();
         } catch (Throwable ignored) {
         }
-    }
-
-    /**
-     * The fork-only desktop-captured Spotify token.
-     *
-     * <p>Upstream retired the row; this tree still stores the value (and backs it up), so the panel
-     * keeps a way to enter, reveal and delete it rather than leaving a stored credential with no
-     * surface. The masked form is the only value drawn; the plaintext appears solely in the secure
-     * reveal dialog.
-     */
-    private void spicyManualTokenRow(LinearLayout content) {
-        LinearLayout group = new LinearLayout(context);
-        group.setOrientation(LinearLayout.VERTICAL);
-        group.setTag(PanelTags.row(Settings.SPICY_MANUAL_TOKEN));
-        content.addView(group, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        String masked = SpicyManualTokenStore.masked(context);
-        List<AiSettingsRows.IconAction> actions = new ArrayList<>();
-        actions.add(new AiSettingsRows.IconAction(Kind.EDIT,
-                uiStrings.get("settings_spicy_token_edit", "Edit token"),
-                v -> dialogs.promptSpicyToken()));
-        if (!masked.isEmpty()) {
-            actions.add(new AiSettingsRows.IconAction(Kind.VISIBILITY,
-                    uiStrings.get("settings_spicy_token_reveal", "Reveal token"),
-                    v -> dialogs.revealSpicyToken()));
-            actions.add(new AiSettingsRows.IconAction(Kind.DELETE,
-                    uiStrings.get("settings_spicy_token_delete", "Delete token"), v -> {
-                SpicyManualTokenStore.delete(context);
-                rebuildSection(Settings.LYRICS_SOURCES);
-            }));
-        }
-        rows.aiFieldRow(group, uiStrings.setting(Settings.SPICY_MANUAL_TOKEN),
-                masked.isEmpty() ? uiStrings.get("settings_spicy_token_absent", "Not set") : masked,
-                false, null, v -> dialogs.promptSpicyToken(),
-                actions.toArray(new AiSettingsRows.IconAction[0]));
     }
 
     /**
@@ -1127,6 +1094,9 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
                 "Clear AI results", CacheClearKind.AI);
         clearAction(content, "settings_action_clear_lyrics_cache",
                 "Clear lyrics response cache", CacheClearKind.LYRICS_RESPONSE);
+        rows.actionRow(content, Kind.DELETE,
+                uiStrings.get("settings_action_clear_module_data", "Delete all Spicy EX data"),
+                v -> dialogs.confirmClearModuleData(this::clearModuleDataOffThread));
         rows.actionRow(content, Kind.EXTERNAL_LINK,
                 uiStrings.get("settings_action_open_github", "Open GitHub"), v -> openGithub());
     }
@@ -1141,6 +1111,42 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
         // Cache clears update preference memory (and the AI database) before returning. Rebuild
         // the owning row now so its usage summary reflects the clear without closing the panel.
         rebuildSection(Settings.LYRICS_SOURCES);
+    }
+
+    /**
+     * The destructive reset, off the main thread.
+     *
+     * <p>Deletes every store the module owns (see {@link ModuleDataWipe}), then rebuilds the panel
+     * from the now-empty preference memory and tells the owner what was removed. A restart is
+     * required for the running process to forget its in-memory lyrics/caches/shell state, so the
+     * completion message says so instead of claiming the reset is already live.
+     */
+    private void clearModuleDataOffThread() {
+        if (moduleDataClearing) return;
+        moduleDataClearing = true;
+        final String doneFormat = uiStrings.get("settings_clear_module_data_done",
+                "Deleted %1$d items. Restart Spotify so the reset takes effect.");
+        final String failed = uiStrings.get("settings_clear_module_data_failed",
+                "Some Spicy EX data could not be deleted. Restart Spotify and try again.");
+        new Thread(() -> {
+            ModuleDataWipe.Result result = null;
+            try {
+                result = ModuleDataWipe.wipe(context);
+            } catch (Throwable failure) {
+                // Reported as a partial failure below; the panel must not die with the worker.
+            }
+            final ModuleDataWipe.Result outcome = result;
+            uiHandler.post(() -> {
+                moduleDataClearing = false;
+                if (!panelAttached) return;
+                rebuildSections();
+                if (outcome == null || outcome.failedItems > 0) {
+                    toast(failed);
+                } else {
+                    dialogs.showClearModuleDataResult(String.format(doneFormat, outcome.clearedItems));
+                }
+            });
+        }, "spicy-clear-module-data").start();
     }
 
     private void renderStatus(LinearLayout content) {
@@ -1311,10 +1317,6 @@ public final class SettingsPanel implements SettingRowFactory.Host, PanelDialogs
 
     @Override public void onSpicyKeyChanged() {
         if (lyricsHost != null) lyricsHost.reconcileLyricsSources();
-        rebuildSection(Settings.LYRICS_SOURCES);
-    }
-
-    @Override public void onSpicyTokenChanged() {
         rebuildSection(Settings.LYRICS_SOURCES);
     }
 

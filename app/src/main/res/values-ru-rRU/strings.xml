@@ -24,7 +24,6 @@
     <string name="settings_label_lyrics_source_selection_mode">Оценка источника</string>
     <string name="settings_label_lyrics_karaoke_original_lyrics">Показывать оригинальный текст для караоке-версий</string>
     <string name="settings_label_lyrics_source_override">Источник текстов</string>
-    <string name="settings_label_lyrics_spicy_manual_token">Токен Spicy вручную</string>
     <string name="settings_label_lyrics_source_order">Порядок источников текста</string>
     <string name="settings_label_lyrics_source_overrides">Разные источники для каждого трека</string>
     <string name="settings_option_lyrics_source_selection_mode_auto">Авто</string>
@@ -33,11 +32,6 @@
     <string name="settings_option_apple_music">Apple Music</string>
     <string name="settings_option_spicy">Spicy</string>
     <string name="settings_option_lrclib">LRCLIB</string>
-    <string name="settings_spicy_token_edit">Изменить токен</string>
-    <string name="settings_spicy_token_reveal">Раскрыть токен</string>
-    <string name="settings_spicy_token_delete">Удалить токен</string>
-    <string name="settings_spicy_token_absent">Не указано</string>
-    <string name="settings_spicy_token_rejected">Токен не сохранен</string>
     <string name="settings_source_none_enabled">Ничего не включено</string>
     <string name="settings_source_pinned_hint">Закрепить один источник, или использовать Оценку в каждом включенном источнике</string>
     <string name="settings_source_ranking_title">Оценка источников</string>
@@ -230,6 +224,13 @@
     <string name="settings_action_clear_reading_cache">Очистить кэш транслитерации</string>
     <string name="settings_action_clear_lyrics_cache">Очистить кэш запросов на текст</string>
     <string name="settings_action_open_github">Открыть GitHub</string>
+    <string name="settings_action_clear_module_data">Удалить все данные Spicy EX</string>
+    <string name="settings_clear_module_data_title">Удалить все данные Spicy EX?</string>
+    <string name="settings_clear_module_data_message">Удаляет каталог текстов, кэши, диагностику, настройки и сохранённые ключи — всё, что Spicy EX хранит внутри Spotify. Данные Spotify не затрагиваются, а резервные копии, экспортированные в Downloads, сохраняются. Отменить нельзя.</string>
+    <string name="settings_clear_module_data_confirm">Удалить всё</string>
+    <string name="settings_clear_module_data_done_title">Данные Spicy EX удалены</string>
+    <string name="settings_clear_module_data_done">Удалено объектов: %1$d. Перезапустите Spotify, чтобы сброс вступил в силу.</string>
+    <string name="settings_clear_module_data_failed">Не удалось удалить часть данных Spicy EX. Перезапустите Spotify и повторите попытку.</string>
     <string name="settings_status_summary">Последнее состояние: %1$s\nТрек: %2$s\nСтрока: %3$s</string>
     <string name="settings_diagnostic_source_chosen">Источник выбран</string>
     <string name="settings_diagnostic_candidates_seen">Просмотренные кандидаты</string>

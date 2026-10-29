@@ -1211,8 +1211,4 @@ public final class Settings {
             "lyrics_baidu_translate_secret", TRANSLATION, "Baidu secret key", ""
     );
 
-    public static final Setting<String> SPICY_MANUAL_TOKEN = stringSetting(false,
-            "lyrics_spicy_manual_token", LYRICS_SOURCES, "Spicy manual token", ""
-    );
-
 }

@@ -56,6 +56,8 @@ public final class PanelStyle {
         SECTION_ICONS.put("pip", Kind.PICTURE_IN_PICTURE);
         SECTION_ICONS.put("android_auto", Kind.CAR);
         SECTION_ICONS.put("debug", Kind.ACTIVITY);
+        // Fork-only backup section: the save/disk glyph matches the export action on its card.
+        SECTION_ICONS.put("backup", Kind.SAVE);
     }
 
     /** Recommended-tier leading icons per setting row; absent keys stay text-only. */

@@ -38,7 +38,6 @@
     <string name="settings_label_lyrics_hyper_aod_lyrics_enabled">Publish lyrics to HyperGlow</string>
     <string name="settings_label_lyrics_source_selection_mode">Lyrics source ranking</string>
     <string name="settings_label_lyrics_source_override">Lyrics source</string>
-    <string name="settings_label_lyrics_spicy_manual_token">Spicy manual token</string>
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org client key</string>
     <string name="settings_auto_root_requirement">Requires root and LSPosed/Vector. Scope Spotify and Android Auto.</string>
     <string name="settings_label_lyrics_source_order">Lyrics source order</string>
@@ -53,11 +52,6 @@
     <string name="settings_option_apple_music">Apple Music</string>
     <string name="settings_option_spicy">Spicy</string>
     <string name="settings_option_lrclib">LRCLIB</string>
-    <string name="settings_spicy_token_edit">Edit token</string>
-    <string name="settings_spicy_token_reveal">Reveal token</string>
-    <string name="settings_spicy_token_delete">Delete token</string>
-    <string name="settings_spicy_token_absent">Not set</string>
-    <string name="settings_spicy_token_rejected">Token not saved</string>
     <string name="settings_source_none_enabled">None enabled</string>
     <string name="settings_source_pinned_hint">Pin one source, or use Auto ranking across every enabled source.</string>
     <string name="settings_source_ranking_title">Ranking</string>
@@ -306,6 +300,13 @@
     <string name="settings_action_clear_reading_cache">Clear transliteration cache</string>
     <string name="settings_action_clear_lyrics_cache">Clear lyrics response cache</string>
     <string name="settings_action_open_github">Open GitHub</string>
+    <string name="settings_action_clear_module_data">Delete all Spicy EX data</string>
+    <string name="settings_clear_module_data_title">Delete all Spicy EX data?</string>
+    <string name="settings_clear_module_data_message">Deletes the lyric catalogue, caches, diagnostics, settings and saved keys — everything Spicy EX keeps inside Spotify. Spotify\'s own data is not touched, and backups you exported to Downloads are kept. This cannot be undone.</string>
+    <string name="settings_clear_module_data_confirm">Delete everything</string>
+    <string name="settings_clear_module_data_done_title">Spicy EX data deleted</string>
+    <string name="settings_clear_module_data_done">Deleted %1$d items. Restart Spotify so the reset takes effect.</string>
+    <string name="settings_clear_module_data_failed">Some Spicy EX data could not be deleted. Restart Spotify and try again.</string>
     <string name="settings_status_summary">Last state: %1$s\nTrack: %2$s\nLine: %3$s</string>
     <string name="settings_diagnostic_source_chosen">Source chosen</string>
     <string name="settings_diagnostic_candidates_seen">Candidates seen</string>

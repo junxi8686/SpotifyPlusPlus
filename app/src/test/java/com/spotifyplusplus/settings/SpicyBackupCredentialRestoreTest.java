@@ -5,7 +5,6 @@ import com.spotifyplusplus.SpotifyPlusConfig;
 import com.spotifyplusplus.lyrics.ai.AiCredentialStore;
 import com.spotifyplusplus.lyrics.ai.AiSettings;
 import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
-import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.testsupport.FakeAndroidContext;
 
@@ -259,8 +258,7 @@ public class SpicyBackupCredentialRestoreTest {
                 "custom",
                 BaiduTranslateCredentials.APP_ID_SCOPE,
                 BaiduTranslateCredentials.SECRET_SCOPE,
-                SpicyOrgKeyStore.SCOPE,
-                SpicyManualTokenStore.SCOPE));
+                SpicyOrgKeyStore.SCOPE));
 
         Set<String> keys = new HashSet<>();
         for (String scope : scopes) {
@@ -269,9 +267,9 @@ public class SpicyBackupCredentialRestoreTest {
             assertEquals(scope, AiCredentialStore.scopeOf(key));
             assertTrue("duplicate scope " + scope, keys.add(key));
         }
-        // Five providers, the Baidu pair, the SpicyLyrics.org key and the desktop token. A new
-        // secret added to any store must be named here, or a restore cannot report it.
-        assertEquals(9, scopes.size());
+        // Five providers, the Baidu pair and the SpicyLyrics.org key. A new secret added to any
+        // store must be named here, or a restore cannot report it.
+        assertEquals(8, scopes.size());
     }
 
     @Test

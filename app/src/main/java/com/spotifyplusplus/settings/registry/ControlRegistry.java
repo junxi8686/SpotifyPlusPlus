@@ -368,9 +368,6 @@ public final class ControlRegistry {
         // the mode entry renders, the other two are the row's label and its stored order.
         panelComposite(rows, Settings.LYRICS_SOURCE_MODE, "source_row", Visibility.ALWAYS);
         panelComposite(rows, Settings.LYRICS_SOURCE_OVERRIDE, "source_row", Visibility.NEVER);
-        // Fork-only legacy desktop-captured token. Upstream retired the row, this tree still stores
-        // and backs up the value, so the panel keeps describing it rather than dropping it silently.
-        panelComposite(rows, Settings.SPICY_MANUAL_TOKEN, "spicy_manual_token", Visibility.ALWAYS);
         panelComposite(rows, Settings.SPICY_ORG_CLIENT_KEY, "spicy_key", Visibility.ALWAYS);
         panelComposite(rows, Settings.LYRICS_SOURCE_ORDER, "source_row", Visibility.NEVER);
         panelToggle(rows, Settings.KARAOKE_ORIGINAL_LYRICS, Visibility.ALWAYS);

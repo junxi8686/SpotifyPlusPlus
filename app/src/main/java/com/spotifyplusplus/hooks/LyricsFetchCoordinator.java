@@ -14,7 +14,6 @@ import com.spotifyplusplus.lyrics.processing.LyricsDocumentProcessor;
 import com.spotifyplusplus.lyrics.providers.LyricsParser;
 import com.spotifyplusplus.lyrics.providers.LyricsRepository;
 import com.spotifyplusplus.lyrics.providers.NativeLyricsSource;
-import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.catalog.CatalogRequestIdentity;
 
 import java.util.ArrayList;
@@ -84,11 +83,6 @@ final class LyricsFetchCoordinator {
         // Source selection is owned by LyricsSourcePreferences toggles/order. The retired
         // global override must not bypass that policy.
         String sourceOverride = "Auto";
-        String manualSpicyToken = SpicyManualTokenStore.load(context);
-        boolean strictSpicy = false;
-        if (strictSpicy && manualSpicyToken != null && !manualSpicyToken.trim().isEmpty()) {
-            sendToken = true;
-        }
         // M3: in-flight identity uses the non-secret token generation from the token store
         // (never the raw token, never a token-present boolean), so a fresh token generation
         // can never join an in-flight stale-token request. The snapshot binds the token text
@@ -137,9 +131,6 @@ final class LyricsFetchCoordinator {
                 NativeRuntime.LYRICS_IO
         );
         String accessToken = authorized == null ? "" : authorized.token();
-        if (strictSpicy && manualSpicyToken != null && !manualSpicyToken.trim().isEmpty()) {
-            accessToken = manualSpicyToken.trim();
-        }
         final boolean requestSendToken = sendToken;
         final String requestAccessToken = accessToken;
         int tokenGeneration = authorized == null ? TOKEN_GENERATION_NONE : authorized.generation();

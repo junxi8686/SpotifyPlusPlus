@@ -203,6 +203,13 @@
     <string name="settings_action_clear_translation_cache">清除翻译缓存</string>
     <string name="settings_action_clear_lyrics_cache">清除歌词响应缓存</string>
     <string name="settings_action_open_github">打开 GitHub</string>
+    <string name="settings_action_clear_module_data">删除本模块全部数据</string>
+    <string name="settings_clear_module_data_title">删除本模块全部数据？</string>
+    <string name="settings_clear_module_data_message">将删除歌词库、缓存、诊断数据、设置和已保存的密钥——本模块在 Spotify 内保存的全部内容。不会影响 Spotify 自身的数据，已导出到 Downloads 的备份会保留。此操作无法撤销。</string>
+    <string name="settings_clear_module_data_confirm">全部删除</string>
+    <string name="settings_clear_module_data_done_title">本模块数据已删除</string>
+    <string name="settings_clear_module_data_done">已删除 %1$d 项。请重启 Spotify 以完成重置。</string>
+    <string name="settings_clear_module_data_failed">部分数据未能删除。请重启 Spotify 后重试。</string>
     <string name="settings_status_summary">最近状态：%1$s\n曲目：%2$s\n歌词：%3$s</string>
     <string name="settings_diagnostic_source_chosen">已选来源</string>
     <string name="settings_diagnostic_candidates_seen">候选来源</string>
@@ -341,7 +348,6 @@
     <string name="settings_option_lyrics_language_preference_prefer_original">优先原文</string>
     <string name="settings_option_lyrics_language_preference_prefer_chinese_translation">优先中文翻译</string>
     <string name="settings_label_lyrics_source_overrides">按曲目指定歌词来源</string>
-    <string name="settings_label_lyrics_spicy_manual_token">Spicy 手动令牌</string>
     <string name="settings_label_lyrics_spicy_org_client_key">SpicyLyrics.org 客户端密钥</string>
     <string name="settings_auto_root_requirement">需要 root 与 LSPosed/Vector，并在作用域中勾选 Spotify 和 Android Auto。</string>
     <string name="settings_section_android_auto">Android Auto</string>
@@ -355,11 +361,6 @@
     <string name="settings_option_apple_music">Apple Music</string>
     <string name="settings_option_spicy">Spicy</string>
     <string name="settings_option_lrclib">LRCLIB</string>
-    <string name="settings_spicy_token_edit">修改令牌</string>
-    <string name="settings_spicy_token_reveal">显示令牌</string>
-    <string name="settings_spicy_token_delete">删除令牌</string>
-    <string name="settings_spicy_token_absent">未设置</string>
-    <string name="settings_spicy_token_rejected">令牌未保存</string>
     <string name="settings_source_pinned_hint">固定某一个来源，或在所有已启用来源之间使用自动排序。</string>
     <string name="settings_source_ranking_title">排序</string>
     <string name="settings_source_ranking_auto_desc">SpicyLyrics.org → Spotify → AMLL，然后是后备来源</string>

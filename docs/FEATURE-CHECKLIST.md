@@ -18,7 +18,7 @@
 2. **字符串层**：每个功能的界面文案键，必须在 `values/`、`values-zh-rCN/`、`app/translation/strings-template.xml` 三处都存在。运行时能取到但没人引用的键 = 孤儿，说明功能没接上。
 3. **界面层**（真机）：按"入口"列描述的位置点进去，能看见、能操作。
 4. **构建层**：`:app:assembleDebug` 与 `:app:testDebugUnitTest` 必须 `GRADLE_EXIT=0`、failures=0、errors=0。
-5. **死开关检查**：设置项光"被读取"不算接通。必须追到它的值真的进入某个请求或行为分支；如果读取之后被硬编码的常量挡掉（例如 `if (flag && …)` 而 `flag` 恒为 `false`），那就是死开关，记 ❌ 或 ⚠️。2026-10-29 的「Spicy 手动令牌」就是这样：能存能备份能显示，但 `strictSpicy` 硬编码 `false`，填了不生效。
+5. **死开关检查**：设置项光"被读取"不算接通。必须追到它的值真的进入某个请求或行为分支；如果读取之后被硬编码的常量挡掉（例如 `if (flag && …)` 而 `flag` 恒为 `false`），那就是死开关，记 ❌ 或 ⚠️。2026-10-29 的「Spicy 手动令牌」就是这样：能存能备份能显示，但 `strictSpicy` 硬编码 `false`，填了不生效——当天已删除。
 
 ---
 
@@ -33,7 +33,7 @@
 | A3 | 来源面板：逐行检查与状态 | 歌词页齿轮 →「选择歌词来源」；每行应显示 检查中/已找到/未找到/失败，可单点重试 | `hooks/LyricsSourcePickerDialog`、`lyrics/catalog/CatalogPickerModel` | ✅ |
 | A4 | 来源面板：20 秒看门狗解锁 | 面板里某行卡在"检查中"超过 20 秒，应自动解锁并提示可重试 | `LyricsSourcePickerDialog.RUN_TIMEOUT_MS` | ✅ |
 | A5 | 按名称手动搜索歌词 | 来源面板 →「按名称搜索…」→ 选来源 → 输入 → 结果逐条点选 | `lyrics/providers/ManualLyricsSearch`、`ManualLyricsQuery`、`SmartSearch` | ✅ |
-| A6 | 手动令牌歌词来源 | 设置 →「Spicy 手动令牌」可填/查看/删除 | `lyrics/providers/SpicyManualTokenStore`、`settings/panel/PanelDialogs` | ⚠️ **死开关**：能存、能备份、能显示，但唯一消费者是 `LyricsFetchCoordinator` 里 `if (strictSpicy && …)`，而 `strictSpicy` 硬编码 `false`，填了不生效。待决定删除或启用 |
+| A6 | ~~手动令牌歌词来源~~ | — | 已删除 | ❌ 2026-10-29 移除。原因：读取它的两条分支被恒定 `false` 挡死，且它服务的传输通道已废弃（`SpicyOrgProtocol` 只用 `sl_pk_` 客户端密钥）。死开关，留着只会误导 |
 | A7 | SpicyLyrics.org 来源 + 客户端密钥 | 设置 →「SpicyLyrics.org 客户端密钥」填入；来源面板该行可用 | `LyricsFetchCoordinator`、`SpotifyTokenStore` | ⚠️ 少了「显示」按钮，见 E9 |
 | A8 | QQ 音乐按槽位节流 | 日志 `qq request id=` 之间有明显间隔，不并发刷 | `lyrics/providers/LyricsRepository` | ✅ |
 | A9 | 来源请求守卫 | 同一来源重复请求被合并 | `lyrics/providers/SourceRequestGuard` | ✅ |
@@ -93,7 +93,8 @@
 
 | # | 功能 | 入口 / 怎么验 | 代码位置 | 状态 |
 |---|---|---|---|---|
-| F1 | 凭据加密存储（Spicy 令牌 / SpicyLyrics.org 密钥 / 百度 AppID+密钥） | 填入后杀进程重开仍在 | `BaiduTranslateCredentials`、`SpicyManualTokenStore`、`SpotifyTokenStore` | ✅ |
+| F1 | 凭据加密存储（SpicyLyrics.org 客户端密钥 / 百度 AppID+密钥 / 各 AI 密钥） | 填入后杀进程重开仍在 | `BaiduTranslateCredentials`、`SpotifyOrgKeyStore`、`AiCredentialStore` | ✅ |
+| F5 | **清除本模块的所有内容** | 设置 → 关于与诊断 →「清除本模块的所有内容」 | `settings/ModuleDataWipe`、`settings/panel/PanelDialogs` | ✅ 清 3 个数据库、15 个 prefs、加密凭据与 Keystore 别名、字体/语言包/agent 通道/各类缓存；不动 Spotify 自身数据与已导出的备份；清完需重启 Spotify |
 | F2 | 恢复备份时保护本机可用密钥 | 用旧备份覆盖导入后，本机原密钥不应变空 | `SpicyBackup.planCredentialRestore` | ✅ |
 | F3 | 解不开的密钥逐项提示重填 | 跨设备导入后弹窗列出需重填的项 | `SpicyBackup.RestoreOutcome` | ✅ |
 | F4 | 备份/恢复覆盖全部设置与数据 | 导出→改设置→导入→设置回到导出时 | `SpicyBackup` | ✅ |
@@ -150,4 +151,5 @@
 
 | 日期 | 版本 | 内容 |
 |---|---|---|
+| 2026-10-29 | 1.6.1 | 删除「Spicy 手动令牌」死开关（设置项、面板行、对话框、存储类、三份资源与备份范围一并移除）；导出/导入补图标（保存 / 还原）；新增「清除本模块的所有内容」 |
 | 2026-10-29 | 1.6.0 | 合并上游 v2.1.0 + v2.1.4（378 文件）；恢复三组被合并丢失的入口（导出/导入、字体路径编辑、客户端密钥显示，并补 3 条测试钉住这类丢失）；来源面板两处显示修复（探测不再依赖会话「当前曲目」、已找到不再显示成没查过）；本文件首次建立，登记 60 项功能与 5 条硬底线 |

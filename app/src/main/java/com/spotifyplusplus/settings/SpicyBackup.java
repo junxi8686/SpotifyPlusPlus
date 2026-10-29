@@ -16,7 +16,6 @@ import com.spotifyplusplus.SpotifyPlusConfig;
 import com.spotifyplusplus.lyrics.ai.AiCredentialStore;
 import com.spotifyplusplus.lyrics.ai.AiSettings;
 import com.spotifyplusplus.lyrics.processing.BaiduTranslateCredentials;
-import com.spotifyplusplus.lyrics.providers.SpicyManualTokenStore;
 import com.spotifyplusplus.lyrics.providers.SpicyOrgKeyStore;
 import com.spotifyplusplus.ui.SettingsUiStrings;
 import com.google.gson.JsonArray;
@@ -47,8 +46,8 @@ import java.util.Set;
  * merges it back. What is covered is the {@link #STORES} list, the {@link #DATABASES} list and the
  * {@link #FILE_DIRS} list; nothing else in the module's storage travels.
  *
- * <p>{@code SpotifyPlusAiCredentials} holds the provider keys, the Baidu app id and secret, the
- * SpicyLyrics.org client key and the desktop token, encrypted - the ciphertext is copied verbatim.
+ * <p>{@code SpotifyPlusAiCredentials} holds the provider keys, the Baidu app id and secret and the
+ * SpicyLyrics.org client key, encrypted - the ciphertext is copied verbatim.
  * That is the intended behaviour, and it has two sides worth stating plainly:
  *
  * <ul>
@@ -331,9 +330,6 @@ public final class SpicyBackup {
         }
         if (SpicyOrgKeyStore.SCOPE.equals(scope)) {
             return strings.setting(Settings.SPICY_ORG_CLIENT_KEY);
-        }
-        if (SpicyManualTokenStore.SCOPE.equals(scope)) {
-            return strings.setting(Settings.SPICY_MANUAL_TOKEN);
         }
         return strings.get("settings_backup_credential_other", "Stored credential");
     }
