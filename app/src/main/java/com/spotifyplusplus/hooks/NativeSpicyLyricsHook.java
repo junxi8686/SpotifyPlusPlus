@@ -58,6 +58,14 @@ public class NativeSpicyLyricsHook extends SpotifyHook implements LyricsHost {
         XpLog.log(TAG + " [" + BUILD_CLUE + "] " + function + "() " + safe(message));
     }
 
+    /**
+     * True when {@link #dbg} actually logs. Hot per-frame paths use this to skip building the
+     * message string entirely while debug logging is compiled out.
+     */
+    public static boolean debugEnabled() {
+        return DEBUG_LOGGING;
+    }
+
     static void dbgEnter(String function) {
         dbg(function, "enter");
     }

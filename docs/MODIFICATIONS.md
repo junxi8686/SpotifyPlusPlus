@@ -49,7 +49,7 @@
 - **翻译行排版**：上游把译文画成**斜体 + 次要字号**（`LyricsRowViewFactory`）；本仓按用户对照要求改为**正体、常规字重、默认主行 62%** 并新增「翻译字号」设置（40–100%，`Settings.TRANSLATION_TEXT_SIZE`，以拖拽滑块呈现、直接显示百分比，交互同布局编辑器的「句子间距」）；当前句译文随主行同步提亮（`LyricsLineViewState.applyLineLevelGradient` 现同时作用于 `translationView`）。仅影响全屏歌词的动态译文行；静态投影面（车机）仍用原有静态次要文本
 - **桥接机制**：上游的桥接实现已并入本仓（按方法合并 provider、drain/clear 顺序、字符形式投影），在上述保留项之下工作
 - **Apple Music**：**2026-10-29 起恢复为正常歌词来源**（用户明确要求，代码与上游 v2.1.4 一致，并加入来源竞选与评分）：默认开启、默认顺序第二位、自动竞选第一轮即询问、`check apple` 可用；同名动效风格一直保留。`Spicy` 旧桌面令牌别名仍在退役集合，不随之恢复
-- **Apple Music 逐字动效与填充（2026-10-29，1.6.3）**：上游对 Word 级时间轴文档同样把行级缩放作用在整个词容器上、并让整句扫描覆盖逐词填充；本仓按用户反馈修正为：有真实逐词时间的行整行词容器保持 1（逐词上浮与 flex 词强调接管），整句扫描不作用于这类行（白色推进由逐词填色决定）。无真实逐词时间的行（Line 文档、合成词跨度）与上游行为完全一致；车机（Auto）投影页显式选择平滑整句扫描（`smoothSentenceGradient`），不受此修正影响（`LyricsFrameRenderer.wordBlockContainerScaleTarget` / `sentenceFillOwnsRow`）
+- **Apple Music 逐字动效与填充（2026-10-29，1.6.3）**：上游对 Word 级时间轴文档同样把行级缩放作用在整个词容器上、并让整句扫描覆盖逐词填充；本仓按用户反馈修正为：有真实逐词时间的行整行词容器保持 1（逐词上浮与 flex 词强调接管），整句扫描不作用于这类行（白色推进由逐词填色决定）。无真实逐词时间的行（Line 文档、合成词跨度）与上游行为完全一致；车机（Auto）投影页显式选择平滑整句扫描（`smoothSentenceGradient`），不受此修正影响（`LyricsFrameRenderer.wordBlockContainerScaleTarget` / `sentenceFillOwnsRow`）。2026-10-29 第二轮（1.6.4）：Line 文档在 Apple 风格下改为**整行点亮**，不再按合成词跨度逐字扫光（`LyricsFrameRenderer.appleWholeLineLighting`；`LINE_FILL` 不再影响 Apple 风格 Line 文档）；逐词填色进度改为由词自身 span 计算并加测试钉住（`activeWordIndex`/`activeWordFraction`），另加 `fillOwner` 帧诊断，仅在编译期 `DEBUG_LOGGING` 打开时输出
 
 ## 未修改
 - 上游的 `LICENSE`（AGPL-3.0）与原作者版权声明

@@ -38,11 +38,18 @@ public class SentenceRenderRoutingTest {
         }
     }
 
-    @Test public void appleLineSentenceSelectionDoesNotLightTheWholeBlock() throws Exception {
+    /**
+     * A Line-synced document under Apple style lights as one whole line even with the sentence
+     * switch selected: the owner saw the sentence sweep paint a character-by-character karaoke on
+     * line lyrics and asked for line lighting (2026-10-29). The sentence switch still steers every
+     * non-Apple style, and the sentence geometry itself is still planned for the surfaces that use
+     * it - the renderer just no longer applies it to an Apple whole-line row.
+     */
+    @Test public void appleLineSentenceSelectionStillLightsTheWholeLine() throws Exception {
         LyricsDocument document = new LyricsDocument();
         document.type = "Line";
         LyricsRenderConfig config = config(LineSyncFill.SENTENCE);
-        assertFalse(LyricsFrameRenderer.lightsAppleLineAsWhole(config, document));
+        assertTrue(LyricsFrameRenderer.lightsAppleLineAsWhole(config, document));
         AppliedLine line = new AppliedLine();
         line.text = "first visual line second visual line";
         line.startMs = 1000;

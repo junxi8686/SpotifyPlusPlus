@@ -17,6 +17,8 @@ import java.util.List;
 /** Applies one fullscreen lyric animation frame to the currently mounted row window. */
 public final class LyricsFrameRenderer {
     private static final int SCROLL_RENDER_MARGIN_ROWS = 8;
+    /** Cadence of the fill-owner debug line; it is compiled out with {@code DEBUG_LOGGING}. */
+    private static final int FILL_DIAGNOSTIC_EVERY = 10;
     /** A row this short reads as a visual accent rather than a paragraph, and takes a gentler blur
      *  curve so it does not dissolve entirely while its neighbours stay legible. */
     private static final int SHORT_LINE_CODE_POINTS = 12;
@@ -26,6 +28,8 @@ public final class LyricsFrameRenderer {
     private final float density;
     private int lastActiveIndex = Integer.MIN_VALUE;
     private boolean lastUserScrollHeld;
+    /** Frame counter for the fill diagnostic; unused while debug logging is compiled out. */
+    private int fillDiagnosticFrame;
 
     public LyricsFrameRenderer(Context context, FrameStyleBatcher styleBatcher) {
         this.styleBatcher = styleBatcher;
@@ -171,6 +175,11 @@ public final class LyricsFrameRenderer {
                     line, positionMs, config.spotlight, config.lineGradientEnabled,
                     config.appleDimPassed, config.appleStyle);
             int targetClass = lineState.active ? 1 : lineState.sung ? 2 : 0;
+            if (lineState.active && line.words != null && !line.words.isEmpty()
+                    && com.spotifyplusplus.hooks.NativeSpicyLyricsHook.debugEnabled()
+                    && (fillDiagnosticFrame++ % FILL_DIAGNOSTIC_EVERY) == 0) {
+                logFillOwner(document, line, lineState, positionMs);
+            }
             // Refresh blur on hold transitions so rows go sharp while held and restore on
             // release; steady hold needs no refresh (values already settled). While held,
             // active-line advances must not restore blur either: resume happens only on
@@ -391,7 +400,7 @@ public final class LyricsFrameRenderer {
                     }
                 }
             }
-            if (!line.dotLine && sentenceFillOwnsRow(line)
+            if (!line.dotLine && !appleLineDocument && sentenceFillOwnsRow(line)
                     && config.lineGradientEnabled && !config.spotlight
                     && LyricsLineViewState.continuousSentenceFill(line)) {
                 LyricsLineViewState.applySentenceGradient(line,
@@ -406,9 +415,25 @@ public final class LyricsFrameRenderer {
     }
 
     static boolean lightsAppleLineAsWhole(LyricsRenderConfig config, LyricsDocument document) {
-        // An explicit sentence sweep owns the fill geometry, including in Apple style.
-        return config.appleStyle && "Line".equalsIgnoreCase(document.type)
-                && !(config.lineSyncFillSentence() && config.lineGradientEnabled && !config.spotlight);
+        return appleWholeLineLighting(config.appleStyle, document == null ? "" : document.type);
+    }
+
+    /**
+     * Whether an Apple-style row lights as one whole line (pure, unit-tested).
+     *
+     * <p>A Line-synced document has no real per-word timing, so sweeping its rows through the
+     * fabricated word spans - or through the synthetic sentence sweep - paints a
+     * character-by-character karaoke that line lyrics never asked for (the owner saw it as
+     * 「非常的有问题」). Light the row as a line instead: the whole row takes the sung colour as it
+     * becomes active, which is what 「逐行」 is meant to read like.
+     *
+     * <p>The setting that steers this is <b>Animation style = Apple Music</b>: only the Apple stack
+     * lights whole lines. The LINE_FILL direction no longer changes Apple-style Line documents; it
+     * still steers every non-Apple style, and word-timed documents are never collapsed to a whole
+     * line.
+     */
+    static boolean appleWholeLineLighting(boolean appleStyle, String documentType) {
+        return appleStyle && "Line".equalsIgnoreCase(documentType);
     }
 
     static boolean hasRealTimedWords(AppliedLine line) {
@@ -447,6 +472,64 @@ public final class LyricsFrameRenderer {
         // projected page. Only the projector sets this flag.
         if (line != null && line.smoothSentenceGradient) return true;
         return !hasRealTimedWords(line);
+    }
+
+    /**
+     * Index of the word span containing {@code positionMs} - or the last span already sung when
+     * the position sits in a gap - and -1 when the row has no word spans.
+     *
+     * <p>This is the index the per-word fill route keys on ({@code animateSegmentVisuals} fills
+     * each segment from its own {@code startMs}/{@code endMs}), and the fill diagnostic reports it
+     * so a device log can prove whether the sweep is using word time or line time.
+     */
+    static int activeWordIndex(AppliedLine line, long positionMs) {
+        if (line == null || line.words == null || line.words.isEmpty()) return -1;
+        int lastSung = -1;
+        for (int i = 0; i < line.words.size(); i++) {
+            SyllableSegment word = line.words.get(i);
+            if (word == null) continue;
+            if (positionMs < word.startMs) break;
+            lastSung = i;
+            if (positionMs < word.endMs) return i;
+        }
+        return lastSung;
+    }
+
+    /**
+     * Progress inside the sung word's own span, in [0,1] - never the row window. Keeping this next
+     * to {@link #activeWordIndex} lets the decision tests pin that word-timed rows fill from word
+     * spans: at 2100ms on a 1000-3200ms row the word fraction can be 0.25 while the row fraction is
+     * 0.5, and the fill must follow 0.25.
+     */
+    static float activeWordFraction(AppliedLine line, long positionMs) {
+        int index = activeWordIndex(line, positionMs);
+        if (index < 0) return 0f;
+        SyllableSegment word = line.words.get(index);
+        if (word == null || word.endMs <= word.startMs) return 1f;
+        return progress01(positionMs, word.startMs, word.endMs);
+    }
+
+    /**
+     * The fill diagnostic: one line for the active row every {@value #FILL_DIAGNOSTIC_EVERY}
+     * frames, silent unless the compile-time debug flag is on. It answers whether a slow sweep
+     * comes from the row window, from wrong word timings, or from the frame cadence: it reports
+     * both progress figures and the times each was computed from.
+     */
+    private void logFillOwner(LyricsDocument document, AppliedLine line,
+                              LyricsLineAnimationState lineState, long positionMs) {
+        int wordIndex = activeWordIndex(line, positionMs);
+        SyllableSegment word = wordIndex < 0 ? null : line.words.get(wordIndex);
+        float rowFraction = (lineState.gradient - LyricAnimations.GRADIENT_UNSUNG)
+                / LyricAnimations.GRADIENT_RANGE;
+        com.spotifyplusplus.hooks.NativeSpicyLyricsHook.dbg("fillOwner",
+                "type=" + (document == null ? "null" : document.type)
+                        + " words=" + line.words.size()
+                        + " sentenceFill=" + sentenceFillOwnsRow(line)
+                        + " rowFill=" + rowFraction
+                        + " wordIndex=" + wordIndex
+                        + " wordFraction=" + activeWordFraction(line, positionMs)
+                        + " line=" + line.startMs + ".." + line.endMs
+                        + " word=" + (word == null ? "none" : word.startMs + ".." + word.endMs));
     }
 
     private boolean wordBounceEnabled(LyricsRenderConfig config, AppliedLine line) {
@@ -637,7 +720,7 @@ public final class LyricsFrameRenderer {
                 config.appleStyle, quality);
     }
 
-    private float progress01(long positionMs, long startMs, long endMs) {
+    private static float progress01(long positionMs, long startMs, long endMs) {
         if (endMs <= startMs) return positionMs >= endMs ? 1f : 0f;
         return LyricAnimations.clamp01((positionMs - startMs) / (float) (endMs - startMs));
     }

@@ -217,6 +217,64 @@ public class LyricsFrameRendererRouteTest {
         assertTrue(LyricsFrameRenderer.sentenceFillOwnsRow(null));
     }
 
+    /**
+     * A Line-synced document under Apple style lights as a whole line instead of being swept
+     * character by character through fabricated word spans. Word-timed documents and every
+     * non-Apple style keep their existing routes.
+     */
+    @Test
+    public void appleLightsLineDocumentsAsWholeLines() {
+        assertTrue(LyricsFrameRenderer.appleWholeLineLighting(true, "Line"));
+        assertTrue(LyricsFrameRenderer.appleWholeLineLighting(true, "line"));
+        assertFalse("word-timed documents are never collapsed to a whole line",
+                LyricsFrameRenderer.appleWholeLineLighting(true, "Word"));
+        assertFalse(LyricsFrameRenderer.appleWholeLineLighting(true, "Syllable"));
+        assertFalse("non-Apple styles keep the sentence/word sweep",
+                LyricsFrameRenderer.appleWholeLineLighting(false, "Line"));
+        assertFalse(LyricsFrameRenderer.appleWholeLineLighting(true, null));
+    }
+
+    /**
+     * A word-timed row fills from each word's own span, not from the row window: at 2100ms the
+     * word fraction is 0.25 while the row fraction would be 0.5, and the fill must follow 0.25.
+     */
+    @Test
+    public void wordFillProgressComesFromTheWordSpan() {
+        AppliedLine line = new AppliedLine();
+        line.startMs = 1000;
+        line.endMs = 3200;
+        line.words.add(segment("a", 1000, 1200));
+        line.words.add(segment("b", 2000, 2400));
+        line.words.add(segment("c", 3000, 3200));
+
+        assertEquals(1, LyricsFrameRenderer.activeWordIndex(line, 2100));
+        assertEquals(0.25f, LyricsFrameRenderer.activeWordFraction(line, 2100), 0.0001f);
+        // The row window would report a different number at the same instant - the value the fill
+        // must NOT use.
+        assertEquals(0.5f, (2100f - line.startMs) / (line.endMs - line.startMs), 0.0001f);
+
+        // Sung word with a gap after it: the last sung span keeps the fraction at 1.
+        assertEquals(0, LyricsFrameRenderer.activeWordIndex(line, 1500));
+        assertEquals(1f, LyricsFrameRenderer.activeWordFraction(line, 1500), 0.0001f);
+        // No words at all: no word span to own the fill.
+        assertEquals(-1, LyricsFrameRenderer.activeWordIndex(new AppliedLine(), 2100));
+    }
+
+    /**
+     * A line-only row has no real word timing, so the Apple whole-line path owns it even when the
+     * sentence switch is on; the synthetic word spans must not be used for a character sweep.
+     */
+    @Test
+    public void lineOnlyRowsStayOnTheWholeLinePath() {
+        AppliedLine synthetic = new AppliedLine();
+        synthetic.syntheticWords = true;
+        synthetic.words.add(segment("a", 1000, 1500));
+        assertFalse("synthetic spans are not real word timing",
+                LyricsFrameRenderer.hasRealTimedWords(synthetic));
+        assertTrue("a line row lights as a whole line under Apple style",
+                LyricsFrameRenderer.appleWholeLineLighting(true, "Line"));
+    }
+
     private static SyllableSegment segment(String text, long startMs, long endMs) {
         SyllableSegment seg = new SyllableSegment();
         seg.text = text;
