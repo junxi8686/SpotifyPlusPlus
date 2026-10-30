@@ -12,7 +12,7 @@
 
 **简体中文** · [English](README.en.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Русский](README.ru.md)
 
-![版本 1.6](https://img.shields.io/badge/release-1.6-blue) ![许可 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
+![版本 1.6](https://img.shields.io/badge/release-1.6.5-blue) ![许可 AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green) ![Android 8.1+](https://img.shields.io/badge/platform-Android%208.1%2B-3ddc84) ![LSPosed / Xposed](https://img.shields.io/badge/framework-LSPosed%20%7C%20Xposed-orange)
 
 </div>
 
@@ -47,6 +47,13 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 Spicy EX�
 
 ---
 
+## 1.6.1 → 1.6.5 更新
+
+- **1.6.1** —— 删除「Spicy 手动令牌」死开关；导出/导入补图标；新增「清除本模块的所有内容」；恢复 Apple Music 作为歌词来源（默认启用、参与竞选）；修好顶部模糊（以前歌词清晰压住头部）；新增「背景模糊」可调
+- **1.6.2** —— 翻译字号默认 62% 且可调、字重跟随主歌词、当前句翻译保持灰；背景最浅档不再偏黑；背景模糊默认回到原版参数
+- **1.6.3** —— 逐字歌词不再「整句一起变大」；卡拉OK白条按每个字的时间推进
+- **1.6.4** —— 逐行歌词不再假装逐字，按整行点亮
+- **1.6.5** —— 新增「翻译服务」选择：在线翻译 / 百度翻译 / 仅歌词来源，百度翻译终于可以在设置里选
 ## 1.6 新增与修复
 
 ### 新增功能
