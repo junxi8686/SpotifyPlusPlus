@@ -334,7 +334,7 @@ Spotify++ 是一个运行在 Spotify 进程内的歌词模块，基于 Spicy EX�
 - 比当前版本更新的备份会被拒绝，而不是猜测
 - 恢复后曲库与翻译缓存**要等 Spotify 重启才生效**
 
-相关文档：[MODIFICATIONS.md](docs/MODIFICATIONS.md)（AGPL 修改声明）、[FEATURES_USER.md](FEATURES_USER.md)（功能清单）、[READINGS.md](READINGS.md)（读音与转写指南）。
+相关文档：[MODIFICATIONS.md](docs/MODIFICATIONS.md)（AGPL 修改声明）、[FEATURE-CHECKLIST.md](docs/FEATURE-CHECKLIST.md)（功能清单）、[READINGS.md](docs/READINGS.md)（读音与转写指南）。
 
 ---
 
@@ -492,7 +492,7 @@ Windows 用 `gradlew.bat`。
 - 适配 Spotify 9.1.88 – 9.1.90 的曲目获取与悬浮窗（上游写法在新版会抛 `NoSuchMethodException`，导致自动搜索整体失效）
 - 修复翻译链路：中文翻译被丢弃、卡在「翻译中」、失败无提示、重复行没有翻译
 
-详见 [MODIFICATIONS.md](docs/MODIFICATIONS.md) 与 [FEATURES_USER.md](FEATURES_USER.md)。
+详见 [MODIFICATIONS.md](docs/MODIFICATIONS.md) 与 [FEATURE-CHECKLIST.md](docs/FEATURE-CHECKLIST.md)。
 
 ---
 

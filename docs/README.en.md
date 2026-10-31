@@ -327,7 +327,7 @@ If the device already holds a credential it can still read, a restore **never re
 - A backup written by a newer version is refused rather than guessed at
 - The catalogue and the translation cache **take effect after Spotify restarts**
 
-Related documents: [MODIFICATIONS.md](MODIFICATIONS.md) (the AGPL change notice), [FEATURES_USER.md](FEATURES_USER.md) (the feature list) and [READINGS.md](READINGS.md) (the readings and transliteration guide).
+Related documents: [MODIFICATIONS.md](MODIFICATIONS.md) (the AGPL change notice), [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md) (the feature list) and [READINGS.md](READINGS.md) (the readings and transliteration guide).
 
 ---
 
@@ -485,7 +485,7 @@ This repository keeps merging upstream Spicy EX onto this project's **v1.1**: 1.
 - Adapted track lookup and the floating window for Spotify 9.1.88 – 9.1.90 (upstream's approach throws `NoSuchMethodException` there, which disabled automatic search entirely)
 - Fixed the translation chain: Chinese translations dropped, sticking on "translating", silent failures, and repeated lines left untranslated
 
-See [MODIFICATIONS.md](MODIFICATIONS.md) and [FEATURES_USER.md](FEATURES_USER.md).
+See [MODIFICATIONS.md](MODIFICATIONS.md) and [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md).
 
 ---
 

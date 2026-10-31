@@ -327,7 +327,7 @@ Spotify++ は Spotify のプロセス内で動作する歌詞モジュールで�
 - 現在のバージョンより新しいバックアップは、推測せずに拒否します
 - 復元後、カタログと翻訳キャッシュは **Spotify を再起動するまで反映されません**
 
-関連文書：[MODIFICATIONS.md](MODIFICATIONS.md)（AGPL の変更声明）、[FEATURES_USER.md](FEATURES_USER.md)（機能一覧）、[READINGS.md](READINGS.md)（読みと転写のガイド）。
+関連文書：[MODIFICATIONS.md](MODIFICATIONS.md)（AGPL の変更声明）、[FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md)（機能一覧）、[READINGS.md](READINGS.md)（読みと転写のガイド）。
 
 ---
 
@@ -485,7 +485,7 @@ Windows では `gradlew.bat` を使います。
 - Spotify 9.1.88 – 9.1.90 の曲取得とフローティングウィンドウに対応（上流の書き方では新しい版で `NoSuchMethodException` が投げられ、自動検索が丸ごと機能しなくなります）
 - 翻訳の経路を修正：中国語の翻訳が捨てられる、「翻訳中」で止まる、失敗しても表示がない、繰り返し行に翻訳が付かない
 
-詳しくは [MODIFICATIONS.md](MODIFICATIONS.md) と [FEATURES_USER.md](FEATURES_USER.md) を参照してください。
+詳しくは [MODIFICATIONS.md](MODIFICATIONS.md) と [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md) を参照してください。
 
 ---
 

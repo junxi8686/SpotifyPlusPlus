@@ -327,7 +327,7 @@ Spotify++는 Spotify 프로세스 안에서 동작하는 가사 모듈로, Spicy
 - 현재 버전보다 새로운 백업은 추측하지 않고 거부합니다
 - 복원 후 카탈로그와 번역 캐시는 **Spotify를 재시작해야 적용됩니다**
 
-관련 문서: [MODIFICATIONS.md](MODIFICATIONS.md)(AGPL 변경 고지), [FEATURES_USER.md](FEATURES_USER.md)(기능 목록), [READINGS.md](READINGS.md)(독음과 전사 가이드).
+관련 문서: [MODIFICATIONS.md](MODIFICATIONS.md)(AGPL 변경 고지), [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md)(기능 목록), [READINGS.md](READINGS.md)(독음과 전사 가이드).
 
 ---
 
@@ -485,7 +485,7 @@ Windows에서는 `gradlew.bat`을 사용합니다.
 - Spotify 9.1.88 – 9.1.90의 곡 조회와 떠 있는 창을 대응했습니다(상류 방식은 새 버전에서 `NoSuchMethodException`을 던져 자동 검색이 통째로 동작하지 않습니다)
 - 번역 경로를 수정했습니다: 중국어 번역이 버려지고, 「번역 중」에 멈추고, 실패해도 안내가 없고, 반복 줄에 번역이 없던 문제
 
-자세한 내용은 [MODIFICATIONS.md](MODIFICATIONS.md)와 [FEATURES_USER.md](FEATURES_USER.md)를 참고하세요.
+자세한 내용은 [MODIFICATIONS.md](MODIFICATIONS.md)와 [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md)를 참고하세요.
 
 ---
 

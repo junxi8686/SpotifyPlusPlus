@@ -328,7 +328,7 @@ Spotify++ — модуль текстов, работающий внутри п�
 - Копия, записанная более новой версией, отклоняется, а не угадывается
 - Каталог и кэш переводов **вступают в силу после перезапуска Spotify**
 
-Связанные документы: [MODIFICATIONS.md](MODIFICATIONS.md) (уведомление об изменениях по AGPL), [FEATURES_USER.md](FEATURES_USER.md) (список возможностей) и [READINGS.md](READINGS.md) (руководство по чтениям и транслитерации).
+Связанные документы: [MODIFICATIONS.md](MODIFICATIONS.md) (уведомление об изменениях по AGPL), [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md) (список возможностей) и [READINGS.md](READINGS.md) (руководство по чтениям и транслитерации).
 
 ---
 
@@ -486,7 +486,7 @@ cd SpotifyPlusPlus
 - Адаптированы получение трека и всплывающее окно для Spotify 9.1.88 – 9.1.90 (подход upstream бросает там `NoSuchMethodException`, из-за чего автоматический поиск полностью отключался)
 - Исправлена цепочка перевода: китайские переводы отбрасывались, текст застревал на «переводе», сбои были молчаливыми, а повторяющиеся строки оставались без перевода
 
-Подробнее: [MODIFICATIONS.md](MODIFICATIONS.md) и [FEATURES_USER.md](FEATURES_USER.md).
+Подробнее: [MODIFICATIONS.md](MODIFICATIONS.md) и [FEATURE-CHECKLIST.md](FEATURE-CHECKLIST.md).
 
 ---
 
